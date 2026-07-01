@@ -1,0 +1,173 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-videoai}
+      POSTGRES_USER: ${POSTGRES_USER:-videoai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-videoai}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-videoai} -d ${POSTGRES_DB:-videoai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  zlm:
+    image: registry.cn-hangzhou.aliyuncs.com/ossrs/srs:5
+    ports:
+      - "8080:8080"
+      - "1935:1935"
+    environment:
+      ZLM_SECRET: ${ZLM_SECRET:-035c73f7-bb6b-4889-a715-d9eb2d1925cc}
+    restart: unless-stopped
+
+  triton:
+    profiles:
+      - inference
+    image: nvcr.io/nvidia/tritonserver:24.10-py3
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    command:
+      - tritonserver
+      - --model-repository=/models
+      - --model-control-mode=explicit
+      - --strict-model-config=false
+      - --http-port=8000
+      - --grpc-port=8001
+      - --metrics-port=8002
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8002:8002"
+    volumes:
+      - ./infra/model_repository:/models
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend-lite
+      network: host
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-videoai}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-videoai}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-videoai}
+      VIDEOAI_ZLM_HTTP_URL: ${ZLM_HTTP_URL:-http://zlm}
+      VIDEOAI_ZLM_PUBLIC_HTTP_URL: ${ZLM_PUBLIC_HTTP_URL:-http://localhost:8080}
+      VIDEOAI_ZLM_SECRET: ${ZLM_SECRET:-035c73f7-bb6b-4889-a715-d9eb2d1925cc}
+      VIDEOAI_ZLM_RTMP_PUSH_BASE: ${ZLM_RTMP_PUSH_BASE:-rtmp://localhost/live}
+      VIDEOAI_WORKER_URL: ${WORKER_URL:-http://worker:8090}
+      VIDEOAI_TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://triton:8000}
+      TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://triton:8000}
+      TRITON_MODEL_REPOSITORY: /models
+      VIDEOAI_STORAGE_FACE_DIR: /data/faces
+      VIDEOAI_STORAGE_SNAPSHOT_DIR: /data/snapshots
+      FACE_SCAN_INTERVAL_SECONDS: ${FACE_SCAN_INTERVAL_SECONDS:-30}
+      FFMPEG_BIN: /app/ffmpeg-wrapper.sh
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      no_proxy: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./storage/faces:/data/faces
+      - ./storage/snapshots:/data/snapshots
+      - ./infra/model_repository:/models:ro
+      - /:/host:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      zlm:
+        condition: service_started
+
+  worker:
+    profiles:
+      - inference
+    build:
+      context: ./worker
+      network: host
+    environment:
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8081}
+      TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://triton:8000}
+      TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
+      SCRFD_MODEL_NAME: scrfd_10g
+      ARCFACE_MODEL_NAME: ${ARCFACE_MODEL_NAME:-arcface_mbf}
+      ARCFACE_OUTPUT_NAME: ${ARCFACE_OUTPUT_NAME:-516}
+      FACE_MATCH_THRESHOLD: ${FACE_MATCH_THRESHOLD:-0.55}
+      FACE_EVENT_COOLDOWN_SECONDS: ${FACE_EVENT_COOLDOWN_SECONDS:-10}
+      FRAME_SAMPLE_FPS: ${FRAME_SAMPLE_FPS:-2}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      no_proxy: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+    depends_on:
+      backend:
+        condition: service_started
+      triton:
+        condition: service_started
+      zlm:
+        condition: service_started
+    ports:
+      - "8090:8090"
+    restart: unless-stopped
+
+  mcp-server:
+    build:
+      context: ./mcp-server
+      network: host
+    environment:
+      VIDEOAI_BACKEND_URL: ${BACKEND_INTERNAL_URL:-http://backend:8081}
+      VIDEOAI_ZLM_HTTP_URL: ${ZLM_HTTP_URL:-http://zlm}
+      VIDEOAI_ZLM_PUBLIC_HTTP_URL: ${ZLM_PUBLIC_HTTP_URL:-http://localhost:8080}
+      VIDEOAI_ZLM_SECRET: ${ZLM_SECRET:-035c73f7-bb6b-4889-a715-d9eb2d1925cc}
+      VIDEOAI_ZLM_RTMP_PUSH_BASE: ${ZLM_RTMP_PUSH_BASE:-rtmp://localhost/live}
+      VIDEOAI_MCP_HOST: 0.0.0.0
+      VIDEOAI_MCP_PORT: 8091
+      VIDEOAI_MCP_TRANSPORT: streamable-http
+      VIDEOAI_MCP_PLAYBACK_TTL_SECONDS: ${VIDEOAI_MCP_PLAYBACK_TTL_SECONDS:-300}
+      HIKVISION_NVR_BASE_URL: ${HIKVISION_NVR_BASE_URL:-}
+      HIKVISION_NVR_USERNAME: ${HIKVISION_NVR_USERNAME:-}
+      HIKVISION_NVR_PASSWORD: ${HIKVISION_NVR_PASSWORD:-}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      no_proxy: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+    depends_on:
+      backend:
+        condition: service_started
+      zlm:
+        condition: service_started
+    ports:
+      - "8091:8091"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      network: host
+    environment:
+      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  postgres-data:

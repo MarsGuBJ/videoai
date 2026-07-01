@@ -1,0 +1,5 @@
+ALTER TABLE cameras
+    ADD COLUMN IF NOT EXISTS nvr_id TEXT,
+    ADD COLUMN IF NOT EXISTS nvr_channel TEXT,
+    ADD COLUMN IF NOT EXISTS nvr_track_id TEXT,
+    ADD COLUMN IF NOT EXISTS nvr_stream_type TEXT;

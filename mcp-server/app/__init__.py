@@ -1,0 +1,1 @@
+"""VideoAI MCP server package."""
