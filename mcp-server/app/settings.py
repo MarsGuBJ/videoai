@@ -31,13 +31,12 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    zlm_http = _env("VIDEOAI_ZLM_HTTP_URL", "http://localhost:8080").rstrip("/")
     return Settings(
         videoai_base_url=_env("VIDEOAI_BACKEND_URL", "http://localhost:8081").rstrip("/"),
-        zlm_http_url=zlm_http,
-        zlm_public_http_url=_env("VIDEOAI_ZLM_PUBLIC_HTTP_URL", zlm_http).rstrip("/"),
-        zlm_secret=_env("VIDEOAI_ZLM_SECRET", "035c73f7-bb6b-4889-a715-d9eb2d1925cc"),
-        zlm_rtmp_push_base=_env("VIDEOAI_ZLM_RTMP_PUSH_BASE", "rtmp://localhost/live").rstrip("/"),
+        zlm_http_url=_env("VIDEOAI_ZLM_HTTP_URL", "http://127.0.0.1:8082").rstrip("/"),
+        zlm_public_http_url=_env("VIDEOAI_ZLM_PUBLIC_HTTP_URL", "http://192.168.11.194:9100").rstrip("/"),
+        zlm_secret=_env("VIDEOAI_ZLM_SECRET", "TFtkiHhkoFJzgamQXuYY1zACl2XYSnUR"),
+        zlm_rtmp_push_base=_env("VIDEOAI_ZLM_RTMP_PUSH_BASE", "rtmp://127.0.0.1:1945/live").rstrip("/"),
         hikvision_base_url=_env("HIKVISION_NVR_BASE_URL", "").rstrip("/"),
         hikvision_username=_env("HIKVISION_NVR_USERNAME", ""),
         hikvision_password=_env("HIKVISION_NVR_PASSWORD", ""),

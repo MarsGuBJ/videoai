@@ -53,7 +53,10 @@ class VideoAiClient:
             return response.json()
 
     def absolute_url(self, url: str, public_base: str | None = None) -> str:
-        if url.startswith(("http://", "https://", "rtsp://", "rtmp://")):
+        if url.startswith(("rtsp://", "rtmp://")):
             return url
         base = public_base if public_base else self.base_url
+        if url.startswith(("http://", "https://")):
+            path = url.split("/", 3)[-1] if "/" in url.split("://", 1)[-1] else ""
+            return urljoin(f"{base}/", path.lstrip("/"))
         return urljoin(f"{base}/", url.lstrip("/"))

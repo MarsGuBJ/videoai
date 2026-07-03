@@ -119,7 +119,7 @@ def build_search_body(track_id: str, start_time: datetime, end_time: datetime, l
     </timeSpan>
   </timeSpanList>
   <maxResults>{max_results}</maxResults>
-  <searchResultPostion>0</searchResultPostion>
+  <searchResultPosition>0</searchResultPosition>
   <metadataList>
     <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
   </metadataList>
@@ -232,7 +232,7 @@ def _build_rtsp_fallback(
         chunk_end = min(chunk_start + timedelta(seconds=chunk_seconds), end_time)
         start_str = _format_rtsp_time(chunk_start)
         end_str = _format_rtsp_time(chunk_end)
-        rtsp_url = f"rtsp://{encoded_user}:{encoded_pass}@{nvr_host}:554/Streaming/tracks/{track_id}?starttime={start_str}&endtime={end_str}"
+        rtsp_url = f"rtsp://{encoded_user}:{encoded_pass}@{nvr_host}:554/Streaming/Channels/{proxy_ch}?starttime={start_str}&endtime={end_str}"
         recording_id = stable_recording_id(camera.id, track_id, chunk_start, chunk_end, rtsp_url)
 
         segments.append(

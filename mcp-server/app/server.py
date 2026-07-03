@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -12,7 +11,6 @@ from .videoai_client import VideoAiClient
 from .xml_builder import (
     build_camera_flow_xml,
     build_camera_list_xml,
-    build_video_file_xml,
     build_video_list_xml,
 )
 
@@ -130,52 +128,14 @@ async def search_recordings(cameraId: str = "", startTime: str = "", endTime: st
                 continue
 
     recording_cache.put_many(all_recordings)
-    items = [recording.model_dump(mode="json", exclude={"playbackUri"}) for recording in all_recordings]
+    items = []
+    for recording in all_recordings:
+        flv_url = await media_proxy.start_rtsp_relay(recording.recordingId, recording.playbackUri)
+        items.append(dict(recording.model_dump(mode="json", exclude={"playbackUri"}), streamUrl=flv_url))
     return {
         "data": items,
         "xml": build_video_list_xml(items),
     }
-
-
-@mcp.tool()
-async def get_recording_stream(
-    recordingId: str = "",
-    trackId: str = "",
-    nvrBaseUrl: str = "",
-    nvrUsername: str = "",
-    nvrPassword: str = "",
-    format: Literal["hls"] = "hls",
-) -> dict:
-    """Return a playable video stream URL for a recording. Two calling modes:
-    1. By recordingId: looks up the cached recording from search_recordings.
-    2. By direct params: trackId, nvrBaseUrl, nvrUsername, nvrPassword.
-    Uses ZLMediaKit ffmpeg relay to convert NVR RTSP to HLS.
-    Returns JSON and XML output."""
-    recording = recording_cache.get(recordingId) if recordingId else None
-    if recording is None:
-        if not trackId or not nvrBaseUrl:
-            raise ValueError("Provide recordingId from search_recordings, or trackId + nvrBaseUrl")
-        from urllib.parse import urlparse
-        host = urlparse(nvrBaseUrl).hostname or ""
-        username = nvrUsername or "admin"
-        password = nvrPassword or ""
-        from .models import Camera, RecordingSegment
-        cam = Camera(id=trackId, name=f"NVR-{trackId}", sourceUrl="", streamApp="live", streamName="",
-                      status="STOPPED", playbackUrl="", createdAt=datetime.now(timezone.utc),
-                      updatedAt=datetime.now(timezone.utc), nvrId=host, nvrChannel=trackId,
-                      nvrTrackId=trackId, nvrStreamType="main")
-        start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
-        end = datetime.now(timezone.utc)
-        recordings = await hikvision.search_by_track(trackId, start, end, 1)
-        if recordings:
-            recording = recordings[0]
-        else:
-            raise ValueError(f"No recording found for track {trackId}")
-        recording_cache.put_many([recording])
-    response = await media_proxy.open_recording_stream(recording, format)
-    data = response.model_dump(mode="json")
-    data["xml"] = build_video_file_xml(data)
-    return data
 
 
 @mcp.tool()
@@ -210,15 +170,12 @@ async def recording_resource(recordingId: str) -> dict:
     recording = recording_cache.get(recordingId)
     if recording is None:
         raise ValueError("recordingId is unknown or expired; call search_recordings again")
-    return recording.model_dump(mode="json", exclude={"playbackUri"})
+    return dict(recording.model_dump(mode="json", exclude={"playbackUri"}), streamUrl=recording.playbackUri)
 
 
 def _is_nvr_only_channel(camera) -> bool:
     """Return True if this camera is an NVR recording channel only (no live source)."""
-    name = (camera.name or "").lower()
-    if name.startswith("nvr") or "nvr-only" in name:
-        return True
-    return False
+    return not (camera.sourceUrl or "").strip()
 
 
 def _public_url(url: str) -> str:
