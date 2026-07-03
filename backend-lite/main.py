@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import base64
 import json
+import logging
 import math
 import os
 import queue
@@ -19,6 +20,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 
@@ -49,14 +51,22 @@ class CameraCreateRequest(BaseModel):
     name: str
     sourceUrl: str
     description: Optional[str] = None
+    area: Optional[str] = None
     nvrId: Optional[str] = None
     nvrChannel: Optional[str] = None
     nvrTrackId: Optional[str] = None
     nvrStreamType: Optional[str] = None
 
 
-class CameraUpdateRequest(CameraCreateRequest):
-    pass
+class CameraUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    sourceUrl: Optional[str] = None
+    description: Optional[str] = None
+    area: Optional[str] = None
+    nvrId: Optional[str] = None
+    nvrChannel: Optional[str] = None
+    nvrTrackId: Optional[str] = None
+    nvrStreamType: Optional[str] = None
 
 
 class CameraResponse(BaseModel):
@@ -67,6 +77,7 @@ class CameraResponse(BaseModel):
     streamName: str
     ffmpegKey: Optional[str] = None
     description: Optional[str] = None
+    area: Optional[str] = None
     status: str
     playbackUrl: str
     createdAt: datetime
@@ -104,21 +115,114 @@ class FaceEventResponse(BaseModel):
     createdAt: datetime
 
 
+class FaceMatchEventResponse(BaseModel):
+    id: UUID
+    deploymentTaskId: Optional[UUID] = None
+    faceProfileId: Optional[UUID] = None
+    faceProfileName: Optional[str] = None
+    faceProfilePhotoUrl: Optional[str] = None
+    snapshotUrl: Optional[str] = None
+    cameraId: Optional[UUID] = None
+    cameraName: Optional[str] = None
+    cameraArea: Optional[str] = None
+    similarity: float
+    matchedAt: datetime
+    createdAt: datetime
+
+
+class DeploymentTaskResponse(BaseModel):
+    id: UUID
+    name: str
+    pipeline: str
+    area: str
+    areaCount: int
+    enabled: bool
+    taskStatus: str
+    desc: str
+    faceProfileId: Optional[UUID] = None
+    faceProfileName: Optional[str] = None
+    faceProfilePhotoUrl: Optional[str] = None
+    cameraIds: List[str]
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class DeploymentTaskCreateRequest(BaseModel):
+    name: str
+    pipeline: str = "人脸识别流程"
+    area: Optional[str] = None
+    areaCount: int = 0
+    enabled: bool = True
+    desc: str = ""
+    faceProfileId: Optional[UUID] = None
+    faceProfileName: Optional[str] = None
+    faceProfilePhotoUrl: Optional[str] = None
+    cameraIds: List[str] = []
+
+
+class DeploymentTaskUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    pipeline: Optional[str] = None
+    area: Optional[str] = None
+    areaCount: Optional[int] = None
+    enabled: Optional[bool] = None
+    taskStatus: Optional[str] = None
+    desc: Optional[str] = None
+    faceProfileId: Optional[UUID] = None
+    faceProfileName: Optional[str] = None
+    faceProfilePhotoUrl: Optional[str] = None
+    cameraIds: Optional[List[str]] = None
+
+
 class FaceEventIngestRequest(BaseModel):
     cameraId: UUID
     faceProfileId: UUID
     cameraName: str
     profileName: str
     profileDescription: Optional[str] = None
-    facePhotoPath: Optional[str] = None
+    facePhotoPath: str
     snapshotBase64: Optional[str] = None
     videoTime: datetime
     similarity: float
+    deploymentTaskId: Optional[UUID] = None
+
+
+class ObjectInfo(BaseModel):
+    labelId: int
+    labelName: str
+    score: float
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+class ObjectEventResponse(BaseModel):
+    id: UUID
+    cameraId: UUID
+    cameraName: str
+    objects: List[ObjectInfo]
+    snapshotUrl: Optional[str] = None
+    videoTime: datetime
+    frameWidth: int = 0
+    frameHeight: int = 0
+    createdAt: datetime
+
+
+class ObjectEventIngestRequest(BaseModel):
+    cameraId: UUID
+    cameraName: str
+    objects: List[ObjectInfo]
+    snapshotBase64: Optional[str] = None
+    videoTime: datetime
+    frameWidth: int = 0
+    frameHeight: int = 0
 
 
 class MatchRequest(BaseModel):
     embedding: List[float]
     threshold: Optional[float] = None
+    faceProfileId: Optional[UUID] = None
 
 
 class MatchResponse(BaseModel):
@@ -199,10 +303,17 @@ cameras: Dict[UUID, CameraResponse] = {}
 faces_store: Dict[UUID, FaceProfileResponse] = {}
 face_embeddings: Dict[UUID, List[float]] = {}
 events_store: List[FaceEventResponse] = []
+object_events_store: List[ObjectEventResponse] = []
+deployment_tasks_store: Dict[UUID, DeploymentTaskResponse] = {}
+object_event_cooldowns: Dict[str, float] = {}
 event_subscribers: List[queue.Queue[str]] = []
 event_lock = threading.Lock()
 scanner_stop_event = threading.Event()
 scanner_thread: Optional[threading.Thread] = None
+
+proxy_guard_stop_event = threading.Event()
+
+proxy_guard_thread: Optional[threading.Thread] = None
 windows_camera_process: Optional[subprocess.Popen] = None
 windows_camera_device = WINDOWS_CAMERA_NAME
 windows_camera_stream = WINDOWS_CAMERA_STREAM
@@ -218,11 +329,20 @@ def health():
 
 @app.on_event("startup")
 def start_face_scanner():
-    global scanner_thread
+    global scanner_thread, proxy_guard_thread
+    try:
+        from db import Base, engine
+        Base.metadata.create_all(engine)
+    except Exception as exc:
+        print(f"Base.metadata.create_all failed: {exc}", flush=True)
     load_faces_from_disk()
     load_face_embeddings()
     seed_model_registry()
     seed_cameras()
+    seed_face_profiles()
+    proxy_guard_stop_event.clear()
+    proxy_guard_thread = threading.Thread(target=stream_proxy_guard_loop, daemon=True)
+    proxy_guard_thread.start()
     if not FACE_SCAN_ENABLED:
         return
     scanner_stop_event.clear()
@@ -235,6 +355,9 @@ def stop_face_scanner():
     scanner_stop_event.set()
     if scanner_thread and scanner_thread.is_alive():
         scanner_thread.join(timeout=2)
+    proxy_guard_stop_event.set()
+    if proxy_guard_thread and proxy_guard_thread.is_alive():
+        proxy_guard_thread.join(timeout=2)
 
 
 @app.get("/api/cameras", response_model=List[CameraResponse])
@@ -254,6 +377,7 @@ def create_camera(request: CameraCreateRequest):
         streamApp="live",
         streamName=stream_name,
         description=request.description,
+        area=clean_optional(request.area) or "办公楼",
         status="STOPPED",
         playbackUrl=playback_url(request.sourceUrl, stream_name),
         createdAt=now,
@@ -276,17 +400,22 @@ def get_camera(camera_id: UUID):
 def update_camera(camera_id: UUID, request: CameraUpdateRequest):
     old = require_camera(camera_id)
     stream_name = stream_name_from_source(request.sourceUrl) or old.streamName
+    new_name = request.name if request.name is not None else old.name
+    new_source_url = request.sourceUrl if request.sourceUrl is not None else old.sourceUrl
+    new_description = request.description if request.description is not None else old.description
+    new_area = request.area if request.area is not None else old.area
     updated = old.model_copy(
         update={
-            "name": request.name,
-            "sourceUrl": request.sourceUrl,
-            "description": request.description,
+            "name": new_name,
+            "sourceUrl": new_source_url,
+            "description": new_description,
+            "area": new_area,
             "nvrId": clean_optional(request.nvrId),
             "nvrChannel": clean_optional(request.nvrChannel),
             "nvrTrackId": clean_optional(request.nvrTrackId),
             "nvrStreamType": clean_optional(request.nvrStreamType),
             "streamName": stream_name,
-            "playbackUrl": playback_url(request.sourceUrl, stream_name),
+            "playbackUrl": playback_url(new_source_url, stream_name),
             "updatedAt": datetime.now(timezone.utc),
         }
     )
@@ -321,6 +450,83 @@ def stop_camera(camera_id: UUID):
     stop_worker_stream(camera_id)
     remove_zlmediakit_proxy(updated.streamName)
     return updated
+
+
+@app.get("/api/deployment-tasks", response_model=List[DeploymentTaskResponse])
+def list_deployment_tasks():
+    return sorted(deployment_tasks_store.values(), key=lambda item: item.createdAt, reverse=True)
+
+
+@app.post("/api/deployment-tasks", response_model=DeploymentTaskResponse)
+def create_deployment_task(request: DeploymentTaskCreateRequest):
+    task_id = uuid4()
+    now = datetime.now(timezone.utc)
+    task = DeploymentTaskResponse(
+        id=task_id,
+        name=request.name,
+        pipeline=request.pipeline,
+        area=clean_optional(request.area) or "默认区域",
+        areaCount=max(0, int(request.areaCount or 0)),
+        enabled=bool(request.enabled),
+        taskStatus="stopped" if not request.enabled else "running",
+        desc=request.desc or "",
+        faceProfileId=request.faceProfileId,
+        faceProfileName=clean_optional(request.faceProfileName),
+        faceProfilePhotoUrl=clean_optional(request.faceProfilePhotoUrl),
+        cameraIds=list(request.cameraIds or []),
+        createdAt=now,
+        updatedAt=now,
+    )
+    deployment_tasks_store[task_id] = task
+    return task
+
+
+@app.get("/api/deployment-tasks/{task_id}", response_model=DeploymentTaskResponse)
+def get_deployment_task(task_id: UUID):
+    return require_deployment_task(task_id)
+
+
+@app.patch("/api/deployment-tasks/{task_id}", response_model=DeploymentTaskResponse)
+def update_deployment_task(task_id: UUID, request: DeploymentTaskUpdateRequest):
+    old = require_deployment_task(task_id)
+    update_payload: dict = {"updatedAt": datetime.now(timezone.utc)}
+    if request.name is not None:
+        update_payload["name"] = request.name
+    if request.pipeline is not None:
+        update_payload["pipeline"] = request.pipeline
+    if request.area is not None:
+        update_payload["area"] = request.area
+    elif "area" in request.model_fields_set and request.area is None:
+        update_payload["area"] = ""
+    if request.areaCount is not None:
+        update_payload["areaCount"] = max(0, int(request.areaCount))
+    if request.enabled is not None:
+        update_payload["enabled"] = bool(request.enabled)
+        if "taskStatus" not in request.model_fields_set:
+            update_payload["taskStatus"] = "running" if request.enabled else "stopped"
+    if request.taskStatus is not None:
+        update_payload["taskStatus"] = request.taskStatus
+    if request.desc is not None:
+        update_payload["desc"] = request.desc
+    if request.faceProfileId is not None or "faceProfileId" in request.model_fields_set:
+        update_payload["faceProfileId"] = request.faceProfileId
+    if request.faceProfileName is not None or "faceProfileName" in request.model_fields_set:
+        update_payload["faceProfileName"] = clean_optional(request.faceProfileName)
+    if request.faceProfilePhotoUrl is not None or "faceProfilePhotoUrl" in request.model_fields_set:
+        update_payload["faceProfilePhotoUrl"] = clean_optional(request.faceProfilePhotoUrl)
+    if request.cameraIds is not None:
+        update_payload["cameraIds"] = list(request.cameraIds)
+    updated = old.model_copy(update=update_payload)
+    deployment_tasks_store[task_id] = updated
+    return updated
+
+
+@app.delete("/api/deployment-tasks/{task_id}")
+def delete_deployment_task(task_id: UUID):
+    task = deployment_tasks_store.pop(task_id, None)
+    if not task:
+        raise HTTPException(status_code=404, detail="Deployment task not found")
+    return {"deleted": str(task_id)}
 
 
 @app.get("/api/faces", response_model=List[FaceProfileResponse])
@@ -453,6 +659,41 @@ def events_match(faceId: str = "", limit: int = 10):
         return filtered[:safe_limit]
 
 
+@app.get("/api/face-match-events", response_model=List[FaceMatchEventResponse])
+def list_face_match_events(limit: int = 100):
+    safe_limit = max(1, min(limit, 500))
+    try:
+        from db import SessionLocal
+        from models import FaceMatchEventORM
+        with SessionLocal() as pgdb:
+            rows = (
+                pgdb.query(FaceMatchEventORM)
+                .order_by(FaceMatchEventORM.matched_at.desc())
+                .limit(safe_limit)
+                .all()
+            )
+            return [
+                FaceMatchEventResponse(
+                    id=row.id,
+                    deploymentTaskId=row.deployment_task_id,
+                    faceProfileId=row.face_profile_id,
+                    faceProfileName=row.face_profile_name,
+                    faceProfilePhotoUrl=row.face_profile_photo_url,
+                    snapshotUrl=row.snapshot_url,
+                    cameraId=row.camera_id,
+                    cameraName=row.camera_name,
+                    cameraArea=row.camera_area,
+                    similarity=float(row.similarity or 0.0),
+                    matchedAt=row.matched_at,
+                    createdAt=row.created_at,
+                )
+                for row in rows
+            ]
+    except Exception as exc:
+        print(f"face-match-events query failed: {exc}", flush=True)
+        return []
+
+
 @app.get("/api/events/stream")
 def event_stream():
     subscriber: queue.Queue[str] = queue.Queue(maxsize=100)
@@ -487,7 +728,54 @@ def ingest_event(request: FaceEventIngestRequest):
         snapshot_base64=request.snapshotBase64,
         video_time=request.videoTime,
         similarity=request.similarity,
+        deployment_task_id=request.deploymentTaskId,
     )
+
+
+@app.post("/api/events/object-ingest", response_model=Optional[ObjectEventResponse])
+def ingest_object_event(request: ObjectEventIngestRequest):
+    camera_key = str(request.cameraId)
+    now_ts = time.time()
+    cooldown_key = f"{camera_key}:objects"
+    with event_lock:
+        last_time = object_event_cooldowns.get(cooldown_key, 0)
+        if now_ts - last_time < 2.0:
+            return None
+        object_event_cooldowns[cooldown_key] = now_ts
+
+    now = datetime.now(timezone.utc)
+    event = ObjectEventResponse(
+        id=uuid4(),
+        cameraId=request.cameraId,
+        cameraName=request.cameraName,
+        objects=request.objects,
+        snapshotUrl=save_snapshot(request.snapshotBase64),
+        videoTime=request.videoTime,
+        frameWidth=request.frameWidth,
+        frameHeight=request.frameHeight,
+        createdAt=now,
+    )
+    payload = f"event: object-event\ndata: {event.model_dump_json()}\n\n"
+    with event_lock:
+        object_events_store.insert(0, event)
+        del object_events_store[200:]
+        stale = []
+        for subscriber in event_subscribers:
+            try:
+                subscriber.put_nowait(payload)
+            except queue.Full:
+                stale.append(subscriber)
+        for subscriber in stale:
+            if subscriber in event_subscribers:
+                event_subscribers.remove(subscriber)
+    return event
+
+
+@app.get("/api/events/objects", response_model=List[ObjectEventResponse])
+def object_events(limit: int = 100):
+    safe_limit = max(1, min(limit, 200))
+    with event_lock:
+        return object_events_store[:safe_limit]
 
 
 @app.post("/api/internal/match", response_model=MatchResponse)
@@ -495,6 +783,25 @@ def internal_match(request: MatchRequest):
     threshold = request.threshold if request.threshold is not None else FACE_MATCH_THRESHOLD
     best_face: Optional[FaceProfileResponse] = None
     best_similarity = -1.0
+
+    if request.faceProfileId is not None:
+        target_id = request.faceProfileId
+        target_face = faces_store.get(target_id)
+        target_embedding = face_embeddings.get(target_id)
+        if target_face is None or target_embedding is None:
+            return MatchResponse(matched=False, similarity=0.0)
+        similarity = cosine_similarity(request.embedding, target_embedding)
+        if similarity < threshold:
+            return MatchResponse(matched=False, similarity=max(0.0, similarity))
+        return MatchResponse(
+            matched=True,
+            id=target_face.id,
+            name=target_face.name,
+            description=target_face.description,
+            photoPath=target_face.photoUrl,
+            similarity=max(0.0, min(1.0, similarity)),
+        )
+
     for face_id, stored_embedding in face_embeddings.items():
         face = faces_store.get(face_id)
         if face is None:
@@ -682,6 +989,10 @@ def proxy_mjpeg_stream(stream_app: str, stream_name: str):
         raise HTTPException(status_code=500, detail=f"ffmpeg not found: {FFMPEG_BIN}")
 
     source_url = f"rtmp://localhost/{stream_app}/{stream_name}"
+    for cam in cameras.values():
+        if cam.streamName == stream_name and cam.sourceUrl.startswith("rtsp://"):
+            source_url = cam.sourceUrl
+            break
     process = subprocess.Popen(
         [
             FFMPEG_BIN,
@@ -759,6 +1070,13 @@ def require_face(face_id: UUID) -> FaceProfileResponse:
     if not face:
         raise HTTPException(status_code=404, detail="Face profile not found")
     return face
+
+
+def require_deployment_task(task_id: UUID) -> DeploymentTaskResponse:
+    task = deployment_tasks_store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Deployment task not found")
+    return task
 
 
 def require_model(model_name: str) -> ModelResponse:
@@ -841,6 +1159,7 @@ def seed_cameras() -> None:
             f"cam{index:02d}",
         ))
 
+    nvr65_streams = {0, 1}
     for idx, (name, source_url, stream_name) in enumerate(camera_entries):
         camera_id = uuid4()
         cameras[camera_id] = CameraResponse(
@@ -850,6 +1169,7 @@ def seed_cameras() -> None:
             streamApp="live",
             streamName=stream_name,
             description=None,
+            area="办公楼",
             status="RUNNING",
             playbackUrl=playback_url(source_url, stream_name),
             createdAt=now,
@@ -859,10 +1179,41 @@ def seed_cameras() -> None:
             nvrTrackId=None,
             nvrStreamType=None,
         )
-        if idx < 4:
-            add_zlmediakit_proxy(source_url, stream_name)
-            start_worker_stream(cameras[camera_id])
+        add_zlmediakit_proxy(source_url, stream_name)
+        if idx in nvr65_streams:
+            try:
+                start_worker_stream(cameras[camera_id])
+            except Exception as exc:
+                print(f"start_worker_stream failed for {stream_name}: {exc}", flush=True)
 
+
+def seed_face_profiles() -> None:
+    if faces_store:
+        return
+    src = PROJECT_ROOT / "R-C.jpg"
+    if not src.is_file():
+        print(f"seed: skip face profiles, R-C.jpg not found at {src}", flush=True)
+        return
+    face_id = uuid4()
+    filename = f"{face_id}.jpg"
+    dst = FACE_STORAGE_DIR / filename
+    try:
+        dst.write_bytes(src.read_bytes())
+    except Exception as exc:
+        print(f"seed: failed to copy {src} -> {dst}: {exc}", flush=True)
+        return
+    now = datetime.now(timezone.utc)
+    face = FaceProfileResponse(
+        id=face_id,
+        name="测试人员-小美",
+        description="项目根目录 R-C.jpg，用于布控任务测试",
+        photoUrl=f"/api/assets/faces/{filename}",
+        createdAt=now,
+        updatedAt=now,
+    )
+    faces_store[face_id] = face
+    persist_faces()
+    print(f"seed: registered face profile 测试人员-小美 ({face_id})", flush=True)
 
 def refresh_model_states() -> None:
     try:
@@ -1155,6 +1506,37 @@ def remove_zlmediakit_proxy(stream_name: str) -> None:
         pass
 
 
+def stream_proxy_guard_loop() -> None:
+    """Periodically check ZLM for dead stream proxies and re-add them."""
+    proxy_guard_stop_event.wait(30)
+    while not proxy_guard_stop_event.is_set():
+        try:
+            active_streams = _fetch_active_streams()
+            for camera in cameras.values():
+                if camera.status != "RUNNING":
+                    continue
+                if camera.streamName not in active_streams:
+                    print(f"stream_proxy_guard: re-adding proxy for {camera.streamName}", flush=True)
+                    add_zlmediakit_proxy(camera.sourceUrl, camera.streamName)
+        except Exception as exc:
+            print(f"stream_proxy_guard failed: {exc}", flush=True)
+        proxy_guard_stop_event.wait(30)
+
+
+def _fetch_active_streams() -> set[str]:
+    import json
+    from urllib.request import urlopen
+    api_url = f"{SRS_HTTP_URL}/index/api/getMediaList?secret={quote(ZLM_SECRET, safe='')}"
+    try:
+        with urlopen(api_url, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if data.get("code") == 0:
+            return {item.get("stream", "") for item in data.get("data", [])}
+    except Exception:
+        pass
+    return set()
+
+
 def face_scan_loop() -> None:
     if FACE_SCAN_INITIAL_DELAY_SECONDS > 0:
         scanner_stop_event.wait(FACE_SCAN_INITIAL_DELAY_SECONDS)
@@ -1435,10 +1817,12 @@ def create_face_event(
     snapshot_base64: Optional[str],
     video_time: datetime,
     similarity: float,
+    deployment_task_id: Optional[UUID] = None,
 ) -> Optional[FaceEventResponse]:
-    if recent_duplicate_event(camera_id, face_profile_id):
+    if recent_duplicate_event(camera_id, face_profile_id, deployment_task_id):
         return None
     now = datetime.now(timezone.utc)
+    snapshot_url = save_snapshot(snapshot_base64)
     event = FaceEventResponse(
         id=uuid4(),
         cameraId=camera_id,
@@ -1447,7 +1831,7 @@ def create_face_event(
         profileName=profile_name,
         profileDescription=profile_description,
         facePhotoUrl=face_photo_url,
-        snapshotUrl=save_snapshot(snapshot_base64),
+        snapshotUrl=snapshot_url,
         videoTime=video_time,
         similarity=max(0.0, min(1.0, similarity)),
         createdAt=now,
@@ -1465,15 +1849,61 @@ def create_face_event(
         for subscriber in stale:
             if subscriber in event_subscribers:
                 event_subscribers.remove(subscriber)
+
+    try:
+        from db import SessionLocal
+        from models import FaceMatchEventORM
+        cam_obj = cameras.get(camera_id)
+        camera_area = cam_obj.area if cam_obj else None
+        with SessionLocal() as pgdb:
+            row = FaceMatchEventORM(
+                deployment_task_id=deployment_task_id,
+                face_profile_id=face_profile_id,
+                face_profile_name=profile_name,
+                face_profile_photo_url=face_photo_url,
+                snapshot_url=snapshot_url,
+                camera_id=camera_id,
+                camera_name=camera_name,
+                camera_area=camera_area,
+                similarity=max(0.0, min(1.0, similarity)),
+                matched_at=video_time if isinstance(video_time, datetime) else now,
+            )
+            pgdb.add(row)
+            pgdb.commit()
+    except Exception as exc:
+        print(f"FaceMatchEventORM insert failed: {exc}", flush=True)
+
     return event
 
 
-def recent_duplicate_event(camera_id: UUID, profile_id: UUID) -> bool:
+def recent_duplicate_event(camera_id: UUID, profile_id: UUID, task_id: Optional[UUID] = None) -> bool:
     cutoff = time.time() - FACE_EVENT_COOLDOWN_SECONDS
     with event_lock:
         for event in events_store:
             if event.cameraId == camera_id and event.faceProfileId == profile_id and event.createdAt.timestamp() >= cutoff:
                 return True
+    if task_id is not None:
+        try:
+            from db import SessionLocal
+            from models import FaceMatchEventORM
+            from datetime import datetime, timezone
+            with SessionLocal() as pgdb:
+                recent = (
+                    pgdb.query(FaceMatchEventORM)
+                    .filter(
+                        FaceMatchEventORM.camera_id == camera_id,
+                        FaceMatchEventORM.face_profile_id == profile_id,
+                        FaceMatchEventORM.deployment_task_id == task_id,
+                    )
+                    .order_by(FaceMatchEventORM.matched_at.desc())
+                    .first()
+                )
+                if recent is not None and recent.matched_at is not None:
+                    age = (datetime.now(timezone.utc) - recent.matched_at).total_seconds()
+                    if age < FACE_EVENT_COOLDOWN_SECONDS:
+                        return True
+        except Exception:
+            pass
     return False
 
 
@@ -1518,9 +1948,9 @@ def stream_name_from_source(source_url: str) -> Optional[str]:
 def playback_url(source_url: str, fallback_stream: str) -> str:
     stream_name = stream_name_from_source(source_url) or fallback_stream
     if source_url.startswith("rtsp://"):
-        return f"/live/{quote(stream_name, safe='')}/hls.m3u8"
+        return f"/api/streams/live/{quote(stream_name, safe='')}.mjpeg"
     if stream_name and is_internal_stream_url(source_url):
-        return f"/live/{quote(stream_name, safe='')}/hls.m3u8"
+        return f"/api/streams/live/{quote(stream_name, safe='')}.mjpeg"
     if source_url.startswith("http://") or source_url.startswith("https://"):
         return source_url
     return f"/api/streams/live/{quote(stream_name, safe='')}.mjpeg"
@@ -1664,6 +2094,21 @@ def windows_ffmpeg_command(ffmpeg_path: str, device_name: str, publish_url: str)
 
 def ps_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+
+if FRONTEND_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="frontend_assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        index_path = FRONTEND_DIST / "index.html"
+        if index_path.is_file():
+            return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="Frontend not built")
 
 
 def run_powershell(command: str, timeout: int) -> subprocess.CompletedProcess[str]:
