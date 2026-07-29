@@ -1,3 +1,4 @@
+import base64
 from urllib.parse import urljoin
 
 import httpx
@@ -28,7 +29,8 @@ class VideoAiClient:
             response.raise_for_status()
             return Camera.model_validate(response.json())
 
-    async def upload_face(self, image_base64: str, camera_id: str, model_name: str, name: str | None = None) -> dict:
+    async def upload_face(self, image_url: str, camera_id: str, model_name: str, name: str | None = None) -> dict:
+        image_base64 = await self._download_image_as_base64(image_url)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             payload: dict = {"imageBase64": image_base64, "cameraId": camera_id, "modelName": model_name}
             if name:
@@ -40,6 +42,35 @@ class VideoAiClient:
             response.raise_for_status()
             return response.json()
 
+    async def get_face(self, face_id: str) -> dict:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(f"{self.base_url}/api/faces")
+            response.raise_for_status()
+            for face in response.json():
+                if str(face.get("id")) == str(face_id):
+                    return face
+        raise ValueError(f"face profile not found after upload: {face_id}")
+
+    async def create_deployment_task(self, payload: dict) -> dict:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(f"{self.base_url}/api/deployment-tasks", json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    async def _download_image_as_base64(self, image_url: str) -> str:
+        if not image_url or not image_url.strip():
+            raise ValueError("imageUrl is required")
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+            response = await client.get(image_url.strip(), headers={"User-Agent": "VideoAI-MCP/1.0"})
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "").lower()
+            if content_type and not content_type.startswith("image/"):
+                raise ValueError("imageUrl must point to an image")
+            data = response.content
+            if not data:
+                raise ValueError("imageUrl returned empty content")
+            return base64.b64encode(data).decode("ascii")
+
     async def query_face_matches(self, face_id: str | None = None, limit: int = 10) -> list[dict]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             params = {"limit": str(max(1, min(limit, 10)))}
@@ -49,6 +80,12 @@ class VideoAiClient:
                 f"{self.base_url}/api/events/match",
                 params=params,
             )
+            response.raise_for_status()
+            return response.json()
+
+    async def list_deployment_tasks(self) -> list[dict]:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(f"{self.base_url}/api/deployment-tasks")
             response.raise_for_status()
             return response.json()
 

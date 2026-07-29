@@ -1,11 +1,19 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import './styles.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const rootElement = document.querySelector('.app-root');
+
+if (!rootElement) {
+  throw new Error('React mount node .app-root was not found');
+}
+
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
   </React.StrictMode>,
 );
-

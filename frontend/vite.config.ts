@@ -7,11 +7,10 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
-      '/live': {
-        target: 'http://localhost:8082',
+      '/api': {
+        target: 'http://backend:8081',
         changeOrigin: true,
       },
     },
   },
 });
-

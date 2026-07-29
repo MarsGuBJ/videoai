@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Change the SXin assistant iframe to `http://10.10.3.100:2026/iot-os/sxin/#/mockLogin` and deploy the rebuilt frontend.
+**Goal:** Change the SXin assistant iframe to `http://10.10.3.100:81/iot-os/sxin/#/mockLogin` and deploy the rebuilt frontend.
 
 **Architecture:** Keep the existing hard-coded iframe pattern and replace only its `src`. Add a dependency-free Node source assertion so the exact deployment URL remains covered without introducing a frontend test framework.
 
@@ -51,7 +51,7 @@ Expected: FAIL because `App.tsx` still contains `http://192.168.11.194:10997/iot
 Replace the iframe attribute with:
 
 ```tsx
-src="http://10.10.3.100:2026/iot-os/sxin/#/mockLogin"
+src="http://10.10.3.100:81/iot-os/sxin/#/mockLogin"
 ```
 
 - [ ] **Step 2: Run the regression assertion**
@@ -102,6 +102,6 @@ Expected: `videoai-frontend-1` is running and bound to `10.10.3.100:5173`.
 
 - [ ] **Step 4: Verify the deployment**
 
-Run the source assertion on the server, request `http://10.10.3.100:5173/sxin-assistant`, inspect the emitted JavaScript bundle for the exact port `2026` URL, and confirm `http://10.10.3.100:2026/iot-os/sxin/` responds.
+Run the source assertion on the server, request `http://10.10.3.100:5173/sxin-assistant`, inspect the emitted JavaScript bundle for the exact port `81` URL, and confirm `http://10.10.3.100:81/iot-os/sxin/` responds.
 
 Expected: assertion passes, frontend returns HTTP 200, bundle contains the exact iframe URL, and the iframe target returns an HTTP response.

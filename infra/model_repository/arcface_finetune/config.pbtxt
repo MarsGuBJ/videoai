@@ -1,0 +1,10 @@
+name: "arcface_finetune"
+platform: "onnxruntime_onnx"
+max_batch_size: 0
+instance_group [
+  {
+    kind: KIND_GPU
+    count: 1
+    gpus: [0]
+  }
+]

@@ -35,7 +35,7 @@ docker compose --profile inference up --build -d
 
 ZLMediaKit：http://localhost:8080
 
-MCP Server：http://localhost:8091/mcp
+MCP Server：http://192.168.11.194:8097/mcp
 
 Triton：http://localhost:8000
 
@@ -61,6 +61,10 @@ scripts/download_arcface_mbf.sh
 
 Linux 主机可用 `/dev/video0`。Windows/WSL2 通常不会把内置摄像头暴露为 `/dev/video0`，建议先在 Windows 侧把摄像头推成 RTSP/RTMP/HTTP 流，再在页面新增摄像头时填流地址。摄像头源填 `/dev/video0` 时，后端会通过 ZLMediaKit `setServerConfig` 写入 `ffmpeg.v4l2_cmd`，再通过 `addFFmpegSource` 启动 FFmpeg 推流。
 
+## 远程部署
+
+远程服务器部署信息、内网访问地址和公网隔离要求见 [docs/remote-deployment.md](docs/remote-deployment.md)。后续部署按该文档执行，所有业务服务不得绑定公网地址。
+
 ## MCP Server
 
 `mcp-server` 提供摄像头与海康 NVR 录像查询工具，默认使用 streamable HTTP：
@@ -79,9 +83,22 @@ HIKVISION_NVR_PASSWORD=change-me
 
 可用 MCP tools：
 
-- `list_cameras`：查询摄像头列表和 NVR 绑定信息。
+- `list_cameras`：查询摄像头列表、实时视频流 URL 和 NVR 绑定信息。
 - `get_live_stream`：返回摄像头实时播放 URL。
-- `search_recordings`：按 `cameraId/startTime/endTime` 查询海康 NVR 历史录像。
-- `get_recording_stream`：返回历史录像的短期 HLS 播放 URL。
+- `search_recordings`：按时间区间使用 HCNetSDK 回调推流，返回 `192.168.11.198` 通道 1 的 FLV 回放流 URL。
+- `get_recording_stream`：把历史录像通过代理转为短期 FLV/HLS 播放 URL，默认返回 FLV。
+- `download_recording`：按时间区间使用 `NET_DVR_GetFileByTime` 下载 `192.168.11.198` 通道 1 录像，转为 MP4 后保存到 MinIO，并返回 MP4 文件 URL。
+- `upload_face_image`：通过图片 URL 上传人脸照片到人脸库，并创建默认开启的人脸布控任务。
+- `detect_persons`：调用人员检测接口，返回图片中的行人 bbox。
+- `search_person_by_bbox`：提交图搜人异步任务，可按 bbox、时间范围、相似度阈值和 topK 搜索。
+- `get_person_search_result`：按 taskId 轮询图搜人任务状态和结果。
+- `detect_persons_with_id`：检测行人并返回可缓存查询的 personId。
+- `get_person_bbox`：按 personId 查询缓存中的人员 bbox。
+- `gait_feature_compare`：调用步态特征比对接口，返回相似人员 ID。
+- `dino_events`：返回 10 条 DINO Object Detection 视觉事件 mock 数据。
 
-历史录像查询要求摄像头配置 `nvrTrackId` 或 `nvrChannel`。NVR 凭据只保存在服务端环境变量中，MCP 响应不会返回带凭据的原始播放地址。
+历史录像查询不返回带凭据的原始 RTSP 地址；NVR 凭据只保存在服务端环境变量中。
+
+## 布控任务识别频率
+
+布控任务支持 `recognitionPerMinute` 字段，对应前端“每分钟识别次数”。该值必须为正整数，默认 `60`。同一摄像头绑定多个布控任务时，Worker 按任务分别限频。

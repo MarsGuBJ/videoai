@@ -6,8 +6,9 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY requirements.txt .
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 RUN HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= ALL_PROXY= all_proxy= \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir --timeout 120 -i "${PIP_INDEX_URL}" -r requirements.txt
 
 COPY app ./app
 

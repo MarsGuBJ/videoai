@@ -1,16 +1,20 @@
+import time
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from uuid import UUID
 
 from .config import settings
 from .schemas import EmbeddingResponse, StreamStartRequest, StreamStatusResponse, StreamStopRequest
 from .stream_manager import StreamManager
-from .triton_models import TritonFaceClient
+from .triton_models import DinoDetectionClient, TritonFaceClient
 
 app = FastAPI(title="VideoAI Worker", version="0.1.0")
 settings_value = settings()
 face_client = TritonFaceClient(settings_value)
-stream_manager = StreamManager(settings_value, face_client)
+dino_client = DinoDetectionClient(settings_value) if settings_value.object_detection_enabled else None
+stream_manager = StreamManager(settings_value, face_client, dino_client)
 
 
 @app.get("/health")
@@ -45,4 +49,17 @@ def stop_stream(request: StreamStopRequest):
 @app.get("/v1/streams", response_model=StreamStatusResponse)
 def streams():
     return StreamStatusResponse(streams=stream_manager.status())
+
+
+@app.get("/v1/streams/annotated.mjpeg")
+async def annotated_mjpeg(cameraId: UUID = Query(...)):
+    def generate():
+        while True:
+            frame = stream_manager.get_annotated_frame(str(cameraId))
+            if frame is not None:
+                ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + encoded.tobytes() + b"\r\n")
+            time.sleep(0.5)
+    return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
 

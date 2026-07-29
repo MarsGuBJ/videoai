@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>VideoAI 多分屏预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #f1f5f9; }
+  .header { padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header .status { font-size: 12px; color: #94a3b8; margin-left: auto; }
+  .status-led { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; margin-right: 6px; }
+  .status-led.warn { background: #f59e0b; }
+  .status-led.off { background: #ef4444; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 12px; }
+  .panel { background: #1e293b; border-radius: 8px; overflow: hidden; border: 1px solid #334155; display: flex; flex-direction: column; }
+  .panel-head { padding: 10px 14px; background: #0f172a; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 10px; }
+  .panel-head strong { font-size: 14px; flex: 1; }
+  .panel-head .meta { font-size: 11px; color: #94a3b8; }
+  .video-shell { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; overflow: hidden; }
+  .video-shell img { width: 100%; height: 100%; object-fit: contain; display: block; transition: opacity 0.2s; }
+  .video-shell.loading img { opacity: 0.3; }
+  .video-shell canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+  .reload-badge { position: absolute; top: 8px; right: 8px; background: rgba(245, 158, 11, 0.9); color: #000; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; opacity: 0; transition: opacity 0.3s; z-index: 20; }
+  .reload-badge.show { opacity: 1; }
+  .events { padding: 12px; max-height: 240px; overflow: hidden; display: flex; flex-direction: column; }
+  .events h2 { font-size: 13px; margin-bottom: 8px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+  .event-list { overflow-y: auto; font-size: 12px; flex: 1; }
+  .event-item { padding: 6px 10px; background: #0f172a; border-radius: 4px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 3px solid #38bdf8; }
+  .event-item.face { border-left-color: #a78bfa; }
+  .event-item .name { color: #e2e8f0; }
+  .event-item .meta { color: #64748b; font-size: 11px; }
+  .stat-bar { padding: 6px 14px; background: #0f172a; border-top: 1px solid #334155; display: flex; gap: 16px; font-size: 11px; color: #94a3b8; }
+  .stat-bar span { display: inline-flex; align-items: center; gap: 4px; }
+  .stat-led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; }
+  .stat-led.ok { background: #22c55e; }
+  .stat-led.warn { background: #f59e0b; }
+  .stat-led.bad { background: #ef4444; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>VideoAI 多分屏预览</h1>
+  <span class="status" id="status"><span class="status-led" id="statusLed"></span><span id="statusText">连接中...</span></span>
+</div>
+<div class="grid" id="grid"></div>
+<div class="events">
+  <h2>实时事件</h2>
+  <div class="event-list" id="events"></div>
+</div>
+
+<script>
+const API_BASE = window.location.protocol + '//' + window.location.hostname + ':8081';
+const FPS_CHECK_INTERVAL = 3000;
+const FPS_MIN_THRESHOLD = 1.0;
+const STALE_FRAME_TIMEOUT = 6000;
+const RELOAD_COOLDOWN = 10000;
+const ALLOWED_STREAM_NAMES = new Set(['nvr65', 'nvr198']);
+const COLORS = ['#FF0080','#00FF80','#0080FF','#FFFF00','#FF8000','#80FF00','#FF00FF','#00FFFF','#FF4040','#40FF40'];
+
+let cameras = [];
+const objectEvents = new Map();
+const frameStats = new Map();
+const reloadTimers = new Map();
+
+async function init() {
+  try {
+    const resp = await fetch(API_BASE + '/api/cameras');
+    cameras = await resp.json();
+    cameras = cameras
+      .filter(c => c.status === 'RUNNING' && ALLOWED_STREAM_NAMES.has(c.streamName))
+      .slice(0, 2);
+    renderGrid();
+    setStatus('已连接 - ' + cameras.length + ' 路', 'ok');
+  } catch (e) {
+    setStatus('API 连接失败: ' + e.message, 'bad');
+  }
+  connectSSE();
+  startStatsMonitor();
+}
+
+function setStatus(msg, kind) {
+  document.getElementById('statusText').textContent = msg;
+  const led = document.getElementById('statusLed');
+  led.className = 'status-led ' + (kind === 'ok' ? '' : kind === 'warn' ? 'warn' : kind === 'bad' ? 'off' : '');
+}
+
+function renderGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  cameras.forEach(cam => {
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <div class="panel-head">
+        <strong>${cam.name}</strong>
+        <span class="status-led" id="dot-${cam.id}"></span>
+      </div>
+      <div class="video-shell loading" id="shell-${cam.id}">
+        <img id="img-${cam.id}" src="" alt="${cam.name}">
+        <canvas id="canvas-${cam.id}"></canvas>
+        <div class="reload-badge" id="badge-${cam.id}">重连中...</div>
+      </div>
+      <div class="stat-bar" id="stat-${cam.id}">
+        <span><span class="stat-led" id="fled-${cam.id}"></span>FPS: <span id="fps-${cam.id}">--</span></span>
+        <span>帧数: <span id="frames-${cam.id}">0</span></span>
+        <span class="meta">${cam.sourceUrl}</span>
+      </div>
+    `;
+    grid.appendChild(panel);
+    setupImageMonitor(cam);
+    drawBoxes();
+  });
+}
+
+function setupImageMonitor(cam) {
+  const img = document.getElementById('img-' + cam.id);
+  const shell = document.getElementById('shell-' + cam.id);
+  const stats = {
+    lastFrameTime: Date.now(),
+    frameCount: 0,
+    fps: 0,
+    reloadCount: 0,
+    lastReloadTime: 0,
+  };
+  frameStats.set(cam.id, stats);
+
+  const loadImage = () => {
+    const url = API_BASE + cam.playbackUrl + '?_=' + Date.now() + '_' + stats.reloadCount;
+    img.src = url;
+    shell.classList.add('loading');
+  };
+  loadImage();
+
+  img.onload = () => {
+    shell.classList.remove('loading');
+    const now = Date.now();
+    stats.frameCount++;
+    stats.lastFrameTime = now;
+    drawBoxes();
+  };
+  img.onerror = () => {
+    shell.classList.add('loading');
+    scheduleReload(cam, '图像加载失败');
+  };
+}
+
+function scheduleReload(cam, reason) {
+  const stats = frameStats.get(cam.id);
+  if (!stats) return;
+  const now = Date.now();
+  if (now - stats.lastReloadTime < RELOAD_COOLDOWN) {
+    return;
+  }
+  stats.lastReloadTime = now;
+  stats.reloadCount++;
+  const badge = document.getElementById('badge-' + cam.id);
+  if (badge) {
+    badge.textContent = '重连中: ' + reason;
+    badge.classList.add('show');
+  }
+  setTimeout(() => {
+    setupImageMonitor(cam);
+    if (badge) setTimeout(() => badge.classList.remove('show'), 2000);
+  }, 500);
+}
+
+function startStatsMonitor() {
+  setInterval(() => {
+    const now = Date.now();
+    cameras.forEach(cam => {
+      const stats = frameStats.get(cam.id);
+      if (!stats) return;
+      const elapsed = (now - stats.lastFrameTime) / 1000;
+      if (elapsed > 0) {
+        stats.fps = stats.frameCount / elapsed;
+      }
+      const fpsEl = document.getElementById('fps-' + cam.id);
+      const framesEl = document.getElementById('frames-' + cam.id);
+      const fledEl = document.getElementById('fled-' + cam.id);
+      const dotEl = document.getElementById('dot-' + cam.id);
+      if (fpsEl) fpsEl.textContent = stats.fps.toFixed(1);
+      if (framesEl) framesEl.textContent = stats.frameCount;
+      const timeSinceFrame = now - stats.lastFrameTime;
+      let ledClass = 'ok';
+      if (timeSinceFrame > STALE_FRAME_TIMEOUT) ledClass = 'bad';
+      else if (timeSinceFrame > STALE_FRAME_TIMEOUT / 2) ledClass = 'warn';
+      if (fledEl) fledEl.className = 'stat-led ' + ledClass;
+      if (dotEl) dotEl.className = 'status-led ' + ledClass;
+      if (timeSinceFrame > STALE_FRAME_TIMEOUT) {
+        scheduleReload(cam, '帧率超时');
+      }
+    });
+  }, FPS_CHECK_INTERVAL);
+}
+
+function drawBoxes() {
+  cameras.forEach(cam => {
+    const canvas = document.getElementById('canvas-' + cam.id);
+    if (!canvas) return;
+    const shell = document.getElementById('shell-' + cam.id);
+    if (!shell) return;
+    const rect = shell.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    const evs = objectEvents.get(cam.id) || [];
+    if (!evs.length) return;
+    const latest = evs[evs.length - 1];
+    const objects = latest.objects || [];
+    if (!objects.length) return;
+    const fw = latest.frameWidth || 1280;
+    const fh = latest.frameHeight || 720;
+    const scaleX = rect.width / fw;
+    const scaleY = rect.height / fh;
+    objects.forEach(obj => {
+      if (obj.score < 0.3) return;
+      const x = obj.x1 * scaleX;
+      const y = obj.y1 * scaleY;
+      const w = (obj.x2 - obj.x1) * scaleX;
+      const h = (obj.y2 - obj.y1) * scaleY;
+      const color = COLORS[obj.labelId % COLORS.length];
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, w, h);
+      const label = obj.labelName + ' ' + Math.round(obj.score * 100) + '%';
+      ctx.font = 'bold 14px monospace';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, Math.max(0, y - 22), tw + 10, 22);
+      ctx.fillStyle = '#000';
+      ctx.fillText(label, x + 5, Math.max(15, y - 6));
+    });
+  });
+}
+
+function connectSSE() {
+  const es = new EventSource(API_BASE + '/api/events/stream');
+  es.addEventListener('object-event', (event) => {
+    const ev = JSON.parse(event.data);
+    if (!objectEvents.has(ev.cameraId)) objectEvents.set(ev.cameraId, []);
+    const arr = objectEvents.get(ev.cameraId);
+    arr.push(ev);
+    if (arr.length > 30) arr.shift();
+    if (cameras.find(c => c.id === ev.cameraId)) {
+      drawBoxes();
+      appendEvent(ev);
+    }
+  });
+  es.addEventListener('face-event', (event) => {
+    appendFaceEvent(JSON.parse(event.data));
+  });
+  es.onerror = () => {
+    setStatus('SSE 断开,5秒后重连', 'warn');
+    setTimeout(connectSSE, 5000);
+  };
+  es.onopen = () => setStatus('已连接', 'ok');
+}
+
+function appendEvent(ev) {
+  const div = document.getElementById('events');
+  const item = document.createElement('div');
+  item.className = 'event-item';
+  const t = new Date(ev.videoTime).toLocaleTimeString();
+  const labels = (ev.objects || []).slice(0, 3).map(o => o.labelName).join(',');
+  item.innerHTML = `<span class="name">${ev.cameraName} · ${ev.objects.length} 个目标 (${labels})</span><span class="meta">${t}</span>`;
+  div.insertBefore(item, div.firstChild);
+  if (div.children.length > 30) div.removeChild(div.lastChild);
+}
+
+function appendFaceEvent(ev) {
+  const div = document.getElementById('events');
+  const item = document.createElement('div');
+  item.className = 'event-item face';
+  const t = new Date(ev.videoTime).toLocaleTimeString();
+  item.innerHTML = `<span class="name">人脸: ${ev.profileName} @ ${ev.cameraName} (${Math.round(ev.similarity * 100)}%)</span><span class="meta">${t}</span>`;
+  div.insertBefore(item, div.firstChild);
+  if (div.children.length > 30) div.removeChild(div.lastChild);
+}
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(drawBoxes, 200);
+});
+
+init();
+</script>
+</body>
+</html>

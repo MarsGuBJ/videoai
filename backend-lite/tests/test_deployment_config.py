@@ -27,3 +27,5 @@ def test_backend_image_contains_preview_relay_module():
     dockerfile = (PROJECT_ROOT / "backend-lite" / "Dockerfile").read_text(encoding="utf-8")
 
     assert "COPY preview_relay.py ." in dockerfile
+    assert "ENV UVICORN_WORKERS=1" in dockerfile
+    assert "${UVICORN_WORKERS:-1}" in dockerfile

@@ -1,6 +1,9 @@
 fastapi==0.115.5
-uvicorn[standard]==0.32.0
+uvicorn[standard]>=0.32.0,<0.40
 pydantic==2.9.2
 python-multipart==0.0.17
+requests==2.32.3
 numpy
 opencv-python-headless
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3

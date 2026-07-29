@@ -1,0 +1,88 @@
+- main [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e7]
+      - generic [ref=e9]:
+        - strong [ref=e10]: VideoAI
+        - generic [ref=e11]: 视频管理平台
+    - navigation [ref=e12]:
+      - link "总览" [ref=e14] [cursor=pointer]:
+        - /url: /
+        - img [ref=e16]
+        - generic [ref=e21]: 总览
+      - link "设备管理" [ref=e23] [cursor=pointer]:
+        - /url: /devices
+        - img [ref=e25]
+        - generic [ref=e28]: 设备管理
+        - img [ref=e30]
+      - link "实时预览" [ref=e33] [cursor=pointer]:
+        - /url: /live
+        - img [ref=e35]
+        - generic [ref=e37]: 实时预览
+        - img [ref=e39]
+      - link "录像回放" [ref=e42] [cursor=pointer]:
+        - /url: /playback
+        - img [ref=e44]
+        - generic [ref=e46]: 录像回放
+        - img [ref=e48]
+      - link "电视墙" [ref=e51] [cursor=pointer]:
+        - /url: /tvwall
+        - img [ref=e53]
+        - generic [ref=e56]: 电视墙
+        - img [ref=e58]
+      - link "告警联动" [ref=e61] [cursor=pointer]:
+        - /url: /alarm
+        - img [ref=e63]
+        - generic [ref=e66]: 告警联动
+        - img [ref=e68]
+      - generic [ref=e70]:
+        - link "算法布控" [ref=e71] [cursor=pointer]:
+          - /url: /algo-deploy
+          - img [ref=e73]
+          - generic [ref=e76]: 算法布控
+          - img [ref=e78]
+        - generic [ref=e80]:
+          - link "算法管理" [ref=e81] [cursor=pointer]:
+            - /url: /algo-deploy/algorithms
+            - generic [ref=e82]: 算法管理
+          - link "布控任务" [ref=e83] [cursor=pointer]:
+            - /url: /algo-deploy/tasks
+            - generic [ref=e84]: 布控任务
+  - generic [ref=e85]:
+    - generic [ref=e198]:
+      - generic [ref=e199]:
+        - button "返回算法管理" [ref=e200] [cursor=pointer]:
+          - img [ref=e201]
+        - generic [ref=e203]:
+          - generic [ref=e204]:
+            - link "算法管理" [ref=e205] [cursor=pointer]:
+              - /url: /algo-deploy/algorithms
+            - text: /人脸识别
+          - heading "算法版本管理" [level=1] [ref=e206]
+      - generic [ref=e207]:
+        - button "新增版本" [ref=e208] [cursor=pointer]:
+          - img [ref=e209]
+          - text: 新增版本
+        - button "删除算法" [ref=e210] [cursor=pointer]
+    - generic [ref=e212]:
+      - generic [ref=e213]:
+        - text: 版本数量：
+        - strong [ref=e214]: "0"
+      - generic [ref=e215]:
+        - text: 算法类型：
+        - strong [ref=e216]: 图像识别
+      - generic [ref=e217]:
+        - text: 最近更新时间：
+        - strong [ref=e218]: 2026-04-10
+    - table [ref=e220]:
+      - rowgroup [ref=e221]:
+        - row "版本号 版本说明 更新时间 操作" [ref=e222]:
+          - columnheader [ref=e223]:
+            - checkbox [ref=e224]
+          - columnheader "版本号" [ref=e225]
+          - columnheader "版本说明" [ref=e226]
+          - columnheader "更新时间" [ref=e227]
+          - columnheader "操作" [ref=e228]
+      - rowgroup [ref=e229]:
+        - row "暂无版本数据" [ref=e230]:
+          - cell "暂无版本数据" [ref=e231]

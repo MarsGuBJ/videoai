@@ -1,3 +1,5 @@
 mcp[cli]>=1.27.0,<2
 httpx==0.28.1
+hcnetsdk-python==1.0.0
+minio==7.2.18
 pytest==8.3.4

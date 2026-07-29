@@ -13,8 +13,10 @@ __pycache__/
 *.pyc
 *.log
 storage/faces/*
+storage/cameras/*
 storage/snapshots/*
 !storage/faces/.gitkeep
+!storage/cameras/.gitkeep
 !storage/snapshots/.gitkeep
 infra/model_repository/**/1/*
 !infra/model_repository/**/1/.gitkeep

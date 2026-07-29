@@ -1,4 +1,7 @@
 import json
+import threading
+import time
+from urllib.error import URLError
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -33,7 +36,10 @@ class FakeOpener:
 
     def __call__(self, request, timeout=None):
         self.urls.append(getattr(request, "full_url", request))
-        return FakeResponse(self.responses.pop(0))
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return FakeResponse(response)
 
 
 def make_zlm_client(opener):
@@ -98,12 +104,73 @@ def test_stop_deletes_ffmpeg_source_by_key():
     ],
 )
 def test_start_sanitizes_nonzero_and_malformed_api_responses(response):
-    client = make_zlm_client(FakeOpener(response))
+    client = make_zlm_client(FakeOpener(response, {"code": 0, "data": []}))
 
     with pytest.raises(PreviewRelayError) as raised:
         client.start(stream_name="camera-1", source_url=SOURCE_URL)
 
     assert_sensitive_values_absent(raised.value)
+
+
+def test_start_response_loss_removes_matching_orphaned_destination():
+    opener = FakeOpener(
+        URLError("connection reset after request"),
+        {
+            "code": 0,
+            "data": [
+                {
+                    "key": "orphan-key",
+                    "dst_url": "rtmp://127.0.0.1/live/preview-camera-1",
+                },
+                {
+                    "key": "unrelated-key",
+                    "dst_url": "rtmp://127.0.0.1/live/preview-camera-2",
+                },
+            ],
+        },
+        {"code": 0},
+    )
+    client = make_zlm_client(opener)
+
+    with pytest.raises(PreviewRelayError) as raised:
+        client.start(stream_name="camera-1", source_url=SOURCE_URL)
+
+    requests = [urlsplit(url) for url in opener.urls]
+    assert [request.path for request in requests] == [
+        "/index/api/addFFmpegSource",
+        "/index/api/listFFmpegSource",
+        "/index/api/delFFmpegSource",
+    ]
+    assert parse_qs(requests[-1].query)["key"] == ["orphan-key"]
+    assert_sensitive_values_absent(raised.value)
+
+
+def test_start_missing_key_removes_matching_orphaned_destination():
+    opener = FakeOpener(
+        {"code": 0, "data": {}},
+        {
+            "code": 0,
+            "data": [
+                {
+                    "key": "orphan-key",
+                    "dst_url": "rtmp://127.0.0.1/live/preview-camera-1",
+                }
+            ],
+        },
+        {"code": 0},
+    )
+    client = make_zlm_client(opener)
+
+    with pytest.raises(PreviewRelayError):
+        client.start(stream_name="camera-1", source_url=SOURCE_URL)
+
+    requests = [urlsplit(url) for url in opener.urls]
+    assert [request.path for request in requests] == [
+        "/index/api/addFFmpegSource",
+        "/index/api/listFFmpegSource",
+        "/index/api/delFFmpegSource",
+    ]
+    assert parse_qs(requests[-1].query)["key"] == ["orphan-key"]
 
 
 def test_stop_rejects_nonzero_response_without_exposing_sensitive_values():
@@ -136,6 +203,31 @@ class FakePreviewClient:
 
     def stop(self, key):
         self.stopped.append(key)
+
+
+class BlockingPreviewClient(FakePreviewClient):
+    def __init__(self):
+        super().__init__()
+        self.start_entered = threading.Event()
+        self.allow_start = threading.Event()
+
+    def start(self, stream_name, source_url):
+        self.started.append((stream_name, source_url))
+        self.start_entered.set()
+        assert self.allow_start.wait(timeout=2)
+        return "source-key-1"
+
+
+class BlockingStopPreviewClient(FakePreviewClient):
+    def __init__(self):
+        super().__init__()
+        self.stop_entered = threading.Event()
+        self.allow_stop = threading.Event()
+
+    def stop(self, key):
+        self.stop_entered.set()
+        assert self.allow_stop.wait(timeout=2)
+        super().stop(key)
 
 
 class FakeTimer:
@@ -272,3 +364,85 @@ def test_failed_first_start_leaves_no_state_and_next_acquire_retries():
         ("camera-1", SOURCE_URL),
     ]
     assert manager.viewer_count("camera-1") == 1
+
+
+def test_explicit_stop_rejects_acquires_waiting_for_start_without_restarting():
+    client = BlockingPreviewClient()
+    manager, _, _ = make_manager(client=client)
+    errors = []
+
+    def acquire():
+        try:
+            manager.acquire("camera-1", SOURCE_URL)
+        except PreviewRelayError as exc:
+            errors.append(exc)
+
+    owner = threading.Thread(target=acquire)
+    owner.start()
+    assert client.start_entered.wait(timeout=1)
+
+    waiter = threading.Thread(target=acquire)
+    waiter.start()
+    deadline = time.monotonic() + 1
+    while manager.viewer_count("camera-1") != 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert manager.viewer_count("camera-1") == 2
+
+    stopper = threading.Thread(target=lambda: manager.stop_stream("camera-1"))
+    stopper.start()
+    deadline = time.monotonic() + 1
+    while manager.viewer_count("camera-1") != 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert manager.viewer_count("camera-1") == 0
+
+    client.allow_start.set()
+    for thread in (owner, waiter, stopper):
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+    assert len(errors) == 2
+    assert client.started == [("camera-1", SOURCE_URL)]
+    assert client.stopped == ["source-key-1"]
+
+
+def test_explicit_stop_during_idle_expiry_rejects_waiter_without_restarting():
+    client = BlockingStopPreviewClient()
+    manager, _, timers = make_manager(client=client)
+    manager.acquire("camera-1", SOURCE_URL)
+    manager.release("camera-1")
+
+    expirer = threading.Thread(target=timers.timers[0].fire)
+    expirer.start()
+    assert client.stop_entered.wait(timeout=1)
+
+    errors = []
+
+    def acquire():
+        try:
+            manager.acquire("camera-1", SOURCE_URL)
+        except PreviewRelayError as exc:
+            errors.append(exc)
+
+    waiter = threading.Thread(target=acquire)
+    waiter.start()
+    stopper = threading.Thread(target=lambda: manager.stop_stream("camera-1"))
+    stopper.start()
+    deadline = time.monotonic() + 1
+    explicitly_stopped = False
+    while time.monotonic() < deadline:
+        with manager._lock:
+            state = manager._states.get("camera-1")
+            explicitly_stopped = state is not None and state.error is not None
+        if explicitly_stopped:
+            break
+        time.sleep(0.01)
+    client.allow_stop.set()
+
+    for thread in (expirer, waiter, stopper):
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+    assert explicitly_stopped
+    assert len(errors) == 1
+    assert client.started == [("camera-1", SOURCE_URL)]
+    assert client.stopped == ["source-key-1"]

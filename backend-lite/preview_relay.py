@@ -45,28 +45,57 @@ class ZlmPreviewClient:
 
     def start(self, stream_name: str, source_url: str) -> str:
         derived_stream = quote(preview_stream_name(stream_name), safe="")
-        payload = self._request(
-            "/index/api/addFFmpegSource",
-            {
-                "secret": self.secret,
-                "src_url": source_url,
-                "dst_url": f"{self.preview_rtmp_base}/{derived_stream}",
-                "timeout_ms": str(self.timeout_ms),
-                "enable_hls": "0",
-                "enable_mp4": "0",
-                "ffmpeg_cmd_key": self.command_key,
-            },
-        )
-        key = str(payload.get("data", {}).get("key", "")).strip()
-        if not key:
-            raise PreviewRelayError("ZLMediaKit did not return a preview relay key")
-        return key
+        destination_url = f"{self.preview_rtmp_base}/{derived_stream}"
+        try:
+            payload = self._request(
+                "/index/api/addFFmpegSource",
+                {
+                    "secret": self.secret,
+                    "src_url": source_url,
+                    "dst_url": destination_url,
+                    "timeout_ms": str(self.timeout_ms),
+                    "enable_hls": "0",
+                    "enable_mp4": "0",
+                    "ffmpeg_cmd_key": self.command_key,
+                },
+            )
+            key = str(payload.get("data", {}).get("key", "")).strip()
+            if not key:
+                raise PreviewRelayError("ZLMediaKit did not return a preview relay key")
+            return key
+        except PreviewRelayError:
+            self._cleanup_destination(destination_url)
+            raise
 
     def stop(self, key: str) -> None:
         self._request(
             "/index/api/delFFmpegSource",
             {"secret": self.secret, "key": key},
         )
+
+    def _cleanup_destination(self, destination_url: str) -> None:
+        try:
+            payload = self._request(
+                "/index/api/listFFmpegSource",
+                {"secret": self.secret},
+            )
+        except PreviewRelayError:
+            logger.warning("Failed to inspect uncertain ZLMediaKit preview relay startup")
+            return
+
+        sources = payload.get("data", [])
+        if not isinstance(sources, list):
+            return
+        for source in sources:
+            if not isinstance(source, dict) or source.get("dst_url") != destination_url:
+                continue
+            key = str(source.get("key", "")).strip()
+            if not key:
+                continue
+            try:
+                self.stop(key)
+            except PreviewRelayError:
+                logger.warning("Failed to remove uncertain ZLMediaKit preview relay startup")
 
     def _request(self, path: str, params: dict[str, str]) -> dict:
         request = Request(
@@ -150,6 +179,8 @@ class PreviewRelayManager:
 
             if wait_for_stop is not None:
                 wait_for_stop.wait()
+                if state.error is not None:
+                    raise state.error
                 continue
             if wait_for_start is not None:
                 wait_for_start.wait()
@@ -180,14 +211,22 @@ class PreviewRelayManager:
         timer.start()
 
     def stop_stream(self, stream_name: str) -> None:
+        wait_for_existing_stop = False
         with self._lock:
             state = self._states.get(stream_name)
-            if state is None or state.stopping:
+            if state is None:
                 return
-            state.stopping = True
-            if state.idle_timer is not None:
-                state.idle_timer.cancel()
-                state.idle_timer = None
+            state.error = PreviewRelayError("Preview relay was explicitly stopped")
+            if state.stopping:
+                wait_for_existing_stop = True
+            else:
+                state.stopping = True
+                if state.idle_timer is not None:
+                    state.idle_timer.cancel()
+                    state.idle_timer = None
+        if wait_for_existing_stop:
+            state.stopped.wait()
+            return
         state.ready.wait()
         self._finish_stop(stream_name, state)
 
@@ -229,7 +268,7 @@ class PreviewRelayManager:
             stopping = state.stopping
         if stopping:
             state.stopped.wait()
-            raise PreviewRelayError("Preview relay stopped during startup")
+            raise state.error or PreviewRelayError("Preview relay stopped during startup")
         return self._relay_url(stream_name)
 
     def _expire(self, stream_name: str, state: RelayState) -> None:

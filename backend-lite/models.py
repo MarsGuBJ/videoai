@@ -29,6 +29,7 @@ class DeploymentTaskORM(Base):
     face_profile_photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     camera_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    recognition_per_minute: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow

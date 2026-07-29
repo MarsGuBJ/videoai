@@ -5,6 +5,7 @@ import logging
 import math
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -13,38 +14,77 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 from urllib.request import Request as UrlRequest, urlopen
 from uuid import UUID, uuid4
 
+import requests
+from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from preview_relay import (
+    PreviewRelayError,
+    PreviewRelayManager,
+    PreviewRelayTimeout,
+    ZlmPreviewClient,
+)
 
 
 SRS_HTTP_URL = os.getenv("VIDEOAI_ZLM_HTTP_URL", os.getenv("SRS_HTTP_URL", "http://localhost:8080")).rstrip("/")
 SRS_PUBLIC_HTTP_URL = os.getenv("VIDEOAI_ZLM_PUBLIC_HTTP_URL", os.getenv("ZLM_PUBLIC_HTTP_URL", SRS_HTTP_URL)).rstrip("/")
+ZLM_RTMP_PUSH_BASE = os.getenv("VIDEOAI_ZLM_RTMP_PUSH_BASE", os.getenv("ZLM_RTMP_PUSH_BASE", "rtmp://localhost/live")).rstrip("/")
 ZLM_SECRET = os.getenv("VIDEOAI_ZLM_SECRET", os.getenv("ZLM_SECRET", "035c73f7-bb6b-4889-a715-d9eb2d1925cc")).strip()
 WORKER_URL = os.getenv("VIDEOAI_WORKER_URL", os.getenv("WORKER_URL", "http://localhost:8090")).rstrip("/")
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
+LIVE_RTSP_RELAY_MODE = os.getenv("VIDEOAI_LIVE_RTSP_RELAY_MODE", "auto").strip().lower()
+LIVE_FFMPEG_RELAY_STREAMS = {
+    item.strip()
+    for item in os.getenv("VIDEOAI_LIVE_FFMPEG_RELAY_STREAMS", "nvr198").split(",")
+    if item.strip()
+}
+DINO_CAMERA_HOSTS = {
+    item.strip()
+    for item in os.getenv("VIDEOAI_DINO_CAMERA_HOSTS", "192.168.11.65").split(",")
+    if item.strip()
+}
 WINDOWS_FFMPEG_BIN = os.getenv("WINDOWS_FFMPEG_BIN", "ffmpeg")
 WINDOWS_CAMERA_NAME = os.getenv("WINDOWS_CAMERA_NAME", "Surface Camera Front")
 WINDOWS_CAMERA_STREAM = os.getenv("WINDOWS_CAMERA_STREAM", "win_camera")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FACE_STORAGE_DIR = Path(os.getenv("VIDEOAI_STORAGE_FACE_DIR", str(PROJECT_ROOT / "storage" / "faces")))
 SNAPSHOT_STORAGE_DIR = Path(os.getenv("VIDEOAI_STORAGE_SNAPSHOT_DIR", str(PROJECT_ROOT / "storage" / "snapshots")))
+CAMERA_STORAGE_DIR = Path(os.getenv("VIDEOAI_STORAGE_CAMERA_DIR", str(PROJECT_ROOT / "storage" / "cameras")))
+QUERY_IMAGE_STORAGE_DIR = Path(os.getenv("VIDEOAI_STORAGE_QUERY_IMAGE_DIR", str(PROJECT_ROOT / "storage" / "query-images")))
 FACE_METADATA_FILE = FACE_STORAGE_DIR / "faces.json"
 FACE_EMBEDDINGS_FILE = FACE_STORAGE_DIR / "face_embeddings.json"
+CAMERA_METADATA_FILE = CAMERA_STORAGE_DIR / "cameras.json"
+PERSON_API_BASE_URL = os.getenv("PERSON_API_BASE_URL", "http://192.168.11.192:18890").strip().rstrip("/")
+BACKEND_PUBLIC_URL = os.getenv("VIDEOAI_BACKEND_PUBLIC_URL", os.getenv("BACKEND_PUBLIC_URL", "")).strip().rstrip("/")
 FACE_SCAN_ENABLED = os.getenv("FACE_SCAN_ENABLED", "false").lower() != "false"
 FACE_SCAN_INTERVAL_SECONDS = int(os.getenv("FACE_SCAN_INTERVAL_SECONDS", "300"))
 FACE_SCAN_INITIAL_DELAY_SECONDS = int(os.getenv("FACE_SCAN_INITIAL_DELAY_SECONDS", "10"))
 FACE_SCAN_TIMEOUT_SECONDS = int(os.getenv("FACE_SCAN_TIMEOUT_SECONDS", "15"))
 FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.45"))
 FACE_EVENT_COOLDOWN_SECONDS = int(os.getenv("FACE_EVENT_COOLDOWN_SECONDS", "60"))
+DEFAULT_RECOGNITION_PER_MINUTE = 60
 TRITON_HTTP_URL = os.getenv("TRITON_HTTP_URL", "http://localhost:8000").rstrip("/")
 TRITON_MODEL_REPOSITORY = Path(os.getenv("TRITON_MODEL_REPOSITORY", str(PROJECT_ROOT / "infra" / "model_repository")))
+HIKVISION_NVR_BASE_URL = os.getenv("HIKVISION_NVR_BASE_URL", "").strip().rstrip("/")
+HIKVISION_NVR_USERNAME = os.getenv("HIKVISION_NVR_USERNAME", "").strip()
+HIKVISION_NVR_PASSWORD = os.getenv("HIKVISION_NVR_PASSWORD", "").strip()
+PTZ_HTTP_TIMEOUT_SECONDS = float(os.getenv("VIDEOAI_PTZ_HTTP_TIMEOUT_SECONDS", "5"))
+PREVIEW_IDLE_SECONDS = float(os.getenv("VIDEOAI_PREVIEW_IDLE_SECONDS", "60"))
+PREVIEW_START_TIMEOUT_MS = int(os.getenv("VIDEOAI_PREVIEW_START_TIMEOUT_MS", "15000"))
+PREVIEW_FFMPEG_CMD_KEY = os.getenv(
+    "VIDEOAI_PREVIEW_FFMPEG_CMD_KEY", "ffmpeg.cmd_preview_h264"
+).strip()
+ZLM_PREVIEW_RTMP_BASE = os.getenv(
+    "VIDEOAI_ZLM_PREVIEW_RTMP_BASE", "rtmp://127.0.0.1/live"
+).rstrip("/")
 
 
 class CameraCreateRequest(BaseModel):
@@ -86,6 +126,21 @@ class CameraResponse(BaseModel):
     nvrChannel: Optional[str] = None
     nvrTrackId: Optional[str] = None
     nvrStreamType: Optional[str] = None
+    objectDetectionEnabled: bool = False
+
+
+class PtzControlRequest(BaseModel):
+    command: str
+    step: int = 5
+    preset: Optional[int] = None
+
+
+class PtzControlResponse(BaseModel):
+    cameraId: UUID
+    command: str
+    channel: str
+    targetHost: str
+    ok: bool
 
 
 class HealthResponse(BaseModel):
@@ -143,6 +198,7 @@ class DeploymentTaskResponse(BaseModel):
     faceProfileName: Optional[str] = None
     faceProfilePhotoUrl: Optional[str] = None
     cameraIds: List[str]
+    recognitionPerMinute: int = Field(default=DEFAULT_RECOGNITION_PER_MINUTE, ge=1)
     createdAt: datetime
     updatedAt: datetime
 
@@ -158,6 +214,7 @@ class DeploymentTaskCreateRequest(BaseModel):
     faceProfileName: Optional[str] = None
     faceProfilePhotoUrl: Optional[str] = None
     cameraIds: List[str] = []
+    recognitionPerMinute: int = Field(default=DEFAULT_RECOGNITION_PER_MINUTE, ge=1)
 
 
 class DeploymentTaskUpdateRequest(BaseModel):
@@ -172,6 +229,7 @@ class DeploymentTaskUpdateRequest(BaseModel):
     faceProfileName: Optional[str] = None
     faceProfilePhotoUrl: Optional[str] = None
     cameraIds: Optional[List[str]] = None
+    recognitionPerMinute: Optional[int] = Field(default=None, ge=1)
 
 
 class FaceEventIngestRequest(BaseModel):
@@ -251,6 +309,25 @@ class FaceUploadRequest(BaseModel):
     modelName: str
 
 
+class PersonSearchImageResponse(BaseModel):
+    imageUrl: str
+    imagePath: str
+
+
+class PersonSearchDetectRequest(BaseModel):
+    imageUrl: str
+
+
+class PersonSearchByBboxRequest(BaseModel):
+    imageUrl: str
+    bbox: Optional[List[dict]] = None
+    searchMethod: str = "reid"
+    startTime: Optional[str] = None
+    endTime: Optional[str] = None
+    similarityThreshold: float = 0.6
+    topK: int = 10
+
+
 class ModelRegisterRequest(BaseModel):
     name: str
     displayName: str
@@ -269,6 +346,16 @@ class ModelResponse(BaseModel):
     state: str
     createdAt: datetime
     updatedAt: datetime
+
+
+class ModelGpuResponse(BaseModel):
+    modelName: str
+    gpuIds: List[int]
+    configPath: str
+
+
+class ModelGpuUpdateRequest(BaseModel):
+    gpuIds: List[int] = Field(min_length=1)
 
 
 class EmptyModel(BaseModel):
@@ -300,6 +387,16 @@ app.add_middleware(
 )
 
 cameras: Dict[UUID, CameraResponse] = {}
+preview_relay_manager = PreviewRelayManager(
+    client=ZlmPreviewClient(
+        base_url=SRS_HTTP_URL,
+        secret=ZLM_SECRET,
+        preview_rtmp_base=ZLM_PREVIEW_RTMP_BASE,
+        command_key=PREVIEW_FFMPEG_CMD_KEY,
+        timeout_ms=PREVIEW_START_TIMEOUT_MS,
+    ),
+    idle_seconds=PREVIEW_IDLE_SECONDS,
+)
 faces_store: Dict[UUID, FaceProfileResponse] = {}
 face_embeddings: Dict[UUID, List[float]] = {}
 events_store: List[FaceEventResponse] = []
@@ -314,12 +411,16 @@ scanner_thread: Optional[threading.Thread] = None
 proxy_guard_stop_event = threading.Event()
 
 proxy_guard_thread: Optional[threading.Thread] = None
+live_relay_processes: Dict[str, subprocess.Popen] = {}
+live_relay_lock = threading.Lock()
 windows_camera_process: Optional[subprocess.Popen] = None
 windows_camera_device = WINDOWS_CAMERA_NAME
 windows_camera_stream = WINDOWS_CAMERA_STREAM
 model_registry: Dict[str, ModelResponse] = {}
 FACE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 SNAPSHOT_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+CAMERA_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+QUERY_IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/api/health", response_model=HealthResponse)
@@ -333,12 +434,18 @@ def start_face_scanner():
     try:
         from db import Base, engine
         Base.metadata.create_all(engine)
+        ensure_deployment_task_schema()
     except Exception as exc:
         print(f"Base.metadata.create_all failed: {exc}", flush=True)
+    load_deployment_tasks_from_db()
     load_faces_from_disk()
     load_face_embeddings()
     seed_model_registry()
-    seed_cameras()
+    if not load_cameras_from_disk():
+        seed_cameras()
+        persist_cameras()
+    restore_running_camera_streams()
+    ensure_dino_worker_streams()
     seed_face_profiles()
     proxy_guard_stop_event.clear()
     proxy_guard_thread = threading.Thread(target=stream_proxy_guard_loop, daemon=True)
@@ -358,11 +465,14 @@ def stop_face_scanner():
     proxy_guard_stop_event.set()
     if proxy_guard_thread and proxy_guard_thread.is_alive():
         proxy_guard_thread.join(timeout=2)
+    for stream_name in list(live_relay_processes):
+        stop_ffmpeg_live_relay(stream_name)
+    preview_relay_manager.shutdown()
 
 
 @app.get("/api/cameras", response_model=List[CameraResponse])
 def list_cameras():
-    return sorted(cameras.values(), key=lambda item: item.createdAt, reverse=True)
+    return sorted((camera_with_runtime_flags(item) for item in cameras.values()), key=lambda item: item.createdAt, reverse=True)
 
 
 @app.post("/api/cameras", response_model=CameraResponse)
@@ -388,47 +498,90 @@ def create_camera(request: CameraCreateRequest):
         nvrStreamType=clean_optional(request.nvrStreamType),
     )
     cameras[camera_id] = camera
-    return camera
+    persist_cameras()
+    return camera_with_runtime_flags(camera)
 
 
 @app.get("/api/cameras/{camera_id}", response_model=CameraResponse)
 def get_camera(camera_id: UUID):
-    return require_camera(camera_id)
+    return camera_with_runtime_flags(require_camera(camera_id))
+
+
+@app.get("/api/cameras/{camera_id}/annotated.mjpeg")
+def annotated_camera_stream(camera_id: UUID):
+    camera = camera_with_runtime_flags(require_camera(camera_id))
+    if not camera.objectDetectionEnabled:
+        raise HTTPException(status_code=404, detail="Object detection stream is not enabled for this camera")
+    if camera.status != "RUNNING":
+        raise HTTPException(status_code=409, detail="Camera is not running")
+    if str(camera.id) not in worker_stream_statuses():
+        try:
+            start_worker_stream(camera)
+        except HTTPException as exc:
+            print(f"annotated stream start failed for {camera.streamName}: {exc.detail}", flush=True)
+
+    remote_url = f"{WORKER_URL}/v1/streams/annotated.mjpeg?cameraId={quote(str(camera.id), safe='')}"
+    try:
+        response = urlopen(UrlRequest(remote_url, headers={"User-Agent": "VideoAI-Lite/1.0"}), timeout=60)
+    except HTTPError as error:
+        raise HTTPException(status_code=error.code, detail=f"Annotated stream request failed: {error.reason}") from error
+    except URLError as error:
+        raise HTTPException(status_code=502, detail=f"Annotated stream unavailable: {error.reason}") from error
+
+    def stream():
+        try:
+            while True:
+                chunk = response.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            response.close()
+
+    return StreamingResponse(stream(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.patch("/api/cameras/{camera_id}", response_model=CameraResponse)
 def update_camera(camera_id: UUID, request: CameraUpdateRequest):
     old = require_camera(camera_id)
-    stream_name = stream_name_from_source(request.sourceUrl) or old.streamName
     new_name = request.name if request.name is not None else old.name
     new_source_url = request.sourceUrl if request.sourceUrl is not None else old.sourceUrl
     new_description = request.description if request.description is not None else old.description
     new_area = request.area if request.area is not None else old.area
-    updated = old.model_copy(
-        update={
-            "name": new_name,
-            "sourceUrl": new_source_url,
-            "description": new_description,
-            "area": new_area,
-            "nvrId": clean_optional(request.nvrId),
-            "nvrChannel": clean_optional(request.nvrChannel),
-            "nvrTrackId": clean_optional(request.nvrTrackId),
-            "nvrStreamType": clean_optional(request.nvrStreamType),
-            "streamName": stream_name,
-            "playbackUrl": playback_url(new_source_url, stream_name),
-            "updatedAt": datetime.now(timezone.utc),
-        }
-    )
+    stream_name = stream_name_from_source(new_source_url) or old.streamName
+    update_payload = {
+        "name": new_name,
+        "sourceUrl": new_source_url,
+        "description": new_description,
+        "area": new_area,
+        "streamName": stream_name,
+        "playbackUrl": playback_url(new_source_url, stream_name),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    if request.nvrId is not None:
+        update_payload["nvrId"] = clean_optional(request.nvrId)
+    if request.nvrChannel is not None:
+        update_payload["nvrChannel"] = clean_optional(request.nvrChannel)
+    if request.nvrTrackId is not None:
+        update_payload["nvrTrackId"] = clean_optional(request.nvrTrackId)
+    if request.nvrStreamType is not None:
+        update_payload["nvrStreamType"] = clean_optional(request.nvrStreamType)
+    updated = camera_with_runtime_flags(old.model_copy(update=update_payload))
     cameras[camera_id] = updated
-    return updated
+    if updated.sourceUrl != old.sourceUrl or updated.streamName != old.streamName:
+        preview_relay_manager.stop_stream(old.streamName)
+    persist_cameras()
+    return camera_with_runtime_flags(updated)
 
 
 @app.delete("/api/cameras/{camera_id}")
 def delete_camera(camera_id: UUID):
     camera = cameras.pop(camera_id, None)
     if camera:
+        preview_relay_manager.stop_stream(camera.streamName)
         stop_worker_stream(camera_id)
         remove_zlmediakit_proxy(camera.streamName)
+        persist_cameras()
     return {}
 
 
@@ -438,8 +591,10 @@ def start_camera(camera_id: UUID):
     updated = camera.model_copy(update={"status": "RUNNING", "updatedAt": datetime.now(timezone.utc)})
     cameras[camera_id] = updated
     add_zlmediakit_proxy(updated.sourceUrl, updated.streamName)
-    start_worker_stream(updated)
-    return updated
+    if should_worker_stream(updated):
+        start_worker_stream(updated)
+    persist_cameras()
+    return camera_with_runtime_flags(updated)
 
 
 @app.post("/api/cameras/{camera_id}/stop", response_model=CameraResponse)
@@ -447,9 +602,25 @@ def stop_camera(camera_id: UUID):
     camera = require_camera(camera_id)
     updated = camera.model_copy(update={"status": "STOPPED", "updatedAt": datetime.now(timezone.utc)})
     cameras[camera_id] = updated
+    preview_relay_manager.stop_stream(updated.streamName)
     stop_worker_stream(camera_id)
     remove_zlmediakit_proxy(updated.streamName)
-    return updated
+    persist_cameras()
+    return camera_with_runtime_flags(updated)
+
+
+@app.post("/api/cameras/{camera_id}/ptz", response_model=PtzControlResponse)
+def control_camera_ptz(camera_id: UUID, request: PtzControlRequest):
+    camera = require_camera(camera_id)
+    target = resolve_hikvision_ptz_target(camera)
+    dispatch_hikvision_ptz(target, request)
+    return PtzControlResponse(
+        cameraId=camera.id,
+        command=request.command,
+        channel=target["channel"],
+        targetHost=urlparse(target["base_url"]).netloc,
+        ok=True,
+    )
 
 
 @app.get("/api/deployment-tasks", response_model=List[DeploymentTaskResponse])
@@ -474,10 +645,13 @@ def create_deployment_task(request: DeploymentTaskCreateRequest):
         faceProfileName=clean_optional(request.faceProfileName),
         faceProfilePhotoUrl=clean_optional(request.faceProfilePhotoUrl),
         cameraIds=list(request.cameraIds or []),
+        recognitionPerMinute=max(1, int(request.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE)),
         createdAt=now,
         updatedAt=now,
     )
     deployment_tasks_store[task_id] = task
+    persist_deployment_task(task)
+    sync_worker_streams_for_task(task)
     return task
 
 
@@ -516,8 +690,13 @@ def update_deployment_task(task_id: UUID, request: DeploymentTaskUpdateRequest):
         update_payload["faceProfilePhotoUrl"] = clean_optional(request.faceProfilePhotoUrl)
     if request.cameraIds is not None:
         update_payload["cameraIds"] = list(request.cameraIds)
+    if request.recognitionPerMinute is not None:
+        update_payload["recognitionPerMinute"] = max(1, int(request.recognitionPerMinute))
     updated = old.model_copy(update=update_payload)
     deployment_tasks_store[task_id] = updated
+    persist_deployment_task(updated)
+    sync_worker_streams_for_task(old)
+    sync_worker_streams_for_task(updated)
     return updated
 
 
@@ -526,6 +705,8 @@ def delete_deployment_task(task_id: UUID):
     task = deployment_tasks_store.pop(task_id, None)
     if not task:
         raise HTTPException(status_code=404, detail="Deployment task not found")
+    delete_deployment_task_from_db(task_id)
+    sync_worker_streams_for_task(task)
     return {"deleted": str(task_id)}
 
 
@@ -638,6 +819,53 @@ def snapshot_asset(filename: str):
     if not str(path).startswith(str(SNAPSHOT_STORAGE_DIR.resolve())) or not path.is_file():
         raise HTTPException(status_code=404, detail="Snapshot not found")
     return FileResponse(path)
+
+
+@app.post("/api/person-search/images", response_model=PersonSearchImageResponse)
+async def upload_person_search_image(request: Request, image: UploadFile = File(...)):
+    image_path = await save_query_image(image)
+    public_path = f"/api/assets/query-images/{image_path.name}"
+    public_base = BACKEND_PUBLIC_URL or str(request.base_url).rstrip("/")
+    return PersonSearchImageResponse(
+        imageUrl=f"{public_base}{public_path}",
+        imagePath=public_path,
+    )
+
+
+@app.get("/api/assets/query-images/{filename}")
+def query_image_asset(filename: str):
+    path = (QUERY_IMAGE_STORAGE_DIR / filename).resolve()
+    if not str(path).startswith(str(QUERY_IMAGE_STORAGE_DIR.resolve())) or not path.is_file():
+        raise HTTPException(status_code=404, detail="Query image not found")
+    return FileResponse(path)
+
+
+@app.post("/api/person-search/detect-persons")
+def detect_persons_proxy(request: PersonSearchDetectRequest):
+    return person_api_post("/vlm-application/search/detectPersons", {"image_url": required_text(request.imageUrl, "imageUrl")})
+
+
+@app.post("/api/person-search/search-by-bbox")
+def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest):
+    payload = {
+        "image_url": required_text(request.imageUrl, "imageUrl"),
+        "search_method": request.searchMethod or "reid",
+        "similarity_threshold": request.similarityThreshold,
+        "top_k": max(1, int(request.topK or 10)),
+    }
+    if request.bbox:
+        payload["bbox"] = request.bbox
+    if request.startTime:
+        payload["start_time"] = request.startTime
+    if request.endTime:
+        payload["end_time"] = request.endTime
+    return person_api_post("/vlm-application/search/searchPersonByBbox", payload)
+
+
+@app.get("/api/person-search/results/{task_id}")
+def person_search_result_proxy(task_id: str):
+    safe_task_id = required_text(task_id, "taskId")
+    return person_api_get(f"/vlm-application/search/searchPersonResult/{quote(safe_task_id, safe='')}")
 
 
 @app.get("/api/events", response_model=List[FaceEventResponse])
@@ -882,6 +1110,28 @@ def model_config(model_name: str):
     return {"name": model_name, "config": config}
 
 
+@app.get("/api/models/{model_name}/gpu", response_model=ModelGpuResponse)
+def model_gpu_config(model_name: str):
+    require_model(model_name)
+    config_path = model_config_path(model_name)
+    return ModelGpuResponse(
+        modelName=model_name,
+        gpuIds=parse_model_gpu_ids(config_path.read_text(encoding="utf-8")),
+        configPath=str(config_path),
+    )
+
+
+@app.patch("/api/models/{model_name}/gpu", response_model=ModelGpuResponse)
+def update_model_gpu_config(model_name: str, request: ModelGpuUpdateRequest):
+    require_model(model_name)
+    gpu_ids = normalize_gpu_ids(request.gpuIds)
+    config_path = model_config_path(model_name)
+    current = config_path.read_text(encoding="utf-8")
+    config_path.write_text(update_model_gpu_pbtxt(current, gpu_ids), encoding="utf-8")
+    reload_triton_model(model_name)
+    return ModelGpuResponse(modelName=model_name, gpuIds=gpu_ids, configPath=str(config_path))
+
+
 @app.get("/api/windows-camera/status", response_model=WindowsCameraStatus)
 def windows_camera_status():
     return build_windows_camera_status()
@@ -938,8 +1188,19 @@ def stop_windows_camera():
 
 @app.get("/api/live/{stream_name}.live.flv")
 def proxy_flv_stream(stream_name: str):
-    remote_url = f"{SRS_HTTP_URL}/live/{stream_name}.live.flv"
-    response = open_remote(remote_url)
+    camera = require_preview_camera(stream_name)
+    try:
+        remote_url = preview_relay_manager.acquire(stream_name, camera.sourceUrl)
+    except PreviewRelayTimeout as exc:
+        raise HTTPException(status_code=504, detail="Preview relay startup timed out") from exc
+    except PreviewRelayError as exc:
+        raise HTTPException(status_code=502, detail="Preview relay startup failed") from exc
+
+    try:
+        response = open_remote(remote_url)
+    except Exception:
+        preview_relay_manager.release(stream_name)
+        raise
 
     def stream():
         try:
@@ -950,8 +1211,23 @@ def proxy_flv_stream(stream_name: str):
                 yield chunk
         finally:
             response.close()
+            preview_relay_manager.release(stream_name)
 
     return StreamingResponse(stream(), media_type="video/x-flv")
+
+
+def require_preview_camera(stream_name: str) -> CameraResponse:
+    matches = [camera for camera in cameras.values() if camera.streamName == stream_name]
+    if not matches:
+        raise HTTPException(status_code=404, detail="Camera stream not found")
+    if len(matches) > 1:
+        raise HTTPException(status_code=409, detail="Camera stream name is not unique")
+    camera = matches[0]
+    if camera.status != "RUNNING":
+        raise HTTPException(status_code=409, detail="Camera is not running")
+    if not camera.sourceUrl.lower().startswith("rtsp://"):
+        raise HTTPException(status_code=400, detail="Camera does not provide an RTSP source")
+    return camera
 
 
 @app.get("/api/streams/{stream_app}/{playlist_name}.m3u8")
@@ -1065,6 +1341,16 @@ def require_camera(camera_id: UUID) -> CameraResponse:
     return camera
 
 
+def camera_with_runtime_flags(camera: CameraResponse) -> CameraResponse:
+    return camera.model_copy(update={"objectDetectionEnabled": is_dino_camera(camera)})
+
+
+def is_dino_camera(camera: CameraResponse) -> bool:
+    parsed = urlparse(camera.sourceUrl or "")
+    host = parsed.hostname or ""
+    return host in DINO_CAMERA_HOSTS
+
+
 def require_face(face_id: UUID) -> FaceProfileResponse:
     face = faces_store.get(face_id)
     if not face:
@@ -1079,11 +1365,230 @@ def require_deployment_task(task_id: UUID) -> DeploymentTaskResponse:
     return task
 
 
+def ensure_deployment_task_schema() -> None:
+    try:
+        from db import engine
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE deployment_tasks "
+                    "ADD COLUMN IF NOT EXISTS recognition_per_minute INTEGER NOT NULL DEFAULT 60"
+                )
+            )
+    except Exception as exc:
+        print(f"deployment task schema ensure failed: {exc}", flush=True)
+
+
+def load_deployment_tasks_from_db() -> None:
+    try:
+        from db import SessionLocal
+        from models import DeploymentTaskORM
+        with SessionLocal() as pgdb:
+            rows = pgdb.query(DeploymentTaskORM).all()
+            deployment_tasks_store.clear()
+            for row in rows:
+                deployment_tasks_store[row.id] = DeploymentTaskResponse(
+                    id=row.id,
+                    name=row.name,
+                    pipeline=row.pipeline,
+                    area=row.area,
+                    areaCount=int(row.area_count or 0),
+                    enabled=bool(row.enabled),
+                    taskStatus=row.task_status,
+                    desc=row.desc or "",
+                    faceProfileId=row.face_profile_id,
+                    faceProfileName=row.face_profile_name,
+                    faceProfilePhotoUrl=row.face_profile_photo_url,
+                    cameraIds=list(row.camera_ids or []),
+                    recognitionPerMinute=max(1, int(row.recognition_per_minute or DEFAULT_RECOGNITION_PER_MINUTE)),
+                    createdAt=row.created_at,
+                    updatedAt=row.updated_at,
+                )
+    except Exception as exc:
+        print(f"deployment task load failed: {exc}", flush=True)
+
+
+def persist_deployment_task(task: DeploymentTaskResponse) -> None:
+    try:
+        from db import SessionLocal
+        from models import DeploymentTaskORM
+        with SessionLocal() as pgdb:
+            row = pgdb.get(DeploymentTaskORM, task.id)
+            if row is None:
+                row = DeploymentTaskORM(id=task.id)
+                pgdb.add(row)
+            row.name = task.name
+            row.pipeline = task.pipeline
+            row.area = task.area
+            row.area_count = task.areaCount
+            row.enabled = task.enabled
+            row.desc = task.desc
+            row.task_status = task.taskStatus
+            row.face_profile_id = task.faceProfileId
+            row.face_profile_name = task.faceProfileName
+            row.face_profile_photo_url = task.faceProfilePhotoUrl
+            row.camera_ids = list(task.cameraIds or [])
+            row.recognition_per_minute = max(1, int(task.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE))
+            row.created_at = task.createdAt
+            row.updated_at = task.updatedAt
+            pgdb.commit()
+    except Exception as exc:
+        print(f"deployment task persist failed: {exc}", flush=True)
+
+
+def delete_deployment_task_from_db(task_id: UUID) -> None:
+    try:
+        from db import SessionLocal
+        from models import DeploymentTaskORM
+        with SessionLocal() as pgdb:
+            row = pgdb.get(DeploymentTaskORM, task_id)
+            if row is not None:
+                pgdb.delete(row)
+                pgdb.commit()
+    except Exception as exc:
+        print(f"deployment task delete failed: {exc}", flush=True)
+
+
 def require_model(model_name: str) -> ModelResponse:
     model = model_registry.get(model_name)
     if not model:
         raise HTTPException(status_code=404, detail="Model not registered")
     return model
+
+
+def resolve_hikvision_ptz_target(camera: CameraResponse) -> Dict[str, str]:
+    parsed_source = urlparse(camera.sourceUrl)
+    base_url, base_from_source = resolve_hikvision_base_url(camera, parsed_source)
+    if not base_url:
+        raise HTTPException(status_code=400, detail="Cannot resolve Hikvision NVR base URL")
+
+    channel = resolve_hikvision_ptz_channel(camera, parsed_source, base_from_source)
+    if not channel:
+        raise HTTPException(status_code=400, detail="Cannot resolve PTZ channel from camera NVR fields or RTSP URL")
+
+    username = unquote(parsed_source.username or "") or HIKVISION_NVR_USERNAME
+    password = unquote(parsed_source.password or "") or HIKVISION_NVR_PASSWORD
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Hikvision PTZ credentials are not configured")
+
+    return {
+        "base_url": base_url.rstrip("/"),
+        "channel": channel,
+        "username": username,
+        "password": password,
+    }
+
+
+def resolve_hikvision_ptz_channel(camera: CameraResponse, parsed_source, base_from_source: bool) -> Optional[str]:
+    source_track = parse_hikvision_track_id(parsed_source.path)
+    if base_from_source and source_track:
+        return normalize_hikvision_channel(source_track)
+
+    channel_source = clean_optional(camera.nvrChannel)
+    if channel_source:
+        return channel_source
+
+    track = clean_optional(camera.nvrTrackId) or source_track
+    return normalize_hikvision_channel(track)
+
+
+def resolve_hikvision_base_url(camera: CameraResponse, parsed_source) -> Tuple[Optional[str], bool]:
+    nvr_id = clean_optional(camera.nvrId)
+    if nvr_id:
+        if nvr_id.startswith(("http://", "https://")):
+            return nvr_id.rstrip("/"), False
+        if "." in nvr_id or ":" in nvr_id:
+            return f"http://{nvr_id}".rstrip("/"), False
+    if parsed_source.scheme in {"http", "https"} and parsed_source.netloc:
+        return f"{parsed_source.scheme}://{parsed_source.netloc}".rstrip("/"), True
+    if parsed_source.scheme == "rtsp" and parsed_source.hostname:
+        return f"http://{parsed_source.hostname}".rstrip("/"), True
+    if HIKVISION_NVR_BASE_URL:
+        return HIKVISION_NVR_BASE_URL, False
+    return None, False
+
+
+def parse_hikvision_track_id(path: str) -> Optional[str]:
+    match = re.search(r"/Streaming/Channels/(\d+)", path, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def normalize_hikvision_channel(track: Optional[str]) -> Optional[str]:
+    if not track:
+        return None
+    value = track.strip()
+    if value.isdigit() and len(value) >= 3 and value.endswith(("01", "02")):
+        value = str(int(value[:-2]))
+    return value or None
+
+
+def dispatch_hikvision_ptz(target: Dict[str, str], request: PtzControlRequest) -> None:
+    command = request.command.strip().lower()
+    if command in {"up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right", "zoom_in", "zoom_out", "stop"}:
+        pan, tilt, zoom = ptz_vector(command, request.step)
+        body = f"<PTZData><pan>{pan}</pan><tilt>{tilt}</tilt><zoom>{zoom}</zoom></PTZData>"
+        hikvision_xml_request(target, "PUT", f"/ISAPI/PTZCtrl/channels/{target['channel']}/continuous", body)
+        return
+    if command == "home":
+        hikvision_xml_request(target, "PUT", f"/ISAPI/PTZCtrl/channels/{target['channel']}/homeposition/goto", "")
+        return
+    if command == "preset_goto":
+        preset = request.preset or 0
+        if preset < 1 or preset > 255:
+            raise HTTPException(status_code=400, detail="Preset must be between 1 and 255")
+        hikvision_xml_request(target, "PUT", f"/ISAPI/PTZCtrl/channels/{target['channel']}/presets/{preset}/goto", "")
+        return
+    raise HTTPException(status_code=400, detail=f"Unsupported PTZ command: {request.command}")
+
+
+def ptz_vector(command: str, raw_step: int) -> Tuple[int, int, int]:
+    step = max(1, min(10, int(raw_step or 1))) * 10
+    vectors = {
+        "up": (0, step, 0),
+        "down": (0, -step, 0),
+        "left": (-step, 0, 0),
+        "right": (step, 0, 0),
+        "up_left": (-step, step, 0),
+        "up_right": (step, step, 0),
+        "down_left": (-step, -step, 0),
+        "down_right": (step, -step, 0),
+        "zoom_in": (0, 0, step),
+        "zoom_out": (0, 0, -step),
+        "stop": (0, 0, 0),
+    }
+    return vectors[command]
+
+
+def hikvision_xml_request(target: Dict[str, str], method: str, path: str, body: str) -> None:
+    url = f"{target['base_url']}{path}"
+    headers = {"Content-Type": "application/xml"} if body else {}
+    auths = (
+        HTTPDigestAuth(target["username"], target["password"]),
+        HTTPBasicAuth(target["username"], target["password"]),
+    )
+    last_detail = ""
+    for auth in auths:
+        try:
+            response = requests.request(
+                method,
+                url,
+                data=body.encode("utf-8") if body else None,
+                headers=headers,
+                auth=auth,
+                timeout=PTZ_HTTP_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as exc:
+            last_detail = str(exc)
+            continue
+        if 200 <= response.status_code < 300:
+            return
+        last_detail = response.text.strip() or response.reason
+        if response.status_code != 401:
+            raise HTTPException(status_code=502, detail=f"Hikvision PTZ request failed ({response.status_code}): {last_detail}")
+    raise HTTPException(status_code=502, detail=f"Hikvision PTZ request failed: {last_detail or 'authentication failed'}")
 
 
 def seed_model_registry() -> None:
@@ -1143,6 +1648,28 @@ def seed_model_registry() -> None:
             )
 
 
+def load_cameras_from_disk() -> bool:
+    cameras.clear()
+    if not CAMERA_METADATA_FILE.is_file():
+        return False
+    try:
+        raw_cameras = json.loads(CAMERA_METADATA_FILE.read_text(encoding="utf-8"))
+        for raw in raw_cameras:
+            camera = CameraResponse(**raw)
+            cameras[camera.id] = camera
+    except Exception as exc:
+        print(f"failed to load camera metadata: {exc}", flush=True)
+        cameras.clear()
+        return False
+    return True
+
+
+def persist_cameras() -> None:
+    CAMERA_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    data = [json.loads(camera.model_dump_json()) for camera in sorted(cameras.values(), key=lambda item: item.createdAt)]
+    CAMERA_METADATA_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def seed_cameras() -> None:
     if cameras:
         return
@@ -1159,8 +1686,7 @@ def seed_cameras() -> None:
             f"cam{index:02d}",
         ))
 
-    nvr65_streams = {0, 1}
-    for idx, (name, source_url, stream_name) in enumerate(camera_entries):
+    for name, source_url, stream_name in camera_entries:
         camera_id = uuid4()
         cameras[camera_id] = CameraResponse(
             id=camera_id,
@@ -1180,7 +1706,7 @@ def seed_cameras() -> None:
             nvrStreamType=None,
         )
         add_zlmediakit_proxy(source_url, stream_name)
-        if idx in nvr65_streams:
+        if should_worker_stream(cameras[camera_id]):
             try:
                 start_worker_stream(cameras[camera_id])
             except Exception as exc:
@@ -1280,6 +1806,85 @@ def triton_request(path: str, method: str = "GET", payload: Optional[object] = N
         raise HTTPException(status_code=502, detail="Triton returned invalid JSON") from exc
 
 
+def model_config_path(model_name: str) -> Path:
+    safe_name = model_name.strip()
+    if not safe_name or safe_name in {".", ".."} or "/" in safe_name or "\\" in safe_name:
+        raise HTTPException(status_code=400, detail="Invalid model name")
+    config_path = (TRITON_MODEL_REPOSITORY / safe_name / "config.pbtxt").resolve()
+    repository_root = TRITON_MODEL_REPOSITORY.resolve()
+    if not str(config_path).startswith(str(repository_root)) or not config_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Triton model config not found: {safe_name}")
+    return config_path
+
+
+def normalize_gpu_ids(raw_gpu_ids: List[int]) -> List[int]:
+    gpu_ids: List[int] = []
+    for raw in raw_gpu_ids:
+        if isinstance(raw, bool):
+            raise HTTPException(status_code=400, detail="gpuIds must contain non-negative integers")
+        try:
+            gpu_id = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="gpuIds must contain non-negative integers") from exc
+        if gpu_id < 0:
+            raise HTTPException(status_code=400, detail="gpuIds must contain non-negative integers")
+        if gpu_id not in gpu_ids:
+            gpu_ids.append(gpu_id)
+    if not gpu_ids:
+        raise HTTPException(status_code=400, detail="gpuIds must not be empty")
+    return gpu_ids
+
+
+def parse_model_gpu_ids(pbtxt: str) -> List[int]:
+    group_match = re.search(r"instance_group\s*\[\s*\{(?P<body>.*?)\}\s*\]", pbtxt, flags=re.DOTALL)
+    if group_match is None:
+        return []
+    gpu_match = re.search(r"gpus\s*:\s*\[(?P<ids>[^\]]*)\]", group_match.group("body"))
+    if gpu_match is None:
+        return []
+    gpu_ids: List[int] = []
+    for raw in gpu_match.group("ids").split(","):
+        value = raw.strip()
+        if not value:
+            continue
+        try:
+            gpu_ids.append(int(value))
+        except ValueError:
+            continue
+    return gpu_ids
+
+
+def update_model_gpu_pbtxt(pbtxt: str, gpu_ids: List[int]) -> str:
+    cleaned = re.sub(
+        r"\n?instance_group\s*\[\s*\{.*?\}\s*\]\s*",
+        "\n",
+        pbtxt.rstrip(),
+        flags=re.DOTALL,
+    ).rstrip()
+    gpu_list = ", ".join(str(gpu_id) for gpu_id in gpu_ids)
+    instance_group = (
+        "\ninstance_group [\n"
+        "  {\n"
+        "    kind: KIND_GPU\n"
+        "    count: 1\n"
+        f"    gpus: [{gpu_list}]\n"
+        "  }\n"
+        "]\n"
+    )
+    return cleaned + "\n" + instance_group
+
+
+def reload_triton_model(model_name: str) -> None:
+    encoded = quote(model_name, safe="")
+    try:
+        triton_request(f"/v2/repository/models/{encoded}/unload", method="POST", payload={})
+    except HTTPException as exc:
+        print(f"Triton unload skipped for {model_name}: {exc.detail}", flush=True)
+    triton_request(f"/v2/repository/models/{encoded}/load", method="POST", payload={})
+    update_model_state(model_name, "LOADING")
+    refresh_model_states()
+
+
 async def save_face_photo(face_id: UUID, photo: UploadFile) -> str:
     if not photo.content_type or not photo.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Only image files are supported")
@@ -1295,6 +1900,67 @@ async def save_face_photo(face_id: UUID, photo: UploadFile) -> str:
                 break
             output.write(chunk)
     return f"/api/assets/faces/{filename}"
+
+
+async def save_query_image(image: UploadFile) -> Path:
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files are supported")
+    suffix = Path(image.filename or "").suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+        suffix = ".jpg"
+    path = QUERY_IMAGE_STORAGE_DIR / f"{uuid4()}{suffix}"
+    total_bytes = 0
+    with path.open("wb") as output:
+        while True:
+            chunk = await image.read(1024 * 1024)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > 20 * 1024 * 1024:
+                path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail="Image file must be 20 MB or smaller")
+            output.write(chunk)
+    if total_bytes == 0:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Image file is empty")
+    return path
+
+
+def person_api_post(path: str, payload: dict) -> dict:
+    if not PERSON_API_BASE_URL:
+        raise HTTPException(status_code=500, detail="PERSON_API_BASE_URL is not configured")
+    try:
+        response = requests.post(f"{PERSON_API_BASE_URL}{path}", json=payload, timeout=60)
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Person search API unavailable: {exc}") from exc
+    return parse_person_api_response(response)
+
+
+def person_api_get(path: str) -> dict:
+    if not PERSON_API_BASE_URL:
+        raise HTTPException(status_code=500, detail="PERSON_API_BASE_URL is not configured")
+    try:
+        response = requests.get(f"{PERSON_API_BASE_URL}{path}", timeout=60)
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Person search API unavailable: {exc}") from exc
+    return parse_person_api_response(response)
+
+
+def parse_person_api_response(response: requests.Response) -> dict:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {"message": response.text}
+    if 200 <= response.status_code < 300:
+        return payload if isinstance(payload, dict) else {"data": payload}
+    raise HTTPException(status_code=response.status_code, detail=payload)
+
+
+def required_text(value: str, name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail=f"{name} is required")
+    return normalized
 
 
 def load_faces_from_disk() -> None:
@@ -1438,11 +2104,63 @@ def cosine_similarity(left: List[float], right: List[float]) -> float:
     return dot / denominator
 
 
+def active_face_targets_for_camera(camera: CameraResponse) -> List[dict]:
+    targets: List[dict] = []
+    camera_id = str(camera.id)
+    for task in deployment_tasks_store.values():
+        if not task.enabled or task.taskStatus.lower() != "running" or task.faceProfileId is None:
+            continue
+        if camera_id not in set(task.cameraIds or []):
+            continue
+        targets.append(
+            {
+                "faceProfileId": str(task.faceProfileId),
+                "deploymentTaskId": str(task.id),
+                "recognitionPerMinute": max(1, int(task.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE)),
+            }
+        )
+    return targets
+
+
+def should_worker_stream(camera: CameraResponse) -> bool:
+    return is_dino_camera(camera) or bool(active_face_targets_for_camera(camera))
+
+
+def sync_worker_streams_for_task(task: DeploymentTaskResponse) -> None:
+    for raw_camera_id in task.cameraIds or []:
+        try:
+            camera_id = UUID(str(raw_camera_id))
+        except ValueError:
+            continue
+        camera = cameras.get(camera_id)
+        if camera is not None:
+            sync_worker_stream(camera)
+
+
+def sync_worker_stream(camera: CameraResponse) -> None:
+    try:
+        if camera.status == "RUNNING" and should_worker_stream(camera):
+            start_worker_stream(camera)
+        else:
+            stop_worker_stream(camera.id)
+    except HTTPException as exc:
+        print(f"sync_worker_stream failed for {camera.streamName}: {exc.detail}", flush=True)
+    except Exception as exc:
+        print(f"sync_worker_stream failed for {camera.streamName}: {exc}", flush=True)
+
+
 def start_worker_stream(camera: CameraResponse) -> None:
+    object_detection_enabled = is_dino_camera(camera)
+    face_targets = active_face_targets_for_camera(camera)
     payload = {
         "cameraId": str(camera.id),
         "cameraName": camera.name,
         "streamUrl": worker_stream_url(camera),
+        "faceProfileId": face_targets[0]["faceProfileId"] if face_targets else None,
+        "deploymentTaskId": face_targets[0]["deploymentTaskId"] if face_targets else None,
+        "faceTargets": face_targets,
+        "faceDetectionEnabled": bool(face_targets),
+        "objectDetectionEnabled": object_detection_enabled,
     }
     worker_request("/v1/streams/start", payload)
 
@@ -1455,6 +2173,18 @@ def worker_stream_url(camera: CameraResponse) -> str:
     if camera.sourceUrl.startswith("rtsp://"):
         return f"{SRS_HTTP_URL}/{camera.streamApp}/{camera.streamName}.live.flv"
     return camera.sourceUrl
+
+
+def worker_stream_statuses() -> Dict[str, str]:
+    request = UrlRequest(f"{WORKER_URL}/v1/streams", headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        streams = payload.get("streams", {})
+        return streams if isinstance(streams, dict) else {}
+    except Exception as exc:
+        print(f"worker stream status unavailable: {exc}", flush=True)
+        return {}
 
 
 def worker_request(path: str, payload: object) -> None:
@@ -1475,11 +2205,18 @@ def worker_request(path: str, payload: object) -> None:
         raise HTTPException(status_code=502, detail=f"Worker is not reachable at {WORKER_URL}: {exc.reason}") from exc
 
 
-def add_zlmediakit_proxy(source_url: str, stream_name: str) -> None:
+def add_zlmediakit_proxy(source_url: str, stream_name: str, force_restart: bool = False) -> None:
     if not source_url.startswith("rtsp://"):
         return
+    if use_ffmpeg_live_relay(stream_name):
+        start_ffmpeg_live_relay(source_url, stream_name, force_restart=force_restart)
+        return
     proxy_url = f"{SRS_HTTP_URL}/index/api/addStreamProxy"
-    params = f"secret={quote(ZLM_SECRET, safe='')}&vhost=__defaultVhost__&app=live&stream={quote(stream_name, safe='')}&url={quote(source_url, safe='')}&enable_rtsp=1&enable_rtmp=1&enable_hls=1&enable_fmp4=1"
+    params = (
+        f"secret={quote(ZLM_SECRET, safe='')}&vhost=__defaultVhost__&app=live"
+        f"&stream={quote(stream_name, safe='')}&url={quote(source_url, safe='')}"
+        "&enable_rtsp=1&enable_rtmp=1&enable_hls=1&enable_fmp4=1&enable_audio=0&modify_stamp=2&auto_close=0"
+    )
     try:
         with urlopen(UrlRequest(f"{proxy_url}?{params}", method="GET"), timeout=15) as resp:
             body = resp.read().decode("utf-8", errors="replace")
@@ -1497,6 +2234,11 @@ def add_zlmediakit_proxy(source_url: str, stream_name: str) -> None:
 
 
 def remove_zlmediakit_proxy(stream_name: str) -> None:
+    stop_ffmpeg_live_relay(stream_name)
+    close_zlmediakit_stream(stream_name)
+
+
+def close_zlmediakit_stream(stream_name: str) -> None:
     close_url = f"{SRS_HTTP_URL}/index/api/close_streams"
     params = f"secret={quote(ZLM_SECRET, safe='')}&vhost=__defaultVhost__&app=live&stream={quote(stream_name, safe='')}&force=1"
     try:
@@ -1504,6 +2246,101 @@ def remove_zlmediakit_proxy(stream_name: str) -> None:
             resp.read()
     except Exception:
         pass
+
+
+def use_ffmpeg_live_relay(stream_name: str) -> bool:
+    if LIVE_RTSP_RELAY_MODE in {"ffmpeg", "all", "1", "true", "yes"}:
+        return True
+    if LIVE_RTSP_RELAY_MODE in {"zlm", "direct", "0", "false", "no"}:
+        return False
+    return stream_name in LIVE_FFMPEG_RELAY_STREAMS
+
+
+def start_ffmpeg_live_relay(source_url: str, stream_name: str, force_restart: bool = False) -> None:
+    if not shutil.which(FFMPEG_BIN):
+        print(f"ffmpeg relay unavailable for {stream_name}: {FFMPEG_BIN} not found", flush=True)
+        add_zlmediakit_stream_proxy(source_url, stream_name)
+        return
+
+    with live_relay_lock:
+        existing = live_relay_processes.get(stream_name)
+        if existing and existing.poll() is None:
+            if not force_restart:
+                return
+            terminate_process(existing)
+        live_relay_processes.pop(stream_name, None)
+
+    close_zlmediakit_stream(stream_name)
+    publish_url = f"{ZLM_RTMP_PUSH_BASE}/{quote(stream_name, safe='')}"
+    try:
+        process = subprocess.Popen(
+            [
+                FFMPEG_BIN,
+                "-hide_banner",
+                "-loglevel",
+                "warning",
+                "-rtsp_transport",
+                "tcp",
+                "-i",
+                source_url,
+                "-an",
+                "-c:v",
+                "copy",
+                "-f",
+                "flv",
+                publish_url,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as exc:
+        print(f"ffmpeg relay failed for {stream_name}: {exc}", flush=True)
+        add_zlmediakit_stream_proxy(source_url, stream_name)
+        return
+
+    with live_relay_lock:
+        live_relay_processes[stream_name] = process
+    print(f"ffmpeg relay started for {stream_name}", flush=True)
+
+
+def stop_ffmpeg_live_relay(stream_name: str) -> None:
+    with live_relay_lock:
+        process = live_relay_processes.pop(stream_name, None)
+    if process and process.poll() is None:
+        terminate_process(process)
+
+
+def terminate_process(process: subprocess.Popen) -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=4)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=2)
+
+
+def add_zlmediakit_stream_proxy(source_url: str, stream_name: str) -> None:
+    proxy_url = f"{SRS_HTTP_URL}/index/api/addStreamProxy"
+    params = (
+        f"secret={quote(ZLM_SECRET, safe='')}&vhost=__defaultVhost__&app=live"
+        f"&stream={quote(stream_name, safe='')}&url={quote(source_url, safe='')}"
+        "&enable_rtsp=1&enable_rtmp=1&enable_hls=1&enable_fmp4=1&enable_audio=0&modify_stamp=2&auto_close=0"
+    )
+    try:
+        with urlopen(UrlRequest(f"{proxy_url}?{params}", method="GET"), timeout=15) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        print(f"ZLM addStreamProxy failed for {stream_name}: {exc}", flush=True)
+        return
+    try:
+        result = json.loads(body)
+        if result.get("code") != 0:
+            print(f"ZLM addStreamProxy error for {stream_name}: {body}", flush=True)
+        else:
+            print(f"ZLM addStreamProxy OK for {stream_name}", flush=True)
+    except Exception:
+        print(f"ZLM addStreamProxy unexpected response for {stream_name}: {body}", flush=True)
 
 
 def stream_proxy_guard_loop() -> None:
@@ -1517,10 +2354,51 @@ def stream_proxy_guard_loop() -> None:
                     continue
                 if camera.streamName not in active_streams:
                     print(f"stream_proxy_guard: re-adding proxy for {camera.streamName}", flush=True)
-                    add_zlmediakit_proxy(camera.sourceUrl, camera.streamName)
+                    add_zlmediakit_proxy(camera.sourceUrl, camera.streamName, force_restart=True)
+            ensure_worker_streams()
         except Exception as exc:
             print(f"stream_proxy_guard failed: {exc}", flush=True)
         proxy_guard_stop_event.wait(30)
+
+
+def ensure_dino_worker_streams() -> None:
+    ensure_worker_streams()
+
+
+def ensure_worker_streams() -> None:
+    statuses = worker_stream_statuses()
+    for camera in cameras.values():
+        if camera.status != "RUNNING" or not should_worker_stream(camera):
+            if str(camera.id) in statuses:
+                try:
+                    stop_worker_stream(camera.id)
+                except HTTPException as exc:
+                    print(f"ensure_worker_streams failed to stop {camera.streamName}: {exc.detail}", flush=True)
+                except Exception as exc:
+                    print(f"ensure_worker_streams failed to stop {camera.streamName}: {exc}", flush=True)
+            continue
+        if str(camera.id) in statuses:
+            continue
+        try:
+            start_worker_stream(camera)
+        except HTTPException as exc:
+            print(f"ensure_worker_streams failed for {camera.streamName}: {exc.detail}", flush=True)
+        except Exception as exc:
+            print(f"ensure_worker_streams failed for {camera.streamName}: {exc}", flush=True)
+
+
+def restore_running_camera_streams() -> None:
+    for camera in cameras.values():
+        if camera.status != "RUNNING":
+            continue
+        try:
+            add_zlmediakit_proxy(camera.sourceUrl, camera.streamName)
+            if should_worker_stream(camera):
+                start_worker_stream(camera)
+        except HTTPException as exc:
+            print(f"restore_running_camera_streams failed for {camera.streamName}: {exc.detail}", flush=True)
+        except Exception as exc:
+            print(f"restore_running_camera_streams failed for {camera.streamName}: {exc}", flush=True)
 
 
 def _fetch_active_streams() -> set[str]:
@@ -1948,12 +2826,16 @@ def stream_name_from_source(source_url: str) -> Optional[str]:
 def playback_url(source_url: str, fallback_stream: str) -> str:
     stream_name = stream_name_from_source(source_url) or fallback_stream
     if source_url.startswith("rtsp://"):
-        return f"/api/streams/live/{quote(stream_name, safe='')}.mjpeg"
+        return zlm_live_flv_url(stream_name)
     if stream_name and is_internal_stream_url(source_url):
-        return f"/api/streams/live/{quote(stream_name, safe='')}.mjpeg"
+        return zlm_live_flv_url(stream_name)
     if source_url.startswith("http://") or source_url.startswith("https://"):
         return source_url
     return f"/api/streams/live/{quote(stream_name, safe='')}.mjpeg"
+
+
+def zlm_live_flv_url(stream_name: str) -> str:
+    return f"{SRS_PUBLIC_HTTP_URL}/live/{quote(stream_name, safe='')}.live.flv"
 
 
 def is_internal_stream_url(source_url: str) -> bool:

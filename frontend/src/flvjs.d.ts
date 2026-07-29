@@ -9,6 +9,10 @@ declare module 'flv.js' {
     enableWorker?: boolean;
     enableStashBuffer?: boolean;
     stashInitialSize?: number;
+    autoCleanupSourceBuffer?: boolean;
+    autoCleanupMaxBackwardDuration?: number;
+    autoCleanupMinBackwardDuration?: number;
+    fixAudioTimestampGap?: boolean;
   };
 
   export type Player = {

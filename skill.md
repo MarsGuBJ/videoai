@@ -7,7 +7,7 @@
 ## Output Contract
 
 - 所有工具调用的输出**仅返回 `xml` 字段内容**，不输出 JSON 的 `data` 字段
-- XML 标签名与工具一一对应：`list_cameras` → `<sxin-camera-list>`，`get_live_stream` → `<sxin-camera-flow>`，`search_recordings` → `<sxin-video-list>`，`get_recording_stream` → `<sxin-video-file>`
+- XML 标签名与工具一一对应：`list_cameras` → `<sxin-camera-list>`，`get_live_stream` → `<sxin-camera-flow>`，`search_recordings` → `<sxin-video-list>`，`dino_events` → `<sxin-dino-event-list>`
 - 禁止在最终回复中输出原始 JSON 结构或 `data` 数组
 - 如果 XML 中无数据（如 count="0"），直接告知用户"无结果"，不输出空 XML
 
@@ -104,55 +104,36 @@
 
 ---
 
-### 3. search_recordings — 查询历史录像
+### 3. search_recordings — 查询历史录像流
 
-按时间范围搜索 NVR 上的录像文件。支持三种查询模式：
-- 指定 `cameraId`：按摄像头绑定的 NVR 通道查询
-- 指定 `trackId`（不传 `cameraId`）：直接按通道号查询
-- 两者都不传：遍历所有 58 个通道（101~158）
+按时间范围从 `192.168.11.198:8000` 的通道 `1` 使用 HCNetSDK 回调取流，并通过 ZLMediaKit 代理成 FLV 播放地址。
 
-当 ISAPI 接口不可用时，自动降级为 RTSP 直连模式（`source: hikvision_rtsp_fallback`），返回覆盖完整时间范围的单条录像片段，同时携带 `snapshotUrl` 等回放所需元数据。
+只返回一条覆盖完整时间范围的录像记录。`autoProxy=true` 时由 ffmpeg 把 HCNetSDK 回调码流转推至 ZLMediaKit，并返回 FLV `url`。当前设备实测同通道稳定支持 2 路并发回放流。
 
 **参数**：
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `cameraId` | string | 否 | 摄像头 ID，与 trackId 二选一 |
-| `trackId` | string | 否 | NVR 通道号（如 101），与 cameraId 二选一 |
+| `cameraId` | string | 否 | 兼容字段，演示模式下不决定 NVR 查询通道 |
+| `trackId` | string | 否 | 兼容字段，当前固定使用 192.168.11.198 通道 1 |
 | `startTime` | string | 否 | 开始时间，ISO 8601 格式（默认当天 00:00:00） |
 | `endTime` | string | 否 | 结束时间，ISO 8601 格式（默认当前时间） |
-| `limit` | int | 否 | 最大返回数（默认 50，上限 200） |
+| `limit` | int | 否 | 兼容字段，当前固定只返回 1 条 |
 
-**XML 响应（ISAPI 模式）**：
+**XML 响应**：
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <sxin-video-list count="2">
  <recording
    recordingId="abc123def456..."
-   cameraId="95fb9b8d-d3a8-4ab6-b0cd-c874b67024c4"
-   cameraName="1205实验室"
-   trackId="101"
+   cameraId="192.168.11.198-channel-1"
+   cameraName="IPC-192.168.11.198-1"
+   trackId="1"
    startTime="2026-06-25T10:00:00+08:00"
-   endTime="2026-06-25T10:05:00+08:00"
-   source="hikvision_nvr_recording"
-   nvrId="192.168.11.251">
-  </recording>
-</sxin-video-list>
-```
-
-**XML 响应（RTSP 降级模式）**：
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<sxin-video-list count="1">
- <recording
-   recordingId="7102c405563dd47a472948f353802e27"
-   cameraId="test-101"
-   cameraName="NVR-101"
-   trackId="101"
-   startTime="2026-06-29T00:00:00+00:00"
-   endTime="2026-06-29T23:59:59+00:00"
-   source="hikvision_rtsp_fallback"
-   nvrId="192.168.11.251">
+   endTime="2026-06-25T11:00:00+08:00"
+   source="hikvision_hcnetsdk_playback"
+   url="http://example.com/live/hcn-7102c405563d-a1b2c3d4.live.flv"
+   nvrId="">
   </recording>
 </sxin-video-list>
 ```
@@ -161,91 +142,103 @@
 
 | 属性 | 说明 |
 |------|------|
-| `recordingId` | 录像唯一标识，用于 get_recording_stream |
+| `recordingId` | 录像唯一标识 |
 | `startTime` / `endTime` | 录像起止时间 |
-| `trackId` | NVR 通道号 |
-| `nvrId` | NVR 设备标识 |
-| `source` | `hikvision_nvr_recording`（ISAPI）/ `hikvision_rtsp_fallback`（RTSP 降级） |
+| `trackId` | 固定通道 `1` |
+| `source` | `hikvision_hcnetsdk_playback` |
+| `url` | **FLV 地址**，由 ffmpeg 把 HCNetSDK 回调码流转推至 ZLMediaKit，再由 ZLMediaKit 输出，浏览器可直接播放 |
 
 ---
 
-### 4. get_recording_stream — 获取录像回放地址
+### 4. download_recording — 下载历史录像 MP4
+
+按时间范围从 `192.168.11.198:8000` 的通道 `1` 使用 `NET_DVR_GetFileByTime` 下载录像，转为 MP4 后保存到 MinIO，返回 MP4 文件 URL。
 
 **参数**：
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `recordingId` | string | 是 | 从 search_recordings 获取的录像 ID |
-| `format` | string | 否 | 播放格式（默认 "hls"，RTSP 降级录像返回 "mjpeg"） |
+| `startTime` | string | 是 | 开始时间，ISO 8601 格式；无时区时按北京时间 |
+| `endTime` | string | 是 | 结束时间，必须晚于 startTime；无时区时按北京时间 |
 
-**XML 响应（HLS 回放）**：
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<sxin-video-file
-  url="http://192.168.11.194:5174/live/recording-abc123.m3u8"
-  format="hls"
-  source="hikvision_nvr_recording"
-  expiresAt="2026-06-25T10:15:00+00:00"
-  cameraId="95fb9b8d-d3a8-4ab6-b0cd-c874b67024c4"
-  cameraName="1205实验室"
-  recordingId="abc123def456..."
-  trackId="101"
-  startTime="2026-06-25T10:00:00+08:00"
-  endTime="2026-06-25T10:05:00+08:00">
-</sxin-video-file>
+**HTTP 示例**：
+```bash
+curl -X POST http://192.168.11.194:8097/download_recording-http \
+  -H 'Content-Type: application/json' \
+  -d '{"startTime":"2026-07-14T11:22:10+08:00","endTime":"2026-07-14T11:23:10+08:00"}'
 ```
 
-**XML 响应（MJPEG 快照回放，RTSP 降级模式）**：
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<sxin-video-file
-  url="http://192.168.11.194:8100/stream.mjpeg"
-  format="mjpeg"
-  source="hikvision_http_snapshot"
-  expiresAt="2026-06-29T14:22:00+00:00"
-  cameraId="test-101"
-  cameraName="NVR-101"
-  recordingId="7102c405563dd47a472948f353802e27"
-  trackId="101"
-  startTime="2026-06-29T00:00:00+00:00"
-  endTime="2026-06-29T23:59:59+00:00">
-</sxin-video-file>
-```
+**返回要点**：
 
-**属性说明**：
-
-| 属性 | 说明 |
+| 字段 | 说明 |
 |------|------|
-| `url` | 回放流地址（HLS .m3u8 或 MJPEG ） |
-| `format` | 播放格式：`hls`（ISAPI 模式）/ `mjpeg`（RTSP 降级模式，~6fps 快照流） |
-| `expiresAt` | URL 过期时间（默认 300 秒），过期后需重新调用 |
-| `startTime` / `endTime` | 录像片段起止时间 |
+| `data[0].url` | MinIO MP4 文件 URL，例如 `http://192.168.11.194:9000/public/recordings/192.168.11.198/ch1/<recordingId>.mp4` |
+| `data[0].format` | 固定为 `mp4` |
+| `data[0].source` | `hikvision_hcnetsdk_download` |
+| `data[0].metadata.objectName` | MinIO 对象名 |
 
 ---
 
-### 5. upload_face_image — 算法布控
+### 5. dino_events — 查询 DINO 视觉事件
 
-将附件上传的图片通过skill:image-to-base64转为base64编码，上传 base64 编码到人脸库。人脸库只能保存一张图片，新上传会覆盖旧图片。返回 faceId 用于后续获取布控结果。
+返回 10 条 DINO Object Detection 事件 mock 数据。
 
 **参数**：
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `imageBase64` | string | 是 | 图片的 base64 编码数据 |
-| `cameraId` | string | 是 | 摄像头 ID（当前为预留参数） |
-| `modelName` | string | 是 | 算法模型名称（如 scrfd_10g），当前为预留参数 |
-| `name` | string | 否 | 人脸姓名（默认 "人脸库照片"） |
+| `limit` | int | 否 | 返回条数（默认 10，最大 10） |
+
+**XML 响应**：
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<sxin-dino-event-list count="10">
+ <event
+   eventId="dino-mock-001"
+   eventSource="视觉平台"
+   eventType="DINO Object Detection"
+   eventStatus="有效"
+   eventLevel="1"
+   eventLocation="摄像头101"
+   occurredAt="2026-07-07T09:00:00+08:00"
+   reportedAt="2026-07-07T09:00:00+08:00"
+   eventImage="data:image/svg+xml;charset=utf-8,..."
+   eventDescription="无">
+  </event>
+</sxin-dino-event-list>
+```
+
+---
+
+### 6. upload_face_image — 算法布控
+
+通过图片 URL 上传人脸照片到人脸库，并按传入参数创建一个启用状态的人脸布控任务。MCP Server 会下载该 URL 指向的图片并写入人脸库；人脸库只能保存一张图片，新上传会覆盖旧图片。创建的布控任务会出现在布控任务页面，默认 `enabled=true` 且 `taskStatus=running`。
+
+**参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `imageUrl` | string | 是 | 图片 URL，必须可由 MCP Server 访问 |
+| `cameraId` | string | 是 | 摄像头 ID，布控任务会绑定到该摄像头 |
+| `modelName` | string | 是 | 算法模型名称（如 scrfd_10g），作为布控任务流程名 |
+| `name` | string | 否 | 人脸姓名，同时作为布控任务名称（默认 "人脸库照片"） |
 
 **响应**：
 ```json
 {
-  "faceId": "5e0a5730-a07e-4404-9774-a75621642542"
+  "faceId": "5e0a5730-a07e-4404-9774-a75621642542",
+  "deploymentTaskId": "6f3d3c25-3d75-4c28-bd4f-0c7184f5487b",
+  "deploymentTask": {
+    "enabled": true,
+    "taskStatus": "running",
+    "cameraIds": ["camera-id"]
+  }
 }
 ```
 
 ---
 
-### 6. query_face_matches — 获取算法布控结果
+### 7. query_face_matches — 获取算法布控结果
 
 查询多路实时识别匹配上的人像数据。按视频时间倒序排列。
 
@@ -289,7 +282,7 @@
 | URI | 说明 |
 |-----|------|
 | `videoai://cameras/{cameraId}` | 获取单个摄像头详情 |
-| `videoai://recordings/{recordingId}` | 获取缓存的录像记录（不含 playbackUri） |
+| `videoai://recordings/{recordingId}` | 获取缓存的录像记录（含 `url`） |
 
 ---
 
@@ -303,22 +296,17 @@
 
 ### 回放历史录像
 
-三种查询方式：
+两种查询方式：
 
-1. **按摄像头查询**（摄像头已绑定 NVR 通道）：
-   1. `list_cameras` → 确认摄像头有 `nvrBinding="true"`
-   2. `search_recordings(cameraId="{id}", startTime="...", endTime="...")` → 获取 `<sxin-video-list>`
-   3. `get_recording_stream(recordingId="{id}")` → 获取播放 URL
+1. **流式回放**：
+   1. `search_recordings(startTime="...", endTime="...")` → 使用 HCNetSDK 回调推流，返回 FLV `url`
 
-2. **按通道号直接查询**（无需摄像头）：
-   1. `search_recordings(trackId="101", startTime="...", endTime="...")` → 直接搜索指定通道
-
-3. **遍历全部通道**（NVR 所有 58 路）：
-   1. `search_recordings(startTime="...", endTime="...")` → 自动遍历 101~158，返回按时间分片的录像片段
+2. **下载 MP4**：
+   1. `download_recording(startTime="...", endTime="...")` → 下载录像、转 MP4、上传 MinIO，返回 MP4 文件 `url`
 
 ### 算法布控与人脸识别
 
-1. `upload_face_image(imageBase64="...", cameraId="...", modelName="scrfd_10g", name="姓名")` → 提交布控照片，获取 `faceId`
+1. `upload_face_image(imageUrl="http://.../face.jpg", cameraId="...", modelName="scrfd_10g", name="姓名")` → 提交布控照片并创建默认开启的布控任务，获取 `faceId` 和 `deploymentTaskId`
 2. 等待实时识别结果（多路摄像头持续运行中）
 3. `query_face_matches(faceId="{id}", limit=10)` → 获取布控结果列表
 4. 不传 faceId 则返回全局最新 10 条布控结果
@@ -329,20 +317,21 @@
 
 | 属性 | 值 |
 |------|------|
-| 设备型号 | Hikvision DS-8664N-K8 |
-| 固件版本 | V3.4.106 |
-| 地址 | http://192.168.11.251 |
-| 录像通道 | 58 路，trackId 101~158 |
-| 录像查询协议 | ISAPI / RTSP 直连 |
-| 回放协议 | HTTP MJPEG 快照流 |
+| 设备型号 | Hikvision IPC |
+| 地址 | 192.168.11.198:8000 |
+| 默认录像通道 | 1 |
+| 录像查询协议 | HCNetSDK 私有协议 |
+| 回放协议 | FLV（HCNetSDK 回调→FFmpeg→ZLMediaKit） |
+| 下载协议 | MP4（NET_DVR_GetFileByTime→FFmpeg remux→MinIO） |
 
 ---
 
 ## 注意事项
 
-1. `livePlaybackUrl` / `url` 均为公网可访问的 HLS 地址，可直接嵌入 `<video>` 播放器
-2. 录像回放 URL 有时效性（`expiresAt`），过期后需重新调用 `get_recording_stream`
-3. 摄像头若无 `nvrBinding="true"`，则不支持录像查询
-4. 人脸库仅保留一张布控照片，新上传会覆盖旧照片
-5. 布控结果依赖 Triton 推理服务（SCRFD + ArcFace），匹配相似度阈值 0.55
-6. 所有 XML 数据均在响应的 `xml` 字段中，`data` 字段包含等价的 JSON 结构化数据
+1. `livePlaybackUrl` / `url` 均为可播放地址（直播 / 录像回放），浏览器、ffmpeg、VLC 等播放器可直接打开
+2. 录像回放 `url` 由 ffmpeg 把 HCNetSDK 回调码流转 RTMP，再由 ZLMediaKit 输出 FLV；时延约 2-3 秒
+3. `search_recordings(autoProxy=true)` 支持并发回放流，当前设备实测稳定并发上限为 2 路
+4. `download_recording` 返回 MinIO MP4 文件链接，不占用长期回放流
+5. 人脸库仅保留一张布控照片，新上传会覆盖旧照片
+6. 布控结果依赖 Triton 推理服务（SCRFD + ArcFace），匹配相似度阈值 0.55
+7. 所有 XML 数据均在响应的 `xml` 字段中，`data` 字段包含等价的 JSON 结构化数据

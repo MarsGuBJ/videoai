@@ -1,0 +1,173 @@
+- main [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e7]
+      - generic [ref=e9]:
+        - strong [ref=e10]: VideoAI
+        - generic [ref=e11]: 视频管理平台
+    - navigation [ref=e12]:
+      - link "总览" [ref=e14] [cursor=pointer]:
+        - /url: /
+        - img [ref=e16]
+        - generic [ref=e21]: 总览
+      - link "设备管理" [ref=e23] [cursor=pointer]:
+        - /url: /devices
+        - img [ref=e25]
+        - generic [ref=e28]: 设备管理
+        - img [ref=e30]
+      - link "实时预览" [ref=e33] [cursor=pointer]:
+        - /url: /live
+        - img [ref=e35]
+        - generic [ref=e37]: 实时预览
+        - img [ref=e39]
+      - link "录像回放" [ref=e42] [cursor=pointer]:
+        - /url: /playback
+        - img [ref=e44]
+        - generic [ref=e46]: 录像回放
+        - img [ref=e48]
+      - link "电视墙" [ref=e51] [cursor=pointer]:
+        - /url: /tvwall
+        - img [ref=e53]
+        - generic [ref=e56]: 电视墙
+        - img [ref=e58]
+      - link "告警联动" [ref=e61] [cursor=pointer]:
+        - /url: /alarm
+        - img [ref=e63]
+        - generic [ref=e66]: 告警联动
+        - img [ref=e68]
+      - generic [ref=e70]:
+        - link "算法布控" [ref=e71] [cursor=pointer]:
+          - /url: /algo-deploy
+          - img [ref=e73]
+          - generic [ref=e76]: 算法布控
+          - img [ref=e78]
+        - generic [ref=e80]:
+          - link "算法管理" [ref=e81] [cursor=pointer]:
+            - /url: /algo-deploy/algorithms
+            - generic [ref=e82]: 算法管理
+          - link "版本管理" [ref=e83] [cursor=pointer]:
+            - /url: /algo-deploy/versions
+            - generic [ref=e84]: 版本管理
+          - link "布控任务" [ref=e85] [cursor=pointer]:
+            - /url: /algo-deploy/tasks
+            - generic [ref=e86]: 布控任务
+  - generic [ref=e87]:
+    - generic [ref=e88]:
+      - generic [ref=e89]:
+        - heading "算法布控" [level=1] [ref=e90]
+        - paragraph [ref=e91]: Triton 算法模型管理
+      - button "新增算法" [ref=e92] [cursor=pointer]:
+        - img [ref=e93]
+        - text: 新增算法
+    - generic [ref=e94]:
+      - link "算法管理" [ref=e95] [cursor=pointer]:
+        - /url: /algo-deploy/algorithms
+      - link "版本管理" [ref=e96] [cursor=pointer]:
+        - /url: /algo-deploy/versions
+      - link "布控任务" [ref=e97] [cursor=pointer]:
+        - /url: /algo-deploy/tasks
+    - generic [ref=e99]:
+      - generic [ref=e100]:
+        - generic [ref=e101]: 算法名称
+        - textbox "请输入" [ref=e102]
+      - generic [ref=e103]:
+        - generic [ref=e104]: 算法类型
+        - combobox [ref=e105]:
+          - option "请选择" [selected]
+          - option "目标检测"
+          - option "图像识别"
+          - option "语义分割"
+          - option "行为分析"
+      - generic [ref=e106]:
+        - generic [ref=e107]: 更新时间
+        - textbox [ref=e108]
+      - button "查询" [ref=e109] [cursor=pointer]
+      - button "重置" [ref=e110] [cursor=pointer]
+    - table [ref=e112]:
+      - rowgroup [ref=e113]:
+        - row "算法名称 版本号 算法类型 更新时间 描述 操作" [ref=e114]:
+          - columnheader [ref=e115]:
+            - checkbox [ref=e116]
+          - columnheader "算法名称" [ref=e117]
+          - columnheader "版本号" [ref=e118]
+          - columnheader "算法类型" [ref=e119]
+          - columnheader "更新时间" [ref=e120]
+          - columnheader "描述" [ref=e121]
+          - columnheader "操作" [ref=e122]
+      - rowgroup [ref=e123]:
+        - row "人员检测 v1.0 目标检测 2026-04-22 用于检测特定人员的算法 删除" [ref=e124]:
+          - cell [ref=e125]:
+            - checkbox [ref=e126]
+          - cell "人员检测" [ref=e127]
+          - cell "v1.0" [ref=e128]:
+            - button "v1.0" [ref=e129] [cursor=pointer]
+            - img [ref=e130]
+          - cell "目标检测" [ref=e132]
+          - cell "2026-04-22" [ref=e133]
+          - cell "用于检测特定人员的算法" [ref=e134]
+          - cell "删除" [ref=e135]:
+            - button "删除" [ref=e136] [cursor=pointer]
+        - row "车辆检测 v1.2 目标检测 2026-04-15 识别监控区域内的机动车与非机动车 删除" [ref=e137]:
+          - cell [ref=e138]:
+            - checkbox [ref=e139]
+          - cell "车辆检测" [ref=e140]
+          - cell "v1.2" [ref=e141]:
+            - button "v1.2" [ref=e142] [cursor=pointer]
+            - img [ref=e143]
+          - cell "目标检测" [ref=e145]
+          - cell "2026-04-15" [ref=e146]
+          - cell "识别监控区域内的机动车与非机动车" [ref=e147]
+          - cell "删除" [ref=e148]:
+            - button "删除" [ref=e149] [cursor=pointer]
+        - row "人脸识别 v2.0 图像识别 2026-04-10 提取人脸特征进行身份比对与确认 删除" [ref=e150]:
+          - cell [ref=e151]:
+            - checkbox [ref=e152]
+          - cell "人脸识别" [ref=e153]
+          - cell "v2.0" [ref=e154]:
+            - button "v2.0" [ref=e155] [cursor=pointer]
+            - img [ref=e156]
+          - cell "图像识别" [ref=e158]
+          - cell "2026-04-10" [ref=e159]
+          - cell "提取人脸特征进行身份比对与确认" [ref=e160]
+          - cell "删除" [ref=e161]:
+            - button "删除" [ref=e162] [cursor=pointer]
+        - row "车牌识别 v1.1 图像识别 2026-04-18 自动识别车辆车牌号码及颜色 删除" [ref=e163]:
+          - cell [ref=e164]:
+            - checkbox [ref=e165]
+          - cell "车牌识别" [ref=e166]
+          - cell "v1.1" [ref=e167]:
+            - button "v1.1" [ref=e168] [cursor=pointer]
+            - img [ref=e169]
+          - cell "图像识别" [ref=e171]
+          - cell "2026-04-18" [ref=e172]
+          - cell "自动识别车辆车牌号码及颜色" [ref=e173]
+          - cell "删除" [ref=e174]:
+            - button "删除" [ref=e175] [cursor=pointer]
+        - row "周界入侵 v1.0 目标检测 2026-04-05 监测并报警非法跨越警戒区域的行为 删除" [ref=e176]:
+          - cell [ref=e177]:
+            - checkbox [ref=e178]
+          - cell "周界入侵" [ref=e179]
+          - cell "v1.0" [ref=e180]:
+            - button "v1.0" [ref=e181] [cursor=pointer]
+            - img [ref=e182]
+          - cell "目标检测" [ref=e184]
+          - cell "2026-04-05" [ref=e185]
+          - cell "监测并报警非法跨越警戒区域的行为" [ref=e186]
+          - cell "删除" [ref=e187]:
+            - button "删除" [ref=e188] [cursor=pointer]
+    - generic [ref=e189]:
+      - button "上一页" [disabled] [ref=e190]:
+        - img [ref=e191]
+        - text: 上一页
+      - button "1" [ref=e193] [cursor=pointer]
+      - button "下一页" [disabled] [ref=e194]:
+        - text: 下一页
+        - img [ref=e195]
+      - combobox [ref=e197]:
+        - option "5条/页"
+        - option "10条/页" [selected]
+        - option "20条/页"
+        - option "50条/页"
+      - generic [ref=e198]: 跳至
+      - spinbutton [ref=e199]: "1"
+      - generic [ref=e200]: 页

@@ -11,7 +11,7 @@
   "mcp": {
     "videoai": {
       "type": "remote",
-      "url": "http://localhost:8091/mcp",
+      "url": "http://localhost:8097/mcp",
       "enabled": true
     }
   }

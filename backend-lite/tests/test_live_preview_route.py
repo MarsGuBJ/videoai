@@ -193,3 +193,36 @@ def test_deleting_camera_stops_preview_relay(monkeypatch):
     main.delete_camera(configured.id)
 
     assert manager.stopped == ["camera-1"]
+
+
+def test_updating_camera_source_stops_old_preview_relay(monkeypatch):
+    configured = camera()
+    main.cameras[configured.id] = configured
+    manager = FakePreviewManager()
+    monkeypatch.setattr(main, "preview_relay_manager", manager)
+    monkeypatch.setattr(main, "persist_cameras", lambda: None)
+
+    updated = main.update_camera(
+        configured.id,
+        main.CameraUpdateRequest(
+            sourceUrl="rtsp://admin:password@10.10.0.94/Streaming/Channels/101"
+        ),
+    )
+
+    assert updated.sourceUrl != configured.sourceUrl
+    assert manager.stopped == ["camera-1"]
+
+
+def test_updating_camera_metadata_keeps_active_preview_relay(monkeypatch):
+    configured = camera()
+    main.cameras[configured.id] = configured
+    manager = FakePreviewManager()
+    monkeypatch.setattr(main, "preview_relay_manager", manager)
+    monkeypatch.setattr(main, "persist_cameras", lambda: None)
+
+    main.update_camera(
+        configured.id,
+        main.CameraUpdateRequest(description="updated"),
+    )
+
+    assert manager.stopped == []

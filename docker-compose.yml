@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-videoai}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-videoai}
     ports:
-      - "5432:5432"
+      - "192.168.11.194:5434:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -18,8 +18,8 @@ services:
   zlm:
     image: registry.cn-hangzhou.aliyuncs.com/ossrs/srs:5
     ports:
-      - "8080:8080"
-      - "1935:1935"
+      - "192.168.11.194:8080:8080"
+      - "192.168.11.194:1935:1935"
     environment:
       ZLM_SECRET: ${ZLM_SECRET:-035c73f7-bb6b-4889-a715-d9eb2d1925cc}
     restart: unless-stopped
@@ -40,9 +40,9 @@ services:
       - --grpc-port=8001
       - --metrics-port=8002
     ports:
-      - "8000:8000"
-      - "8001:8001"
-      - "8002:8002"
+      - "192.168.11.194:8000:8000"
+      - "192.168.11.194:8001:8001"
+      - "192.168.11.194:8002:8002"
     volumes:
       - ./infra/model_repository:/models
     restart: unless-stopped
@@ -59,13 +59,28 @@ services:
       VIDEOAI_ZLM_PUBLIC_HTTP_URL: ${ZLM_PUBLIC_HTTP_URL:-http://localhost:8080}
       VIDEOAI_ZLM_SECRET: ${ZLM_SECRET:-035c73f7-bb6b-4889-a715-d9eb2d1925cc}
       VIDEOAI_ZLM_RTMP_PUSH_BASE: ${ZLM_RTMP_PUSH_BASE:-rtmp://localhost/live}
+      VIDEOAI_PREVIEW_IDLE_SECONDS: ${VIDEOAI_PREVIEW_IDLE_SECONDS:-60}
+      VIDEOAI_PREVIEW_START_TIMEOUT_MS: ${VIDEOAI_PREVIEW_START_TIMEOUT_MS:-15000}
+      VIDEOAI_PREVIEW_FFMPEG_CMD_KEY: ${VIDEOAI_PREVIEW_FFMPEG_CMD_KEY:-ffmpeg.cmd_preview_h264}
+      VIDEOAI_ZLM_PREVIEW_RTMP_BASE: ${ZLM_PREVIEW_RTMP_BASE:-rtmp://127.0.0.1/live}
       VIDEOAI_WORKER_URL: ${WORKER_URL:-http://worker:8090}
-      VIDEOAI_TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://triton:8000}
-      TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://triton:8000}
+      VIDEOAI_DINO_CAMERA_HOSTS: ${VIDEOAI_DINO_CAMERA_HOSTS:-192.168.11.65}
+      PERSON_API_BASE_URL: ${PERSON_API_BASE_URL:-http://192.168.11.192:18890}
+      VIDEOAI_BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
+      VIDEOAI_TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://192.168.11.194:8003}
+      TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://192.168.11.194:8003}
       TRITON_MODEL_REPOSITORY: /models
       VIDEOAI_STORAGE_FACE_DIR: /data/faces
+      VIDEOAI_STORAGE_CAMERA_DIR: /data/cameras
       VIDEOAI_STORAGE_SNAPSHOT_DIR: /data/snapshots
+      VIDEOAI_STORAGE_QUERY_IMAGE_DIR: /data/query-images
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
       FACE_SCAN_INTERVAL_SECONDS: ${FACE_SCAN_INTERVAL_SECONDS:-30}
+      FACE_EVENT_COOLDOWN_SECONDS: ${FACE_EVENT_COOLDOWN_SECONDS:-60}
+      HIKVISION_NVR_BASE_URL: ${HIKVISION_NVR_BASE_URL:-}
+      HIKVISION_NVR_USERNAME: ${HIKVISION_NVR_USERNAME:-}
+      HIKVISION_NVR_PASSWORD: ${HIKVISION_NVR_PASSWORD:-}
+      VIDEOAI_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-videoai}:${POSTGRES_PASSWORD:-videoai}@postgres:5432/${POSTGRES_DB:-videoai}
       FFMPEG_BIN: /app/ffmpeg-wrapper.sh
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
@@ -76,17 +91,17 @@ services:
       NO_PROXY: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
       no_proxy: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
     ports:
-      - "8081:8081"
+      - "192.168.11.194:8081:8081"
     volumes:
       - ./storage/faces:/data/faces
+      - ./storage/cameras:/data/cameras
       - ./storage/snapshots:/data/snapshots
-      - ./infra/model_repository:/models:ro
+      - ./storage/query-images:/data/query-images
+      - ${TRITON_MODEL_REPOSITORY_HOST:-./infra/model_repository}:/models
       - /:/host:ro
     depends_on:
       postgres:
         condition: service_healthy
-      zlm:
-        condition: service_started
 
   worker:
     profiles:
@@ -96,14 +111,17 @@ services:
       network: host
     environment:
       BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8081}
-      TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://triton:8000}
-      TRITON_GRPC_URL: ${TRITON_GRPC_URL:-triton:8001}
+      TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://192.168.11.194:8003}
+      TRITON_GRPC_URL: ${TRITON_GRPC_URL:-192.168.11.194:8004}
       SCRFD_MODEL_NAME: scrfd_10g
-      ARCFACE_MODEL_NAME: ${ARCFACE_MODEL_NAME:-arcface_mbf}
-      ARCFACE_OUTPUT_NAME: ${ARCFACE_OUTPUT_NAME:-516}
+      FACE_DETECTOR: ${FACE_DETECTOR:-retinaface}
+      RETINAFACE_MODEL_NAME: ${RETINAFACE_MODEL_NAME:-retinaface_mobilenet}
+      ARCFACE_MODEL_NAME: ${ARCFACE_MODEL_NAME:-arcface_finetune}
+      ARCFACE_INPUT_NAME: ${ARCFACE_INPUT_NAME:-auto}
+      ARCFACE_OUTPUT_NAME: ${ARCFACE_OUTPUT_NAME:-auto}
       FACE_MATCH_THRESHOLD: ${FACE_MATCH_THRESHOLD:-0.55}
       FACE_EVENT_COOLDOWN_SECONDS: ${FACE_EVENT_COOLDOWN_SECONDS:-10}
-      FRAME_SAMPLE_FPS: ${FRAME_SAMPLE_FPS:-2}
+      FRAME_SAMPLE_FPS: ${FRAME_SAMPLE_FPS:-0}
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
@@ -120,7 +138,7 @@ services:
       zlm:
         condition: service_started
     ports:
-      - "8090:8090"
+      - "192.168.11.194:18099:8090"
     restart: unless-stopped
 
   mcp-server:
@@ -129,17 +147,35 @@ services:
       network: host
     environment:
       VIDEOAI_BACKEND_URL: ${BACKEND_INTERNAL_URL:-http://backend:8081}
+      PERSON_API_BASE_URL: ${PERSON_API_BASE_URL:-http://192.168.11.192:18890}
       VIDEOAI_ZLM_HTTP_URL: ${ZLM_HTTP_URL:-http://zlm}
       VIDEOAI_ZLM_PUBLIC_HTTP_URL: ${ZLM_PUBLIC_HTTP_URL:-http://localhost:8080}
       VIDEOAI_ZLM_SECRET: ${ZLM_SECRET:-035c73f7-bb6b-4889-a715-d9eb2d1925cc}
       VIDEOAI_ZLM_RTMP_PUSH_BASE: ${ZLM_RTMP_PUSH_BASE:-rtmp://localhost/live}
       VIDEOAI_MCP_HOST: 0.0.0.0
-      VIDEOAI_MCP_PORT: 8091
+      VIDEOAI_MCP_PORT: 8097
       VIDEOAI_MCP_TRANSPORT: streamable-http
-      VIDEOAI_MCP_PLAYBACK_TTL_SECONDS: ${VIDEOAI_MCP_PLAYBACK_TTL_SECONDS:-300}
+      VIDEOAI_MCP_PLAYBACK_TTL_SECONDS: ${VIDEOAI_MCP_PLAYBACK_TTL_SECONDS:-1800}
+      VIDEOAI_MCP_RECORDING_FALLBACK_FILE: ${VIDEOAI_MCP_RECORDING_FALLBACK_FILE:-}
       HIKVISION_NVR_BASE_URL: ${HIKVISION_NVR_BASE_URL:-}
       HIKVISION_NVR_USERNAME: ${HIKVISION_NVR_USERNAME:-}
       HIKVISION_NVR_PASSWORD: ${HIKVISION_NVR_PASSWORD:-}
+      HCNETSDK_HOST: ${HCNETSDK_HOST:-192.168.11.198}
+      HCNETSDK_PORT: ${HCNETSDK_PORT:-8000}
+      HCNETSDK_USERNAME: ${HCNETSDK_USERNAME:-admin}
+      HCNETSDK_PASSWORD: ${HCNETSDK_PASSWORD:-cisdi123}
+      HCNETSDK_CHANNEL: ${HCNETSDK_CHANNEL:-1}
+      HCNETSDK_DOWNLOAD_NVR_HOSTS: ${HCNETSDK_DOWNLOAD_NVR_HOSTS:-10.10.7.252,10.10.7.253}
+      HCNETSDK_DOWNLOAD_PORT: ${HCNETSDK_DOWNLOAD_PORT:-8000}
+      HCNETSDK_DOWNLOAD_USERNAME: ${HCNETSDK_DOWNLOAD_USERNAME:-admin}
+      HCNETSDK_DOWNLOAD_PASSWORD: ${HCNETSDK_DOWNLOAD_PASSWORD:-}
+      HCNETSDK_DOWNLOAD_CHANNEL: ${HCNETSDK_DOWNLOAD_CHANNEL:-1}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-192.168.11.194}
+      MINIO_PORT: ${MINIO_PORT:-9000}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-Klg4dM9F3H}
+      MINIO_BUCKET: ${MINIO_BUCKET:-public}
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
@@ -153,8 +189,10 @@ services:
         condition: service_started
       zlm:
         condition: service_started
+    volumes:
+      - ${VIDEOAI_MCP_RECORDING_FALLBACK_FILE_HOST:-/dev/null}:/data/demo-recording-601.ps:ro
     ports:
-      - "8091:8091"
+      - "192.168.11.194:8097:8097"
     restart: unless-stopped
 
   frontend:
@@ -164,10 +202,18 @@ services:
     environment:
       VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
     ports:
-      - "5173:5173"
+      - "192.168.11.194:5173:5173"
     depends_on:
       backend:
         condition: service_started
+
+  sxin-proxy:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./infra/sxin-proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "192.168.11.194:10997:80"
+    restart: unless-stopped
 
 volumes:
   postgres-data:

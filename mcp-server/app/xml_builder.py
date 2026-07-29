@@ -24,6 +24,7 @@ def build_camera_list_xml(cameras: list[dict]) -> str:
         c.set("id", _attr(cam.get("cameraId")))
         c.set("name", _attr(cam.get("name")))
         c.set("status", _attr(cam.get("status")))
+        c.set("url", _attr(cam.get("url")))
         c.set("livePlaybackUrl", _attr(cam.get("livePlaybackUrl")))
         c.set("sourceUrl", _attr(cam.get("sourceUrl")))
         binding = cam.get("nvrBinding", {})
@@ -68,7 +69,7 @@ def build_video_list_xml(recordings: list[dict]) -> str:
             end = end.isoformat()
         r.set("endTime", _attr(end))
         r.set("source", _attr(rec.get("source")))
-        r.set("streamUrl", _attr(rec.get("streamUrl")))
+        r.set("url", _attr(rec.get("url")))
         meta = rec.get("metadata", {})
         r.set("nvrId", _attr(meta.get("nvrId")))
         r.text = "\n  "
@@ -98,6 +99,26 @@ def build_video_file_xml(data: dict) -> str:
     if isinstance(end, datetime):
         end = end.isoformat()
     root.set("endTime", _attr(end))
+    return _xml_declaration() + _pretty(root)
+
+
+def build_dino_event_list_xml(events: list[dict]) -> str:
+    """Build <sxin-dino-event-list> XML with attributes."""
+    root = Element("sxin-dino-event-list")
+    root.set("count", str(len(events)))
+    for event in events:
+        item = SubElement(root, "event")
+        item.set("eventId", _attr(event.get("eventId")))
+        item.set("eventSource", _attr(event.get("eventSource")))
+        item.set("eventType", _attr(event.get("eventType")))
+        item.set("eventStatus", _attr(event.get("eventStatus")))
+        item.set("eventLevel", _attr(event.get("eventLevel")))
+        item.set("eventLocation", _attr(event.get("eventLocation")))
+        item.set("occurredAt", _attr(event.get("occurredAt")))
+        item.set("reportedAt", _attr(event.get("reportedAt")))
+        item.set("eventImage", _attr(event.get("eventImage")))
+        item.set("eventDescription", _attr(event.get("eventDescription")))
+        item.text = "\n  "
     return _xml_declaration() + _pretty(root)
 
 

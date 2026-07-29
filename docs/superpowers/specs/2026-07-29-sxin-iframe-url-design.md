@@ -4,7 +4,7 @@
 
 Point the SXin assistant iframe at:
 
-`http://10.10.3.100:2026/iot-os/sxin/#/mockLogin`
+`http://10.10.3.100:81/iot-os/sxin/#/mockLogin`
 
 ## Scope
 

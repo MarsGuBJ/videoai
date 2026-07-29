@@ -16,6 +16,7 @@ type Transform = {
 
 export function VideoPlayer({ url }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const playerRef = useRef<Player | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const retryTimerRef = useRef<number | null>(null);
@@ -68,6 +69,9 @@ export function VideoPlayer({ url }: Props) {
         video.removeAttribute('src');
         video.load();
       }
+      if (imageRef.current) {
+        imageRef.current.removeAttribute('src');
+      }
     };
 
     destroy();
@@ -83,29 +87,28 @@ export function VideoPlayer({ url }: Props) {
     video.addEventListener('canplay', clearMessage);
     video.addEventListener('playing', clearMessage);
 
-    let fallbackTimer: number | undefined;
-
     if (url.endsWith('.mjpeg')) {
+      const imageElement = imageRef.current;
       setFallbackUrl(url);
       setMessage('');
-      return;
+      return () => {
+        if (imageElement) {
+          imageElement.removeAttribute('src');
+        }
+      };
     }
 
     if (url.endsWith('.m3u8')) {
-      fallbackTimer = window.setTimeout(() => {
-        if (video.paused || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-          const mjpegUrl = hlsToMjpegUrl(url);
-          if (mjpegUrl) {
-            setFallbackUrl(mjpegUrl);
-            setMessage('');
-          }
-        }
-      }, 7000);
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = url;
         video.play().then(clearMessage).catch(() => setMessage('点击视频播放后端流'));
       } else if (Hls.isSupported()) {
-        const hls = new Hls({ lowLatencyMode: true });
+        const hls = new Hls({
+          lowLatencyMode: true,
+          backBufferLength: 30,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 5,
+        });
         hlsRef.current = hls;
         hls.on(Hls.Events.ERROR, (_event, data) => {
           if (data.fatal) {
@@ -125,10 +128,18 @@ export function VideoPlayer({ url }: Props) {
     } else if (flvjs.isSupported() && url.endsWith('.flv')) {
       const player = flvjs.createPlayer(
         { type: 'flv', url, isLive: true },
-        { enableWorker: false },
+        {
+          enableWorker: false,
+          enableStashBuffer: false,
+          stashInitialSize: 128,
+          autoCleanupSourceBuffer: true,
+          autoCleanupMaxBackwardDuration: 30,
+          autoCleanupMinBackwardDuration: 10,
+          fixAudioTimestampGap: false,
+        },
       );
       playerRef.current = player;
-      player.on?.('error', (type: string, detail: string) => {
+      player.on?.('error', (type: string) => {
         if (type === 'NetworkError' || type === 'MediaError') {
           scheduleRetry();
         }
@@ -149,9 +160,6 @@ export function VideoPlayer({ url }: Props) {
       video.removeEventListener('loadedmetadata', clearMessage);
       video.removeEventListener('canplay', clearMessage);
       video.removeEventListener('playing', clearMessage);
-      if (fallbackTimer) {
-        window.clearTimeout(fallbackTimer);
-      }
       destroy();
     };
   }, [url, reloadToken]);
@@ -176,23 +184,32 @@ export function VideoPlayer({ url }: Props) {
     video.play().then(() => setMessage('')).catch((error) => setMessage(`播放失败：${error.message}`));
   };
 
-  const videoStyle = {
-    transform: `scale(${transform.zoom}) translate(${transform.x}px, ${transform.y}px)`,
-  };
+  const surfaceClassName = [
+    'video-surface',
+    zoomClass(transform.zoom),
+    panClass('x', transform.x),
+    panClass('y', transform.y),
+  ].join(' ');
 
   return (
     <section className="video-panel">
       <div className="video-shell">
         {fallbackUrl && (
-          <img src={fallbackUrl} alt="后端视频流" className="video-surface" style={videoStyle} />
+          <img
+            key={fallbackUrl}
+            ref={imageRef}
+            src={fallbackUrl}
+            alt="后端视频流"
+            className={surfaceClassName}
+          />
         )}
         <video
           ref={videoRef}
+          autoPlay
           muted
           controls
           playsInline
-          className="video-surface"
-          style={{ ...videoStyle, display: fallbackUrl ? 'none' : undefined }}
+          className={`${surfaceClassName}${fallbackUrl ? ' video-surface-hidden' : ''}`}
           onClick={playVideo}
         />
         {message && <div className="video-message">{message}</div>}
@@ -215,12 +232,12 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function hlsToMjpegUrl(url: string) {
-  const parsed = new URL(url, window.location.href);
-  if (!parsed.pathname.endsWith('.m3u8')) {
-    return undefined;
-  }
-  parsed.pathname = parsed.pathname.replace(/\.m3u8$/, '.mjpeg');
-  parsed.search = '';
-  return parsed.toString();
+function zoomClass(zoomValue: number) {
+  return `video-zoom-${Math.round(zoomValue * 10)}`;
+}
+
+function panClass(axis: 'x' | 'y', value: number) {
+  const rounded = Math.round(value);
+  const suffix = rounded < 0 ? `n${Math.abs(rounded)}` : `${rounded}`;
+  return `video-pan-${axis}-${suffix}`;
 }
