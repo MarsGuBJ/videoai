@@ -25,6 +25,7 @@ Nginx will provide two request paths:
 
 - Static and SPA requests use `try_files $uri $uri/ /index.html` so direct navigation to React routes continues to work.
 - `/api/` requests proxy to the Compose backend service. Proxy buffering and response buffering are disabled, and the read timeout is extended for FLV and MJPEG streaming responses.
+- JavaScript, CSS, JSON, and SVG responses use gzip compression; FLV responses remain uncompressed and unbuffered.
 
 The browser will use relative `/api` URLs. The frontend service will no longer depend on a runtime `VITE_API_BASE_URL`, because Vite variables are compile-time values and Nginx does not consume the current environment entry.
 
@@ -36,7 +37,7 @@ The browser will use relative `/api` URLs. The frontend service will no longer d
 
 ## Verification
 
-1. Add a dependency-free deployment contract test before changing production files. It must require a multi-stage image, an Nginx runtime, SPA fallback, same-origin API proxying, disabled proxy buffering, and port `5173`.
+1. Add a dependency-free deployment contract test before changing production files. It must require a multi-stage image, an Nginx runtime, SPA fallback, same-origin API proxying, static text compression, disabled stream buffering, and port `5173`.
 2. Run the test before implementation and confirm it fails because the current image runs `npm run dev` and has no Nginx configuration.
 3. Implement the Dockerfile and Nginx configuration, then confirm the contract test and all existing frontend tests pass.
 4. Run `npm run build` and build the frontend Docker image locally.

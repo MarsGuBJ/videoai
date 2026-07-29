@@ -50,6 +50,12 @@ test('Nginx preserves port, SPA routes, and streaming API semantics', () => {
   assert.match(nginx, /proxy_request_buffering off;/);
   assert.match(nginx, /proxy_read_timeout 3600s;/);
 });
+
+test('Nginx compresses production text assets without buffering streams', () => {
+  assert.match(nginx, /gzip on;/);
+  assert.match(nginx, /gzip_types text\/css application\/javascript application\/json image\/svg\+xml;/);
+  assert.doesNotMatch(nginx, /gzip_types[^;]*video\/x-flv/);
+});
 ```
 
 - [ ] **Step 2: Run the test and verify RED**
@@ -95,6 +101,12 @@ server {
 
     root /usr/share/nginx/html;
     index index.html;
+
+    gzip on;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
 
     location = /index.html {
         add_header Cache-Control "no-cache";
@@ -142,7 +154,7 @@ Run from `frontend/`:
 node --test tests/production-deployment.test.mjs
 ```
 
-Expected: 2 tests pass.
+Expected: 3 tests pass.
 
 - [ ] **Step 5: Run all frontend tests and production build**
 
