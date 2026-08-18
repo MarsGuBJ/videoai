@@ -1,0 +1,2982 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SXin 智能体 - 离线交互原型</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --blue: #1677ff;
+      --blue-soft: #eaf3ff;
+      --text: #1f2937;
+      --muted: #667085;
+      --line: #e5e7eb;
+      --bg: #f3f6fa;
+      --panel: #fff;
+      --green: #52c41a;
+      --orange: #faad14;
+      --red: #ff4d4f;
+      --shadow: 0 2px 10px rgba(16, 24, 40, .06);
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    body {
+      color: var(--text);
+      background: var(--bg);
+      font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+
+    button, textarea, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, textarea:focus-visible, input:focus-visible {
+      outline: 2px solid rgba(22, 119, 255, .28);
+      outline-offset: 2px;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 44px 162px 1fr;
+      width: 100vw;
+      height: 100vh;
+      min-width: 1080px;
+      background: #f5f7fb;
+    }
+
+    .rail {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      padding-top: 14px;
+      border-right: 1px solid #e8edf4;
+      background: #fff;
+    }
+
+    .hamburger { width: 20px; height: 20px; border: 0; background: transparent; color: #111827; font-size: 18px; }
+    .rail-btn {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid #edf0f5;
+      border-radius: 4px;
+      background: #fff;
+      color: #475467;
+    }
+    .rail-btn.active {
+      border-color: #dbeafe;
+      background: #eef4ff;
+      color: var(--blue);
+    }
+
+    .conversation {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      border-right: 1px solid #e8edf4;
+      background: #f8fafc;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 42px;
+      padding: 0 8px;
+      border-bottom: 1px solid #edf0f5;
+      color: #111827;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .brand-icon {
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 12px;
+    }
+
+    .conv-body { padding: 12px 10px; overflow: auto; }
+    .conv-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      color: #111827;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .new-chat {
+      width: 100%;
+      height: 32px;
+      margin-bottom: 8px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 12px;
+      transition: background .16s ease, transform .16s ease;
+    }
+    .new-chat:hover { background: #0958d9; }
+    .search-box {
+      width: 100%;
+      height: 24px;
+      margin-bottom: 12px;
+      padding: 0 8px;
+      border: 1px solid #d9dee7;
+      border-radius: 3px;
+      outline: none;
+      font-size: 12px;
+    }
+    .section-label {
+      margin: 14px 0 8px;
+      color: #667085;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+    .folder, .history-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      min-height: 32px;
+      padding: 7px 8px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #344054;
+      text-align: left;
+      font-size: 12px;
+      line-height: 1.35;
+      transition: background .16s ease, color .16s ease;
+    }
+    .folder:hover, .history-item:hover { background: #edf4ff; color: var(--blue); }
+    .folder b { font-size: 15px; line-height: 1; }
+    .history-item { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .history-item.active-history {
+      background: #eaf3ff;
+      color: var(--blue);
+      font-weight: 600;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-rows: 42px 1fr;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 22px;
+      border-bottom: 1px solid #d9dee7;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(16, 24, 40, .04);
+      z-index: 3;
+    }
+    .breadcrumb { color: #667085; }
+    .top-user { display: flex; align-items: center; gap: 14px; color: #111827; font-weight: 600; }
+    .bell { color: #facc15; font-size: 18px; }
+    .avatar {
+      width: 25px;
+      height: 25px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f6d5a6, #945b38);
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-columns: minmax(520px, 1fr) 7px minmax(330px, 405px);
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: #f5f7fb;
+    }
+    .workbench.results-hidden { grid-template-columns: minmax(0, 1fr) 0 0; }
+    .workbench.track-results-open {
+      grid-template-columns: minmax(420px, 1fr) 7px minmax(500px, 720px);
+    }
+
+    .chat-area {
+      display: grid;
+      grid-template-rows: 1fr auto;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: #f5f7fb;
+    }
+
+    .chat-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding: 28px 30px 18px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.7) 0%, rgba(255,255,255,0) 80%),
+        #f7f9fc;
+    }
+
+    .empty-chat {
+      display: none;
+      min-height: 100%;
+      place-items: center;
+      padding-bottom: 90px;
+    }
+    .empty-chat.show {
+      display: grid;
+    }
+    .empty-center {
+      width: min(760px, 100%);
+      text-align: center;
+    }
+    .empty-center h1 {
+      margin: 0 0 28px;
+      color: #111827;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    .quick-business {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+    .quick-chip {
+      height: 36px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 18px;
+      background: #eef0f3;
+      color: #344054;
+      font-size: 13px;
+      transition: background .16s ease, color .16s ease, transform .16s ease;
+    }
+    .quick-chip:hover {
+      background: #eaf3ff;
+      color: var(--blue);
+      transform: translateY(-1px);
+    }
+    .dialog-content.hidden {
+      display: none;
+    }
+
+    .msg {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      margin-bottom: 14px;
+      align-items: start;
+    }
+    .msg > div {
+      width: 100%;
+    }
+    .msg.user { justify-items: end; }
+    .msg.user > div {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0;
+    }
+    .bubble {
+      display: inline-block;
+      max-width: min(720px, calc(100% - 96px));
+      padding: 11px 14px;
+      border-radius: 8px;
+      background: #fff;
+      color: #344054;
+      line-height: 1.65;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+      overflow-wrap: break-word;
+      word-break: normal;
+      white-space: pre-wrap;
+    }
+    .bubble.intro { background: #eaf3ff; }
+    .msg.user .bubble {
+      background: #fff;
+      max-width: 48ch;
+    }
+    .msg.user .bubble.image-query-bubble {
+      width: 168px;
+      max-width: min(220px, calc(100% - 96px));
+      padding: 0;
+      overflow: hidden;
+      line-height: 0;
+    }
+    .image-query-bubble img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+    }
+
+    .video-search-attachment.hidden {
+      display: none;
+    }
+    .msg > div.video-attachment-stack {
+      display: grid;
+      width: min(610px, 100%);
+      gap: 12px;
+    }
+    .video-camera-summary,
+    .video-playback-card {
+      border-radius: 8px;
+      background: #eaf2ff;
+      color: #344054;
+    }
+    .video-camera-summary {
+      padding: 10px 14px 13px;
+    }
+    .video-summary-head {
+      display: flex;
+      min-height: 20px;
+      align-items: center;
+      gap: 8px;
+    }
+    .video-summary-head h3 {
+      margin: 0;
+      color: #111827;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .video-complete-badge {
+      display: inline-flex;
+      align-items: center;
+      height: 18px;
+      padding: 0 6px;
+      border-radius: 3px;
+      background: #dcfce7;
+      color: #22a447;
+      font-size: 10px;
+    }
+    .video-search-time {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+      color: #98a2b3;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .video-search-clock {
+      position: relative;
+      width: 9px;
+      height: 9px;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+    }
+    .video-search-clock::before,
+    .video-search-clock::after {
+      position: absolute;
+      left: 3px;
+      top: 2px;
+      width: 1px;
+      height: 3px;
+      background: currentColor;
+      content: "";
+      transform-origin: bottom center;
+    }
+    .video-search-clock::after {
+      transform: rotate(120deg);
+    }
+    .video-summary-copy {
+      margin: 2px 0 4px;
+      color: #475467;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .camera-point-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px 22px;
+      margin: 2px 0 0;
+    }
+    .camera-point {
+      display: flex;
+      min-width: 0;
+      height: 56px;
+      padding: 7px 8px;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: #fff;
+      color: #344054;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+      transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+    .camera-point[hidden] {
+      display: none;
+    }
+    .camera-point:hover,
+    .camera-point[aria-pressed="true"] {
+      border-color: #9dccff;
+      box-shadow: 0 3px 8px rgba(22, 119, 255, .14);
+      transform: translateY(-1px);
+    }
+    .camera-point strong {
+      max-width: 100%;
+      overflow: hidden;
+      color: #111827;
+      font-size: 12px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .camera-point span {
+      margin-top: 4px;
+      color: #4f8cff;
+      font-size: 10px;
+    }
+    .camera-point-more {
+      border-color: #e5edff;
+      background: #f4f7ff;
+    }
+    .camera-point-more strong {
+      color: #4f7eff;
+      font-size: 17px;
+      line-height: 1;
+    }
+    .video-attachment-tip {
+      display: flex;
+      align-items: flex-start;
+      gap: 5px;
+      margin: 13px 2px 0;
+      color: #667085;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .video-tip-icon {
+      flex: 0 0 auto;
+      color: #f7c948;
+      font-size: 12px;
+    }
+    .video-playback-card {
+      width: min(254px, 100%);
+      padding: 10px 11px 8px;
+      cursor: grab;
+    }
+    .video-playback-card:active {
+      cursor: grabbing;
+    }
+    .video-playback-title {
+      margin-bottom: 5px;
+      color: #344054;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .video-preview-frame {
+      position: relative;
+      display: grid;
+      width: 100%;
+      aspect-ratio: 234 / 115;
+      place-items: center;
+      overflow: hidden;
+      background: #5c5d60;
+      color: #fff;
+    }
+    .video-preview-label {
+      padding-bottom: 20px;
+      color: rgba(255, 255, 255, .88);
+      font-size: 11px;
+    }
+    .video-preview-controls {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: grid;
+      grid-template-columns: 28px auto 1fr 26px 26px;
+      height: 35px;
+      align-items: end;
+      padding: 0 5px 6px;
+      background: linear-gradient(180deg, rgba(31, 31, 31, 0), rgba(16, 16, 16, .92));
+    }
+    .video-preview-control {
+      display: grid;
+      width: 26px;
+      height: 24px;
+      min-width: 0;
+      padding: 0;
+      place-items: center;
+      border: 0;
+      background: transparent;
+      color: #fff;
+      font-size: 13px;
+    }
+    .video-preview-time {
+      align-self: center;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .video-preview-progress {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 34px;
+      height: 3px;
+      background: rgba(255, 255, 255, .15);
+    }
+    .video-preview-progress span {
+      display: block;
+      width: 0;
+      height: 100%;
+      background: var(--blue);
+      transition: width .2s linear;
+    }
+    .video-playback-card .video-attachment-tip {
+      margin: 8px 0 0;
+    }
+    .composer textarea.video-drop-ready {
+      background: #f4f9ff;
+      box-shadow: inset 0 0 0 2px rgba(22, 119, 255, .16);
+    }
+
+    @media (max-width: 760px) {
+      .camera-point-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+    }
+    .timestamp {
+      margin-top: 6px;
+      color: #98a2b3;
+      font-size: 10px;
+      text-align: right;
+    }
+
+    .process-block {
+      display: grid;
+      gap: 8px;
+      max-width: 620px;
+      margin-top: 4px;
+      color: #344054;
+    }
+    .process-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #667085;
+      font-size: 12px;
+    }
+    .process-percent-hidden {
+      display: none !important;
+    }
+    .process-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 24px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #667085;
+      font-size: 12px;
+    }
+    .process-caret {
+      display: inline-block;
+      transition: transform .16s ease;
+    }
+    .process-block.collapsed .process-caret {
+      transform: rotate(-90deg);
+    }
+    .process-block.collapsed .process-details {
+      display: none;
+    }
+    .progress-line {
+      height: 3px;
+      overflow: hidden;
+      border-radius: 3px;
+      background: #dce6f2;
+    }
+    .progress-line span {
+      display: block;
+      width: 100%;
+      height: 100%;
+      background: var(--blue);
+      transition: width .28s ease;
+    }
+    .progress-line.indeterminate span {
+      width: 42%;
+      animation: searching 1.05s ease-in-out infinite;
+    }
+    @keyframes searching {
+      0% { transform: translateX(-105%); }
+      55% { transform: translateX(85%); }
+      100% { transform: translateX(245%); }
+    }
+    .process-table {
+      padding: 8px 10px;
+      background: #fff;
+      border: 1px solid #edf0f5;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .process-row {
+      display: grid;
+      grid-template-columns: 1fr 66px;
+      min-height: 25px;
+      align-items: center;
+      gap: 10px;
+    }
+    .process-row b { color: #ff4d4f; font-weight: 600; }
+    .process-row b.green { color: #10a81f; }
+    .process-note {
+      margin: 0;
+      padding: 9px 10px;
+      border: 1px solid #dbeafe;
+      border-radius: 6px;
+      background: #f8fbff;
+      color: #475467;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .analysis-card {
+      max-width: 620px;
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #cfe4ff;
+      background: #f4f9ff;
+      color: #344054;
+      font-size: 12px;
+    }
+    .analysis-card.hidden,
+    .tip.hidden,
+    .feedback.hidden {
+      display: none;
+    }
+    .analysis-card h3 {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 10px;
+      color: #111827;
+      font-size: 13px;
+    }
+    .analysis-card.image-preview-only > h3 {
+      display: none;
+    }
+    .original-analysis-btn {
+      margin-top: 10px;
+    }
+    .original-analysis-btn.hidden {
+      display: none;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 3px;
+      background: #e8ffe5;
+      color: #22a00f;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge.thinking {
+      background: #fff7e6;
+      color: #d48806;
+    }
+    .analysis-inner {
+      min-height: 86px;
+      padding: 12px;
+      border-radius: 6px;
+      background: #fff;
+    }
+    .analysis-summary {
+      display: grid;
+      gap: 12px;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .feature-card {
+      padding: 9px 10px;
+      border: 1px solid #dbeafe;
+      border-radius: 6px;
+      background: #fff;
+      line-height: 1.45;
+    }
+    .feature-card span {
+      display: block;
+      margin-bottom: 3px;
+      color: #98a2b3;
+      font-size: 11px;
+    }
+    .feature-card b {
+      color: #111827;
+      font-size: 12px;
+    }
+    .summary-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .summary-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 9px;
+      border-radius: 12px;
+      background: #fff;
+      color: #344054;
+      font-size: 12px;
+    }
+    .image-slots {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(86px, 1fr));
+      gap: 10px;
+      align-items: center;
+    }
+    .preview-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .preview-head b {
+      color: #111827;
+      font-size: 13px;
+    }
+    .more-link {
+      height: 26px;
+      min-width: 0;
+      padding: 0 10px;
+      border-radius: 13px;
+    }
+    .slot {
+      position: relative;
+      height: 88px;
+      overflow: hidden;
+      border-radius: 6px;
+      background: #fff;
+      border: 1px solid #edf0f5;
+    }
+    .slot img { width: 100%; height: 100%; object-fit: cover; }
+    .slot-label {
+      position: absolute;
+      left: 6px;
+      right: 6px;
+      bottom: 6px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 3px;
+      background: rgba(17, 24, 39, .66);
+      color: #fff;
+      font-size: 10px;
+      line-height: 18px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .analysis-conclusion {
+      display: grid;
+      gap: 5px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #eef6ff;
+      color: #344054;
+      line-height: 1.55;
+    }
+    .analysis-conclusion b {
+      color: #111827;
+      font-size: 13px;
+    }
+    .event-list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding-left: 18px;
+    }
+    .event-list li::marker { color: var(--blue); }
+
+    .tip {
+      max-width: 570px;
+      margin-top: 8px;
+      color: #667085;
+      font-size: 12px;
+    }
+    .feedback {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .composer {
+      width: min(1000px, calc(100% - 52px));
+      margin: 0 auto 14px;
+      border: 1px solid #9dccff;
+      border-radius: 22px;
+      background: #fff;
+      box-shadow: 0 12px 34px rgba(22, 119, 255, .12);
+      overflow: hidden;
+      transition: border-color .16s ease, box-shadow .16s ease;
+    }
+    .composer:focus-within {
+      border-color: var(--blue);
+      box-shadow: 0 14px 38px rgba(22, 119, 255, .18);
+    }
+    .composer textarea {
+      width: 100%;
+      height: 58px;
+      padding: 14px 20px 6px;
+      border: 0;
+      outline: none;
+      resize: none;
+      color: #344054;
+      line-height: 1.55;
+    }
+    .composer-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 14px 10px;
+      border-top: 0;
+    }
+    .left-tools, .right-tools { display: flex; align-items: center; gap: 8px; }
+    .left-tools { flex-wrap: wrap; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-width: 68px;
+      height: 28px;
+      padding: 0 10px;
+      border: 1px solid #d9dee7;
+      border-radius: 4px;
+      background: #fff;
+      color: #344054;
+      font-size: 12px;
+      white-space: nowrap;
+      transition: background .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
+    }
+    .btn:hover { border-color: #9dccff; color: var(--blue); }
+    .btn.primary:hover { background: #0958d9; color: #fff; transform: translateY(-1px); }
+    .btn.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .btn.ghost { border-color: #cfe4ff; background: #f4f9ff; color: var(--blue); }
+    .btn.text { min-width: 0; padding: 0 4px; border: 0; background: transparent; color: var(--blue); }
+    .btn.active { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .quick-tool.active {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-weight: 600;
+    }
+    .send-btn { min-width: 86px; }
+    .plus-btn,
+    .mic-btn {
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border-radius: 50%;
+      font-size: 18px;
+    }
+    .mic-btn {
+      background: #f2f4f7;
+      font-size: 14px;
+    }
+
+    .splitter {
+      position: relative;
+      border: 0;
+      background: transparent;
+      cursor: col-resize;
+    }
+    .splitter::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: #d9dee7;
+    }
+    .splitter::after {
+      content: "";
+      position: absolute;
+      left: 1px;
+      top: 50%;
+      width: 5px;
+      height: 48px;
+      border-radius: 4px;
+      background: #d9dee7;
+      transform: translateY(-50%);
+    }
+    .splitter:hover::before,
+    .splitter.dragging::before,
+    .splitter:hover::after,
+    .splitter.dragging::after { background: var(--blue); }
+    .workbench.results-hidden .splitter,
+    .workbench.results-hidden .results-panel { display: none; }
+
+    .results-panel {
+      display: grid;
+      grid-template-rows: 42px 1fr 58px;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: #f7f9fc;
+    }
+    .results-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      border-bottom: 1px solid #edf0f5;
+      background: #f5f7fb;
+    }
+    .results-head h2 {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+      color: #111827;
+      font-size: 18px;
+    }
+    .count-pill {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 10px;
+      border-radius: 10px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 12px;
+    }
+    .count-pill[hidden] { display: none; }
+    .results-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px 16px;
+    }
+    .image-result-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(90px, 1fr));
+      gap: 16px 22px;
+    }
+    .image-tile {
+      position: relative;
+      min-width: 0;
+      padding: 5px;
+      border: 1px solid #d9dee7;
+      border-radius: 7px;
+      background: #fff;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(16, 24, 40, .05);
+      transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+    .image-tile:hover {
+      border-color: var(--blue);
+      box-shadow: 0 10px 22px rgba(22, 119, 255, .13);
+      transform: translateY(-1px);
+    }
+    .image-tile img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1 / 1.05;
+      object-fit: cover;
+      background: #f2f4f7;
+    }
+    .tile-check {
+      position: absolute;
+      left: 7px;
+      top: 7px;
+      width: 13px;
+      height: 13px;
+      border: 1px solid #9ca3af;
+      background: rgba(255, 255, 255, .85);
+    }
+    .score-ribbon {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 35px;
+      height: 18px;
+      padding: 0 4px;
+      background: rgba(15, 23, 42, .75);
+      color: #fff;
+      font-size: 10px;
+      line-height: 18px;
+    }
+    .score-ribbon b { color: #ffe95c; }
+    .tile-meta {
+      margin-top: 4px;
+      color: #111827;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .tile-meta span { display: block; color: #344054; }
+    .tile-actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .tile-actions button {
+      min-width: 0;
+      height: 24px;
+      padding: 0 4px;
+      font-size: 11px;
+    }
+
+    .video-result-list {
+      display: grid;
+      gap: 12px;
+    }
+    .video-result {
+      display: grid;
+      grid-template-columns: 1fr 142px;
+      min-height: 136px;
+      border: 1px solid #edf0f5;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .video-placeholder {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 136px;
+      background: #f3f4f6;
+    }
+    .video-placeholder img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: .22;
+    }
+    .play-dot {
+      position: absolute;
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: rgba(17, 24, 39, .35);
+      color: #fff;
+    }
+    .video-info {
+      padding: 10px;
+      border-left: 1px solid #edf0f5;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .status {
+      display: inline-flex;
+      height: 20px;
+      align-items: center;
+      padding: 0 8px;
+      border: 1px solid #b7eb8f;
+      border-radius: 3px;
+      background: #f6ffed;
+      color: #389e0d;
+      font-weight: 600;
+    }
+    .status.alert {
+      border-color: #ffccc7;
+      background: #fff1f0;
+      color: #cf1322;
+    }
+    .video-info h4 { margin: 8px 0 4px; font-size: 12px; color: #111827; }
+    .video-info p { margin: 0 0 4px; color: #475467; }
+
+    .result-footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border-top: 1px solid #edf0f5;
+    }
+
+    .results-panel.track-mode {
+      grid-template-rows: 56px 1fr 0;
+    }
+    .results-panel.track-mode .results-head h2 { font-size: 22px; }
+    .results-panel.track-mode .result-footer {
+      display: none;
+    }
+    .results-panel.track-mode .results-scroll {
+      padding: 0;
+      background: #fff;
+    }
+    .track-view {
+      min-height: 100%;
+      padding: 18px 20px 28px;
+      background: #fff;
+    }
+    .track-filter-grid {
+      display: grid;
+      grid-template-columns: minmax(0, .9fr) minmax(0, 1.5fr);
+      gap: 14px 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #edf0f5;
+    }
+    .track-field {
+      min-width: 0;
+    }
+    .track-field-label {
+      display: block;
+      margin-bottom: 7px;
+      color: #667085;
+      font-size: 12px;
+    }
+    .track-view .input,
+    .track-view .select {
+      width: 100%;
+      height: 36px;
+      border: 1px solid #d0d5dd;
+      border-radius: 5px;
+      background: #fff;
+      color: #344054;
+      outline: none;
+    }
+    .track-view .select {
+      padding: 0 10px;
+    }
+    .track-view .input:focus,
+    .track-view .select:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px rgba(22, 119, 255, .12);
+    }
+    .track-target-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .track-target-image {
+      display: block;
+      width: 98px;
+      height: 66px;
+      overflow: hidden;
+      padding: 0;
+      border: 2px solid var(--blue);
+      border-radius: 4px;
+      background: #f2f4f7;
+    }
+    .track-target-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .track-target-add {
+      display: grid;
+      place-items: center;
+      width: 86px;
+      height: 66px;
+      border: 1px dashed #d0d5dd;
+      border-radius: 6px;
+      background: #fff;
+      color: #98a2b3;
+      font-size: 11px;
+      line-height: 1.3;
+      text-align: center;
+    }
+    .track-target-add strong {
+      display: block;
+      color: #98a2b3;
+      font-size: 20px;
+      font-weight: 400;
+      line-height: 1;
+    }
+    .track-date-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+    }
+    .track-date-row .input {
+      min-width: 0;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+    .track-date-separator {
+      color: #98a2b3;
+    }
+    .track-threshold-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 44px max-content;
+      gap: 8px;
+      align-items: center;
+    }
+    .track-threshold-row input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue);
+    }
+    .track-threshold-row output {
+      color: #344054;
+      font-weight: 600;
+      text-align: right;
+    }
+    .track-area-query-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .track-area-query-row .btn {
+      min-width: 100px;
+      height: 36px;
+    }
+    .track-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      border: 1px solid #edf0f5;
+      border-radius: 6px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+    .track-summary-item {
+      min-width: 0;
+      color: #667085;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .track-summary-item b {
+      display: inline;
+      margin-left: 4px;
+      color: #111827;
+      font-size: 13px;
+    }
+    .track-timeline {
+      position: relative;
+      display: grid;
+      gap: 12px;
+      padding: 2px 0 2px 28px;
+    }
+    .track-timeline::before {
+      content: "";
+      position: absolute;
+      left: 9px;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      background: #8ab9ff;
+    }
+    .track-event {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid #edf0f5;
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+    .track-event::before {
+      content: "";
+      position: absolute;
+      left: -26px;
+      top: 18px;
+      width: 12px;
+      height: 12px;
+      border: 3px solid var(--blue);
+      border-radius: 50%;
+      background: #fff;
+    }
+    .track-event h4 {
+      margin: 0 0 7px;
+      padding-right: 150px;
+      color: #111827;
+      font-size: 13px;
+    }
+    .track-event p {
+      margin: 0;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .track-event time {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      color: #98a2b3;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .track-event img {
+      display: block;
+      width: 100%;
+      height: 180px;
+      border-radius: 5px;
+      object-fit: cover;
+      object-position: left center;
+    }
+    .track-map-view {
+      position: relative;
+      min-height: 270px;
+      overflow: hidden;
+      border: 1px solid #dbeafe;
+      border-radius: 8px;
+      background: #eff6ff;
+    }
+    .track-map-view::before,
+    .track-map-view::after {
+      content: "";
+      position: absolute;
+      background: #c7ddfa;
+    }
+    .track-map-view::before {
+      left: 18%;
+      top: 48%;
+      width: 72%;
+      height: 2px;
+      transform: rotate(-16deg);
+    }
+    .track-map-view::after {
+      left: 42%;
+      top: 10%;
+      width: 2px;
+      height: 78%;
+      transform: rotate(21deg);
+    }
+    .track-map-point {
+      position: absolute;
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      font-size: 11px;
+      box-shadow: 0 3px 9px rgba(22, 119, 255, .28);
+    }
+    .track-map-point.one { left: 18%; top: 65%; }
+    .track-map-point.two { left: 45%; top: 43%; }
+    .track-map-point.three { left: 70%; top: 24%; }
+    .track-map-label {
+      position: absolute;
+      padding: 4px 7px;
+      border: 1px solid #dbeafe;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, .9);
+      color: #475467;
+      font-size: 11px;
+    }
+    .track-map-label.one { left: 10%; top: 78%; }
+    .track-map-label.two { left: 38%; top: 50%; }
+    .track-map-label.three { left: 63%; top: 10%; }
+
+    @media (max-width: 760px) {
+      .track-view { padding: 14px 12px 20px; }
+      .track-filter-grid { grid-template-columns: 1fr; }
+      .track-event { grid-template-columns: 1fr; }
+      .track-event h4 { padding-top: 20px; padding-right: 0; }
+      .track-event img { width: 100%; height: 116px; }
+    }
+
+    @media (max-width: 1100px) {
+      .workbench.track-results-open {
+        grid-template-columns: 0 0 minmax(0, 1fr);
+      }
+      .workbench.track-results-open .chat-area,
+      .workbench.track-results-open .splitter {
+        display: none;
+      }
+    }
+
+    .detail-list {
+      display: grid;
+      grid-template-columns: 86px 1fr;
+      gap: 10px;
+      margin: 16px 0;
+      color: #475467;
+      line-height: 1.55;
+    }
+    .detail-list dt { color: #98a2b3; }
+    .detail-list dd { margin: 0; color: #344054; }
+    .detail-status {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 4px;
+      background: #f6ffed;
+      color: #389e0d;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .detail-status.review {
+      background: #fff7e6;
+      color: #d48806;
+    }
+    .result-detail-page {
+      display: grid;
+      gap: 14px;
+    }
+    .detail-page-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .detail-page-head h3 {
+      margin: 0;
+      color: #111827;
+      font-size: 16px;
+    }
+    .detail-back {
+      min-width: 0;
+      padding: 0 8px;
+    }
+    .result-detail-hero {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 7px;
+      object-fit: cover;
+      background: #eef2f7;
+    }
+    .detail-section {
+      padding: 12px;
+      border: 1px solid #edf0f5;
+      border-radius: 7px;
+      background: #fff;
+    }
+    .detail-section h4 {
+      margin: 0 0 10px;
+      color: #111827;
+      font-size: 13px;
+    }
+    .detail-page-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: .45;
+    }
+
+    .image-crop-mask {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(17, 24, 39, .48);
+    }
+    .image-crop-mask.open { display: flex; }
+
+    .deploy-drawer-mask {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: flex;
+      justify-content: flex-end;
+      background: rgba(17, 24, 39, .42);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease;
+    }
+    .deploy-drawer-mask.open { opacity: 1; pointer-events: auto; }
+    .deploy-drawer {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      width: min(520px, 100vw);
+      height: 100%;
+      overflow: hidden;
+      background: #fff;
+      box-shadow: -16px 0 40px rgba(16, 24, 40, .2);
+      transform: translateX(100%);
+      transition: transform .2s ease;
+    }
+    .deploy-drawer-mask.open .deploy-drawer { transform: translateX(0); }
+    .deploy-drawer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 58px;
+      padding: 0 22px;
+      border-bottom: 1px solid #edf0f5;
+    }
+    .deploy-drawer-head h3 { margin: 0; color: #111827; font-size: 16px; }
+    .deploy-drawer-close {
+      width: 30px;
+      height: 30px;
+      border: 0;
+      background: transparent;
+      color: #98a2b3;
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .deploy-drawer-close:hover { color: #344054; }
+    .deploy-drawer-body { overflow-y: auto; padding: 18px 22px 24px; }
+    .deploy-form-row {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      align-items: start;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .deploy-form-row > label {
+      padding-top: 7px;
+      color: #475467;
+      font-size: 12px;
+      line-height: 1.45;
+      text-align: right;
+    }
+    .deploy-form-row .required { margin-right: 3px; color: #f04438; }
+    .deploy-drawer .input,
+    .deploy-drawer .select,
+    .deploy-drawer .textarea {
+      box-sizing: border-box;
+      width: 100%;
+      border: 1px solid #d9dee7;
+      border-radius: 4px;
+      background: #fff;
+      color: #344054;
+      font: inherit;
+      font-size: 12px;
+      outline: none;
+    }
+    .deploy-drawer .input,
+    .deploy-drawer .select { height: 34px; padding: 0 10px; }
+    .deploy-drawer .textarea { min-height: 96px; padding: 8px 10px; resize: vertical; line-height: 1.5; }
+    .deploy-drawer .input:focus,
+    .deploy-drawer .select:focus,
+    .deploy-drawer .textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(22, 119, 255, .12); }
+    .deploy-target-upload {
+      display: grid;
+      min-height: 96px;
+      place-items: center;
+      border: 1px dashed #b7c7dc;
+      border-radius: 4px;
+      background: #f8fbff;
+      color: #667085;
+      font-size: 12px;
+      text-align: center;
+      cursor: pointer;
+    }
+    .deploy-target-upload:hover { border-color: var(--blue); color: var(--blue); }
+    .deploy-target-upload b { color: #344054; font-weight: 600; }
+    .deploy-effective-range { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); align-items: center; gap: 6px; }
+    .deploy-range-arrow { color: #98a2b3; text-align: center; }
+    .deploy-similarity-field { display: flex; align-items: center; gap: 10px; }
+    .deploy-similarity-field input { flex: 1; accent-color: var(--blue); }
+    .deploy-similarity-field output { min-width: 38px; color: #344054; font-size: 12px; text-align: right; }
+    .deploy-drawer-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 14px 22px 18px;
+      border-top: 1px solid #edf0f5;
+    }
+    @media (max-width: 560px) {
+      .deploy-drawer { width: 100vw; }
+      .deploy-form-row { grid-template-columns: 78px minmax(0, 1fr); gap: 8px; }
+      .deploy-drawer-head, .deploy-drawer-body, .deploy-drawer-footer { padding-left: 16px; padding-right: 16px; }
+    }
+    .image-crop-dialog {
+      width: min(720px, calc(100vw - 40px));
+      max-height: calc(100vh - 40px);
+      overflow: hidden;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 20px 54px rgba(16, 24, 40, .28);
+    }
+    .image-crop-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 54px;
+      padding: 0 22px;
+    }
+    .image-crop-head h3 {
+      margin: 0;
+      color: #111827;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .image-crop-close {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #98a2b3;
+      font-size: 22px;
+      line-height: 28px;
+    }
+    .image-crop-body { padding: 0 22px 18px; }
+    .image-crop-stage {
+      position: relative;
+      width: 100%;
+      max-height: 460px;
+      overflow: hidden;
+      border: 1px solid #d0d9e7;
+      border-radius: 6px;
+      background: #101828;
+      cursor: crosshair;
+      touch-action: none;
+      user-select: none;
+    }
+    .image-crop-stage img {
+      display: block;
+      width: 100%;
+      max-height: 460px;
+      object-fit: contain;
+      pointer-events: none;
+    }
+    .image-crop-selection {
+      position: absolute;
+      z-index: 2;
+      display: block;
+      border: 2px solid #20b7d5;
+      background: rgba(32, 183, 213, .1);
+      box-shadow: 0 0 0 9999px rgba(9, 30, 66, .48);
+      pointer-events: none;
+    }
+    .image-crop-selection::before,
+    .image-crop-selection::after {
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      border: 1px solid #fff;
+      background: #20b7d5;
+      content: "";
+    }
+    .image-crop-selection::before {
+      top: -5px;
+      left: -5px;
+    }
+    .image-crop-selection::after {
+      right: -5px;
+      bottom: -5px;
+    }
+    .image-crop-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 14px 22px 22px;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      top: 62px;
+      z-index: 70;
+      display: none;
+      min-width: 220px;
+      padding: 9px 14px;
+      border-radius: 6px;
+      background: rgba(17, 24, 39, .88);
+      color: #fff;
+      text-align: center;
+      transform: translateX(-50%);
+      box-shadow: 0 8px 20px rgba(16, 24, 40, .18);
+    }
+    .toast.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <button class="hamburger">☰</button>
+      <button class="rail-btn">◈</button>
+      <button class="rail-btn active">◇</button>
+      <button class="rail-btn">◒</button>
+      <button class="rail-btn">◧</button>
+      <button class="rail-btn">◨</button>
+    </aside>
+
+    <aside class="conversation">
+      <div class="brand"><span class="brand-icon">视</span><span>视觉大模型平台</span></div>
+      <div class="conv-body">
+        <div class="conv-title">万物搜</div>
+        <button class="new-chat" id="newChatBtn">新建会话</button>
+        <input class="search-box" placeholder="搜索历史记录..." />
+        <div class="section-label">对话分组</div>
+        <button class="folder"><b>＋</b> 新增分组</button>
+        <button class="folder">□ 分组会话文件夹1</button>
+        <button class="folder">□ 分组会话文件夹2</button>
+        <button class="folder">□ 分组会话文件夹3</button>
+        <div class="section-label">最近对话</div>
+        <div id="historyList">
+          <button class="history-item" data-mode="image" data-prompt="查找今天穿蓝色衣服的外卖员">查找今天穿蓝色衣服的外卖员</button>
+          <button class="history-item">帮我查询昨天下午四点的金...</button>
+          <button class="history-item">问题咨询</button>
+          <button class="history-item">万物搜应用于什么时候合...</button>
+        </div>
+      </div>
+    </aside>
+
+    <section class="shell">
+      <header class="topbar">
+        <div class="breadcrumb">XXX &gt; YYY &gt; <b id="crumb">文搜图</b></div>
+        <div class="top-user"><span class="bell">▯</span><span class="avatar"></span><span>User</span></div>
+      </header>
+
+      <main class="workbench results-hidden" id="workbench">
+        <section class="chat-area">
+          <div class="chat-scroll" id="chatScroll">
+            <div class="empty-chat" id="emptyChat">
+              <div class="empty-center">
+                <h1>有什么我能帮你的吗？</h1>
+                <div class="quick-business">
+                  <button class="quick-chip" data-mode-prompt="image">查找今天穿蓝色衣服的外卖员</button>
+                  <button class="quick-chip" data-mode-prompt="video">查找14:00-18:00 B2停车场剐蹭视频</button>
+                  <button class="quick-chip" data-mode-prompt="image">搜索昨天下午四点南门金色车辆图片</button>
+                  <button class="quick-chip" data-mode-prompt="video">查询地下车库可疑人员徘徊视频</button>
+                  <button class="quick-chip" data-mode-prompt="image">找办公区戴帽子深色外套人员</button>
+                  <button class="quick-chip" data-mode-prompt="video">查看白色奔驰进入B2层停车场全过程</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="dialog-content" id="dialogContent">
+              <article class="msg">
+                <div>
+                  <div class="bubble intro">您好，我是 SXin 视觉智能体。您可以直接描述要查找的人、车、衣着、时间或地点，我会先分析检索条件，再召回监控图片和视频结果。</div>
+                </div>
+              </article>
+
+              <article class="msg video-search-attachment hidden" id="videoSearchAttachment" aria-hidden="true">
+                <div class="video-attachment-stack">
+                  <section class="video-camera-summary" aria-labelledby="videoSearchResultTitle">
+                    <div class="video-summary-head">
+                      <h3 id="videoSearchResultTitle">视频搜索结果完成</h3>
+                      <span class="video-complete-badge">完成</span>
+                      <span class="video-search-time"><span class="video-search-clock" aria-hidden="true"></span>0.3s</span>
+                    </div>
+                    <p class="video-summary-copy">已为您找到 B2 层停车场相关的摄像机点位：</p>
+                    <div class="camera-point-grid" id="cameraPointGrid">
+                      <button class="camera-point" type="button" data-camera="B2-001 东入口" aria-pressed="true">
+                        <strong>B2-001 东入口</strong><span>双击查看回放</span>
+                      </button>
+                      <button class="camera-point" type="button" data-camera="B2-002 西入口" aria-pressed="false">
+                        <strong>B2-002 西入口</strong><span>双击查看回放</span>
+                      </button>
+                      <button class="camera-point" type="button" data-camera="B2-003 通道 A 区" aria-pressed="false">
+                        <strong>B2-003 通道 A 区</strong><span>双击查看回放</span>
+                      </button>
+                      <button class="camera-point" type="button" data-camera="B2-001 通道 B 区" aria-pressed="false">
+                        <strong>B2-001 通道 B 区</strong><span>双击查看回放</span>
+                      </button>
+                      <button class="camera-point" type="button" data-camera="B2-001 停车位 C 区" aria-pressed="false">
+                        <strong>B2-001 停车位 C 区</strong><span>双击查看回放</span>
+                      </button>
+                      <button class="camera-point camera-point-more" type="button" id="moreCameraPoints" aria-expanded="false">
+                        <strong id="moreCameraCount">+3</strong><span id="moreCameraText">查看更多</span>
+                      </button>
+                      <button class="camera-point extra-camera-point" type="button" data-camera="B2-004 出口闸机" aria-pressed="false" hidden>
+                        <strong>B2-004 出口闸机</strong><span>双击查看回放</span>
+                      </button>
+                      <button class="camera-point extra-camera-point" type="button" data-camera="B2-005 电梯厅" aria-pressed="false" hidden>
+                        <strong>B2-005 电梯厅</strong><span>双击查看回放</span>
+                      </button>
+                      <button class="camera-point extra-camera-point" type="button" data-camera="B2-006 充电区" aria-pressed="false" hidden>
+                        <strong>B2-006 充电区</strong><span>双击查看回放</span>
+                      </button>
+                    </div>
+                    <div class="video-attachment-tip"><span class="video-tip-icon" aria-hidden="true">💡</span><span>双击任意点位可在对话框中查看回放预览</span></div>
+                  </section>
+
+                  <section class="video-playback-card" id="videoPlaybackCard" draggable="true" aria-label="拖拽 B2-001 东入口的回放视频到输入框进一步分析">
+                    <div class="video-playback-title">正在播放：<span id="videoPlaybackTitle">B2-001 东入口</span></div>
+                    <div class="video-preview-frame" id="videoPreviewFrame">
+                      <span class="video-preview-label" id="videoPreviewLabel">视频将在预览时播放</span>
+                      <div class="video-preview-progress"><span id="videoPreviewProgress"></span></div>
+                      <div class="video-preview-controls">
+                        <button class="video-preview-control" type="button" id="videoPreviewPlay" title="播放" aria-label="播放">▶</button>
+                        <span class="video-preview-time" id="videoPreviewTime">0:00 / 0:00</span>
+                        <span></span>
+                        <button class="video-preview-control" type="button" id="videoPreviewMute" title="静音" aria-label="静音">◖</button>
+                        <button class="video-preview-control" type="button" id="videoPreviewFullscreen" title="全屏" aria-label="全屏">⛶</button>
+                      </div>
+                    </div>
+                    <div class="video-attachment-tip"><span class="video-tip-icon" aria-hidden="true">💡</span><span>拖拽此视频到下方输入框进一步分析</span></div>
+                  </section>
+                </div>
+              </article>
+
+              <article class="msg user">
+                <div>
+                  <div class="bubble" id="userBubble">查找今天穿蓝色衣服的外卖员</div>
+                  <div class="timestamp" id="messageTime">2026/07/21 09:30</div>
+                </div>
+              </article>
+
+              <article class="msg" id="analysisMessage">
+                <div>
+                  <div class="process-block">
+                    <div class="process-title">
+                      <button class="process-toggle" id="processToggle"><span>分析过程</span><span class="process-caret">⌄</span></button>
+                      <span id="processPercent" class="process-percent-hidden" style="color:var(--blue)"></span>
+                    </div>
+                    <div class="process-details" id="processDetails">
+                      <div class="process-title"><span id="processStatus">搜索特征提取中...</span><span></span></div>
+                      <div class="progress-line"><span id="progressFill"></span></div>
+                      <div class="process-table" id="processTable"></div>
+                    </div>
+                  </div>
+                  <button class="btn ghost original-analysis-btn hidden" id="originalAnalysisBtn" type="button" aria-hidden="true">原始分析结果</button>
+                  <div class="analysis-card" id="analysisCard">
+                    <h3>视觉分析结果 <span class="badge" id="analysisBadge">完成</span></h3>
+                    <div class="analysis-inner" id="analysisInner"></div>
+                  </div>
+                  <div class="tip" id="resultTip">💡 您可以点击右侧关键帧查看详细画面，或将结果点击加入框进行进一步操作</div>
+                  <div class="feedback" id="feedbackBar"><button class="btn">👍 有用</button><button class="btn">👎 无用</button><button class="btn">⟳ 重新生成</button></div>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <div class="composer">
+            <textarea id="promptInput" placeholder="输入要查找的人、车、衣着、时间或地点，例如：查找今天穿蓝色衣服的外卖员">查找今天穿蓝色衣服的外卖员</textarea>
+            <div class="composer-toolbar">
+              <div class="left-tools">
+                <button class="btn plus-btn" id="newChatMiniBtn">＋</button>
+                <button class="btn quick-tool active" id="modeImageBtn" data-mode-switch="image">▧ 文搜图</button>
+                <button class="btn quick-tool" id="modeVideoBtn" data-mode-switch="video">▶ 文搜视频</button>
+                <button class="btn quick-tool" id="modeImageSearchBtn" data-mode-switch="imageSearch">△ 图搜图</button>
+        <button class="btn quick-tool" data-action="quick-deploy">⛉ 快速布防</button>
+                <button class="btn quick-tool" data-tool="track">⌘ 轨迹跟踪</button>
+              </div>
+              <div class="right-tools">
+                <button class="btn primary send-btn" id="sendBtn">发送指令 ▶</button>
+                <button class="btn mic-btn">◉</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <button class="splitter" id="splitter" aria-label="拖拽调整分析详情宽度"></button>
+
+        <aside class="results-panel">
+          <div class="results-head">
+            <h2><span id="resultsTitle">分析详情</span> <span class="count-pill" id="countPill">3 个事件</span></h2>
+            <button class="btn text" id="collapseResultsBtn">收起</button>
+          </div>
+          <div class="results-scroll" id="resultsRoot"></div>
+          <div class="result-footer">
+            <button class="btn primary" id="footerActionBtn">轨迹还原</button>
+          </div>
+        </aside>
+      </main>
+    </section>
+  </div>
+
+  <div class="image-crop-mask" id="imageCropModal" aria-hidden="true">
+    <section class="image-crop-dialog" role="dialog" aria-modal="true" aria-labelledby="imageCropTitle">
+      <div class="image-crop-head">
+        <h3 id="imageCropTitle"></h3>
+        <button class="image-crop-close" id="imageCropCloseBtn" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="image-crop-body">
+        <div class="image-crop-stage" id="imageCropStage">
+          <img id="imageCropImage" alt="待框选目标" draggable="false" />
+          <span class="image-crop-selection" id="imageCropSelection"></span>
+        </div>
+      </div>
+      <div class="image-crop-footer">
+        <button class="btn" id="imageCropCancelBtn" type="button">取消</button>
+        <button class="btn primary" id="imageCropConfirmBtn" type="button">确定</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="deploy-drawer-mask" id="deployDrawer" aria-hidden="true">
+    <aside class="deploy-drawer" role="dialog" aria-modal="true" aria-labelledby="deployDrawerTitle">
+      <div class="deploy-drawer-head">
+        <h3 id="deployDrawerTitle">新建布控任务</h3>
+        <button class="deploy-drawer-close" id="deployDrawerCloseBtn" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="deploy-drawer-body">
+        <div class="deploy-form-row">
+          <label><span class="required">*</span>布控区域：</label>
+          <select class="select" aria-label="布控区域">
+            <option>请选择布控区域</option><option>园区南门</option><option>A座停车区</option><option>仓储区</option><option>园区周界</option>
+          </select>
+        </div>
+        <div class="deploy-form-row">
+          <label>布控目标：</label>
+          <button class="deploy-target-upload" id="deployTargetUpload" type="button"><span><b>＋ 点击上传布控图像</b><br />支持 jpg / png / jpeg</span></button>
+        </div>
+        <div class="deploy-form-row">
+          <label><span class="required">*</span>编排算法：</label>
+          <select class="select" aria-label="编排算法">
+            <option>选择编排的布控算法</option><option>人员入侵检测</option><option>车辆违停识别</option><option>烟火检测告警</option><option>电动车识别</option>
+          </select>
+        </div>
+        <div class="deploy-form-row">
+          <label><span class="required">*</span>任务名称：</label>
+          <input class="input" value="人员布控-东门" placeholder="请输入任务名称" aria-label="任务名称" />
+        </div>
+        <div class="deploy-form-row">
+          <label><span class="required">*</span>生效时间：</label>
+          <div class="deploy-effective-range">
+            <input class="input" type="date" aria-label="生效开始日期" /><span class="deploy-range-arrow">→</span><input class="input" type="date" aria-label="生效结束日期" />
+          </div>
+        </div>
+        <div class="deploy-form-row">
+          <label><span class="required">*</span>循环周期：</label>
+          <div class="deploy-effective-range">
+            <input class="input" type="time" value="00:00" aria-label="循环开始时间" /><span class="deploy-range-arrow">→</span><input class="input" type="time" value="23:59" aria-label="循环结束时间" />
+          </div>
+        </div>
+        <div class="deploy-form-row">
+          <label><span class="required">*</span>相似度：</label>
+          <div class="deploy-similarity-field"><input id="deploySimilarity" type="range" min="0" max="100" step="1" value="50" aria-label="相似度" /><output id="deploySimilarityValue" for="deploySimilarity">50%</output></div>
+        </div>
+        <div class="deploy-form-row">
+          <label>任务描述：</label>
+          <textarea class="textarea" placeholder="请输入任务描述">请输入任务描述</textarea>
+        </div>
+      </div>
+      <div class="deploy-drawer-footer">
+        <button class="btn" id="deployDrawerCancelBtn" type="button">取消</button>
+        <button class="btn primary" id="deployDrawerConfirmBtn" type="button">保存</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const assets = {
+      car: "source-prototype/pm2mqj5op6bavlkhn-mrlsi9b4/res-img/org/2506/car19.jpg",
+      rider: "source-prototype/pm2mqj5op6bavlkhn-mrlsi9b4/uploads7/images/18180/181803199/v2_ti7dvb.jpg",
+      person: "source-prototype/pm2mqj5op6bavlkhn-mrlsi9b4/uploads7/images/17906/179067143/v2_tfzzpc.jpg",
+      scene1: "source-prototype/pm2mqj5op6bavlkhn-mrlsi9b4/uploads7/images/18166/181666939/v2_ti3i0v.jpg",
+      scene2: "source-prototype/pm2mqj5op6bavlkhn-mrlsi9b4/uploads7/images/18166/181666942/v2_ti3i0z.jpg",
+      board: "source-prototype/pm2mqj5op6bavlkhn-mrlsi9b4/uploads7/images/18166/181666941/v2_ti3i0w.jpg",
+      analyst: "source-prototype/pm2mqj5op6bavlkhn-mrlsi9b4/uploads7/images/18166/181666946/v2_ti3i14.jpg",
+      ai: "source-prototype/pm2mqj5op6bavlkhn-mrlsi9b4/res-img/org/2506/ai28.jpg"
+    };
+
+    const imageResults = [
+      { title: "南门入口-外卖员进入", time: "2026-07-21 08:42:16", score: 98.12, status: "正常", img: assets.rider, area: "南门入口", desc: "蓝色衣服外卖员从南门进入园区，目标特征匹配。" },
+      { title: "B6-1F-接待台经过", time: "2026-07-21 08:47:33", score: 97.64, status: "正常", img: assets.rider, area: "B6-1F", desc: "同一目标在接待台附近出现，衣着和骑行装备特征一致。" },
+      { title: "办公区通道-短暂停留", time: "2026-07-21 08:50:08", score: 96.91, status: "正常", img: assets.rider, area: "办公区通道", desc: "目标进入办公区通道，可作为轨迹跟踪中间点。" },
+      { title: "电梯厅-目标转向", time: "2026-07-21 08:53:27", score: 95.88, status: "正常", img: assets.rider, area: "B6电梯厅", desc: "蓝色上衣与外卖箱轮廓明显，系统判定为同一目标。" },
+      { title: "北侧通道-再次出现", time: "2026-07-21 09:04:12", score: 94.73, status: "正常", img: assets.rider, area: "北侧通道", desc: "目标在通道画面中短暂停留，建议纳入轨迹。" },
+      { title: "地下连廊-低角度抓拍", time: "2026-07-21 09:11:45", score: 92.56, status: "待复核", img: assets.rider, area: "地下连廊", desc: "蓝色衣着匹配，脸部遮挡较多，建议人工复核。" },
+      { title: "东门岗-疑似离开", time: "2026-07-21 09:18:06", score: 91.42, status: "正常", img: assets.rider, area: "东门岗", desc: "目标疑似从东门岗离开，可生成完整轨迹。" }
+    ];
+
+    const videoResults = [
+      { title: "车辆进入", time: "2026-06-02", score: 96.8, status: "正常", img: assets.car, area: "B2层停车场", desc: "白色奔驰车进入到B2层停车场。" },
+      { title: "剐蹭事故", time: "2026-06-02", score: 95.2, status: "异常", img: assets.scene1, area: "B2层停车场", desc: "白色奔驰倒车时与黑本停放车辆发生碰撞。" },
+      { title: "车辆离开", time: "2026-06-02", score: 91.5, status: "异常", img: assets.scene2, area: "B2层停车场", desc: "车辆离开停车场，建议保留视频证据。" }
+    ];
+
+    const trackEvents = [
+      { title: "南门入口 02号", time: "08:30:12", desc: "目标由南向北进入园区", img: assets.rider },
+      { title: "A座大堂 01号", time: "08:35:45", desc: "进入A座大堂，前往电梯厅", img: assets.rider },
+      { title: "3楼电梯出口", time: "08:38:20", desc: "走出电梯，进入办公区", img: assets.rider }
+    ];
+
+    const modeLabels = {
+      image: "文搜图",
+      video: "文搜视频",
+      imageSearch: "图搜图"
+    };
+    let mode = "image";
+    let conversationCount = 3;
+    let activeHistoryButton = null;
+    let searchTimerIds = [];
+    let resultsView = "search";
+    const workbench = document.getElementById("workbench");
+    const resultsPanel = document.querySelector(".results-panel");
+    const resultsTitle = document.getElementById("resultsTitle");
+    const countPill = document.getElementById("countPill");
+    const resultsRoot = document.getElementById("resultsRoot");
+    const processTable = document.getElementById("processTable");
+    const analysisInner = document.getElementById("analysisInner");
+    const toast = document.getElementById("toast");
+    const historyList = document.getElementById("historyList");
+    const chatScroll = document.getElementById("chatScroll");
+    const newChatBtn = document.getElementById("newChatBtn");
+    const promptInput = document.getElementById("promptInput");
+    const userBubble = document.getElementById("userBubble");
+    let userMessageText = userBubble.textContent.trim();
+    const messageTime = document.getElementById("messageTime");
+    const analysisMessage = document.getElementById("analysisMessage");
+    const emptyChat = document.getElementById("emptyChat");
+    const dialogContent = document.getElementById("dialogContent");
+    const processToggle = document.getElementById("processToggle");
+    const processBlock = document.querySelector(".process-block");
+    const processPercent = document.getElementById("processPercent");
+    const processStatus = document.getElementById("processStatus");
+    const progressFill = document.getElementById("progressFill");
+    const progressLine = progressFill.parentElement;
+    const analysisCard = document.getElementById("analysisCard");
+    const analysisBadge = document.getElementById("analysisBadge");
+    const resultTip = document.getElementById("resultTip");
+    const feedbackBar = document.getElementById("feedbackBar");
+    const originalAnalysisBtn = document.getElementById("originalAnalysisBtn");
+    const videoSearchAttachment = document.getElementById("videoSearchAttachment");
+    const cameraPointGrid = document.getElementById("cameraPointGrid");
+    const moreCameraPoints = document.getElementById("moreCameraPoints");
+    const moreCameraCount = document.getElementById("moreCameraCount");
+    const moreCameraText = document.getElementById("moreCameraText");
+    const videoPlaybackCard = document.getElementById("videoPlaybackCard");
+    const videoPlaybackTitle = document.getElementById("videoPlaybackTitle");
+    const videoPreviewFrame = document.getElementById("videoPreviewFrame");
+    const videoPreviewLabel = document.getElementById("videoPreviewLabel");
+    const videoPreviewPlay = document.getElementById("videoPreviewPlay");
+    const videoPreviewMute = document.getElementById("videoPreviewMute");
+    const videoPreviewFullscreen = document.getElementById("videoPreviewFullscreen");
+    const videoPreviewTime = document.getElementById("videoPreviewTime");
+    const videoPreviewProgress = document.getElementById("videoPreviewProgress");
+    const imageCropModal = document.getElementById("imageCropModal");
+    const imageCropTitle = document.getElementById("imageCropTitle");
+    const imageCropStage = document.getElementById("imageCropStage");
+    const imageCropImage = document.getElementById("imageCropImage");
+    const imageCropSelection = document.getElementById("imageCropSelection");
+    const imageCropConfirmBtn = document.getElementById("imageCropConfirmBtn");
+    const deployDrawer = document.getElementById("deployDrawer");
+    const deployQuickButton = document.querySelector('[data-action="quick-deploy"]');
+    const deploySimilarity = document.getElementById("deploySimilarity");
+    const deploySimilarityValue = document.getElementById("deploySimilarityValue");
+    let videoPreviewTimer = null;
+    let videoPreviewSeconds = 0;
+    let draggingVideoAttachment = false;
+    let imageCropState = { action: "", item: null };
+    let imageCropSelectionState = { x: 15, y: 15, width: 70, height: 70 };
+    let imageCropDragStart = null;
+    let imageCropDragging = false;
+
+    function isImageMode() {
+      return mode === "image" || mode === "imageSearch";
+    }
+
+    function renderUserBubble() {
+      const showImageReference = mode === "imageSearch" && Boolean(userMessageText);
+      userBubble.classList.toggle("image-query-bubble", showImageReference);
+      if (showImageReference) {
+        const reference = imageResults[0];
+        userBubble.innerHTML = `<img src="${reference.img}" alt="${reference.title}">`;
+        return;
+      }
+      userBubble.textContent = userMessageText;
+    }
+
+    function setUserMessage(text) {
+      userMessageText = text;
+      renderUserBubble();
+    }
+
+    function getModeLabel() {
+      return modeLabels[mode] || modeLabels.image;
+    }
+
+    function setResultVisibility(visible) {
+      [analysisCard, resultTip, feedbackBar].forEach(el => el.classList.toggle("hidden", !visible));
+      const showOriginalAnalysis = visible && mode === "video";
+      originalAnalysisBtn.classList.toggle("hidden", !showOriginalAnalysis);
+      originalAnalysisBtn.setAttribute("aria-hidden", String(!showOriginalAnalysis));
+    }
+
+    function setProgress(percent, text) {
+      const hidePercent = mode === "video" || isImageMode();
+      processPercent.classList.toggle("process-percent-hidden", hidePercent);
+      processPercent.textContent = hidePercent ? "" : percent;
+      processStatus.textContent = text;
+      const isThinking = percent === "分析中";
+      progressLine.classList.toggle("indeterminate", isThinking);
+      progressFill.style.width = isThinking ? "42%" : percent;
+    }
+
+    function setAnalysisStatus(text, thinking) {
+      analysisBadge.textContent = text;
+      analysisBadge.classList.toggle("thinking", thinking);
+    }
+
+    function setActiveQuickTool(activeButton) {
+      document.querySelectorAll(".quick-tool").forEach(item => item.classList.remove("active"));
+      if (activeButton) activeButton.classList.add("active");
+    }
+
+    function showEmptyChat() {
+      emptyChat.classList.add("show");
+      dialogContent.classList.add("hidden");
+    }
+
+    function showDialogContent() {
+      emptyChat.classList.remove("show");
+      dialogContent.classList.remove("hidden");
+    }
+
+    function syncVideoAttachmentVisibility() {
+      const isVideoMode = mode === "video";
+      videoSearchAttachment.classList.toggle("hidden", !isVideoMode);
+      videoSearchAttachment.setAttribute("aria-hidden", String(!isVideoMode));
+      if (!isVideoMode) {
+        resetVideoPreview();
+        moreCameraPoints.setAttribute("aria-expanded", "false");
+        document.querySelectorAll(".extra-camera-point").forEach(item => {
+          item.hidden = true;
+        });
+        moreCameraCount.textContent = "+3";
+        moreCameraText.textContent = "查看更多";
+      }
+    }
+
+    function formatPreviewTime(seconds) {
+      return `0:${String(seconds).padStart(2, "0")}`;
+    }
+
+    function resetVideoPreview() {
+      clearInterval(videoPreviewTimer);
+      videoPreviewTimer = null;
+      videoPreviewSeconds = 0;
+      videoPreviewPlay.textContent = "▶";
+      videoPreviewPlay.title = "播放";
+      videoPreviewPlay.setAttribute("aria-label", "播放");
+      videoPreviewTime.textContent = "0:00 / 0:00";
+      videoPreviewProgress.style.width = "0";
+      videoPreviewLabel.textContent = "视频将在预览时播放";
+    }
+
+    function activateCameraPoint(button) {
+      const cameraName = button.dataset.camera;
+      cameraPointGrid.querySelectorAll("[data-camera]").forEach(item => {
+        item.setAttribute("aria-pressed", String(item === button));
+      });
+      videoPlaybackTitle.textContent = cameraName;
+      videoPlaybackCard.setAttribute("aria-label", `拖拽 ${cameraName} 的回放视频到输入框进一步分析`);
+      resetVideoPreview();
+      showToast(`已切换回放点位：${cameraName}`);
+    }
+
+    function toggleVideoPreview() {
+      const duration = 10;
+      if (videoPreviewTimer) {
+        clearInterval(videoPreviewTimer);
+        videoPreviewTimer = null;
+        videoPreviewPlay.textContent = "▶";
+        videoPreviewPlay.title = "继续播放";
+        videoPreviewPlay.setAttribute("aria-label", "继续播放");
+        videoPreviewLabel.textContent = "回放预览已暂停";
+        return;
+      }
+
+      if (videoPreviewSeconds >= duration) videoPreviewSeconds = 0;
+      videoPreviewPlay.textContent = "Ⅱ";
+      videoPreviewPlay.title = "暂停";
+      videoPreviewPlay.setAttribute("aria-label", "暂停");
+      videoPreviewLabel.textContent = "正在播放回放预览";
+      videoPreviewTime.textContent = `${formatPreviewTime(videoPreviewSeconds)} / 0:10`;
+      videoPreviewProgress.style.width = `${videoPreviewSeconds * 10}%`;
+      videoPreviewTimer = setInterval(() => {
+        videoPreviewSeconds += 1;
+        videoPreviewTime.textContent = `${formatPreviewTime(videoPreviewSeconds)} / 0:10`;
+        videoPreviewProgress.style.width = `${videoPreviewSeconds * 10}%`;
+        if (videoPreviewSeconds >= duration) {
+          clearInterval(videoPreviewTimer);
+          videoPreviewTimer = null;
+          videoPreviewPlay.textContent = "▶";
+          videoPreviewPlay.title = "重新播放";
+          videoPreviewPlay.setAttribute("aria-label", "重新播放");
+          videoPreviewLabel.textContent = "回放预览完成";
+        }
+      }, 1000);
+    }
+
+    function setMode(nextMode) {
+      mode = nextMode;
+      setActiveQuickTool(document.querySelector(`.quick-tool[data-mode-switch="${mode}"]`));
+      document.querySelectorAll(".nav-item[data-mode]").forEach(btn => btn.classList.toggle("active", btn.dataset.mode === mode));
+      document.getElementById("crumb").textContent = getModeLabel();
+      renderUserBubble();
+      renderAll();
+    }
+
+    function renderAll() {
+      const data = isImageMode() ? imageResults : videoResults;
+      setResultsView("search");
+      syncVideoAttachmentVisibility();
+      setResultVisibility(true);
+      analysisCard.classList.toggle("image-preview-only", isImageMode());
+      setAnalysisStatus("完成", false);
+      setProgress("100%", isImageMode() ? "图像语义检索完成" : "视频事件检索完成");
+      document.getElementById("countPill").textContent = `${data.length} 个事件`;
+      document.getElementById("footerActionBtn").textContent = isImageMode() ? "轨迹还原" : "生成报告";
+      processTable.innerHTML = isImageMode() ? `
+        <div class="process-row"><span>解析中</span></div>
+        <div class="process-row"><span>检索中</span></div>
+        <div class="process-row"><span>排序中</span></div>
+      ` : `
+        <div class="process-row"><span>视频分析</span></div>
+        <div class="process-row"><span>特征提取</span></div>
+        <div class="process-row"><span>行为检测</span></div>
+      `;
+      analysisInner.innerHTML = isImageMode() ? `
+        ${renderImageAnalysisSummary(data)}
+      ` : `
+        <ul class="event-list">
+          <li>已识别到目标事件，结果已同步到右侧面板</li>
+          <li>剐蹭发生时间：15:45:32</li>
+          <li>肇事车辆：白色奔驰 GLC300</li>
+          <li>车牌号码：京A·12345</li>
+          <li>涉事人员：驾驶员1名，行人2名</li>
+          <li>无人受伤</li>
+        </ul>
+      `;
+      resultsRoot.innerHTML = isImageMode() ? renderImageResults(data) : renderVideoResults(data);
+      bindResultButtons();
+    }
+
+    function clearSearchTimers() {
+      searchTimerIds.forEach(id => clearTimeout(id));
+      searchTimerIds = [];
+    }
+
+    function setProcessRows(rows) {
+      processTable.innerHTML = rows.map(row => {
+        const value = typeof row.value === "string" && row.value.endsWith("%") ? "" : row.value;
+        return `
+          <div class="process-row"><span>${row.label}</span>${value ? `<b class="${row.green ? "green" : ""}" style="${row.muted ? "color:#98a2b3" : ""}">${value}</b>` : ""}</div>
+        `;
+      }).join("");
+    }
+
+    function stampMessageTime() {
+      const now = new Date();
+      const pad = value => String(value).padStart(2, "0");
+      messageTime.textContent = `${now.getFullYear()}/${pad(now.getMonth() + 1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    }
+
+    function setResultsWaiting(text) {
+      resultsRoot.innerHTML = `<div class="tip" style="padding:18px 4px;">${text}</div>`;
+    }
+
+    function renderImageAnalysisSummary(data) {
+      const previewItems = data.slice(0, 8);
+      return `
+        <div class="analysis-summary">
+          <div class="preview-head">
+            <b>图片预览（最多展示 8 张）</b>
+            <button class="btn ghost more-link" data-open-results="true">查看更多</button>
+          </div>
+          <div class="image-slots">
+            ${previewItems.map(item => `
+              <span class="slot"><img src="${item.img}" alt="${item.title}" /><span class="slot-label">${item.area} ${item.score.toFixed(2)}%</span></span>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    function runSearchFlow() {
+      clearSearchTimers();
+      const data = isImageMode() ? imageResults : videoResults;
+      setResultsView("search");
+      setResultVisibility(false);
+      analysisCard.classList.toggle("image-preview-only", isImageMode());
+      analysisCard.classList.remove("hidden");
+      setAnalysisStatus("分析中", true);
+      processBlock.classList.remove("collapsed");
+      closeResults();
+      document.getElementById("countPill").textContent = "分析中";
+      document.getElementById("footerActionBtn").textContent = isImageMode() ? "轨迹还原" : "生成报告";
+      setProgress("分析中", "SXin 正在理解自然语言描述...");
+      setProcessRows([
+        { label: "意图识别：文搜图", value: "进行中" },
+        { label: "解析人员/衣着/职业线索", value: "-" , muted: true },
+        { label: "匹配园区图像索引", value: "-" , muted: true },
+        { label: "过滤低置信与重复帧", value: "-" , muted: true }
+      ]);
+      analysisInner.innerHTML = `<p class="process-note">SXin 正在把自然语言转成图像检索条件：目标是“外卖员”，核心视觉线索为“蓝色衣服”，时间约束为“今天”，地点默认为园区全域公共监控。</p>`;
+      setResultsWaiting("等待智能体完成分析后展示整体结果...");
+
+      searchTimerIds.push(setTimeout(() => {
+        setProgress("35%", "正在抽取人员与服饰特征...");
+        setProcessRows([
+          { label: "意图识别：文搜图", value: "" },
+          { label: isImageMode() ? "解析人员/衣着/职业线索" : "抽取车辆/行为/时间特征", value: "进行中" },
+          { label: "匹配园区图像索引", value: "-" , muted: true },
+          { label: "过滤低置信与重复帧", value: "-" , muted: true }
+        ]);
+        analysisInner.innerHTML = isImageMode()
+          ? `<p class="process-note">已识别出 4 类检索约束：人员目标、蓝色上衣、外卖员职业特征、今天园区范围。系统将优先检索门岗、楼栋大厅、接待台和通道抓拍图片。</p>`
+          : `<div class="tip" style="margin:0;">已识别：B2停车场、14:00-18:00、剐蹭/车辆异常，优先检索视频片段。</div>`;
+      }, 550));
+
+      searchTimerIds.push(setTimeout(() => {
+        setProgress("68%", isImageMode() ? "正在召回园区抓拍图库..." : "正在召回停车场视频片段...");
+        setProcessRows([
+          { label: "意图识别：文搜图", value: "" },
+          { label: isImageMode() ? "解析人员/衣着/职业线索" : "抽取车辆/行为/时间特征", value: "" },
+          { label: isImageMode() ? "匹配园区图像索引" : "召回停车场监控片段", value: "进行中" },
+          { label: "过滤低置信与重复帧", value: "-" , muted: true }
+        ]);
+        setResultsWaiting(isImageMode() ? "已召回候选图片，正在做相似度重排..." : "已召回候选视频，正在识别关键事件...");
+        analysisInner.innerHTML = isImageMode()
+          ? `<p class="process-note">已从园区图像索引召回 42 张候选帧，正在按衣着颜色、人员姿态、骑行装备和点位连续性做多模态重排。</p>`
+          : analysisInner.innerHTML;
+      }, 1150));
+
+      searchTimerIds.push(setTimeout(() => {
+        setProgress("100%", "分析完成，已输出文搜图结果");
+        setProcessRows([
+          { label: "意图识别：文搜图", value: "" },
+          { label: isImageMode() ? "解析人员/衣着/职业线索" : "抽取车辆/行为/时间特征", value: "" },
+          { label: isImageMode() ? "匹配园区图像索引" : "召回停车场监控片段", value: "" },
+          { label: "过滤低置信与重复帧", value: "", green: true }
+        ]);
+        analysisInner.innerHTML = isImageMode() ? `
+          ${renderImageAnalysisSummary(data)}
+        ` : `
+          <ul class="event-list">
+            <li>已识别到目标事件，结果已同步到右侧面板</li>
+            <li>剐蹭发生时间：15:45:32</li>
+            <li>肇事车辆：白色奔驰 GLC300</li>
+            <li>车牌号码：京A·12345</li>
+            <li>涉事人员：驾驶员1名，行人2名</li>
+            <li>无人受伤</li>
+          </ul>
+        `;
+        document.getElementById("countPill").textContent = `${data.length} 个事件`;
+        setResultVisibility(true);
+        setAnalysisStatus("完成", false);
+        resultsRoot.innerHTML = isImageMode() ? renderImageResults(data) : renderVideoResults(data);
+        bindResultButtons();
+        chatScroll.scrollTo({ top: chatScroll.scrollHeight, behavior: "smooth" });
+        showToast(`${getModeLabel()}分析完成，可点击查看分析详情`);
+      }, 2100));
+    }
+
+    function setActiveHistory(button) {
+      if (activeHistoryButton) activeHistoryButton.classList.remove("active-history");
+      activeHistoryButton = button;
+      if (activeHistoryButton) activeHistoryButton.classList.add("active-history");
+    }
+
+    function createHistoryItem(title) {
+      const button = document.createElement("button");
+      button.className = "history-item active-history";
+      button.textContent = title;
+      button.addEventListener("click", () => loadConversation(button));
+      return button;
+    }
+
+    function loadConversation(button) {
+      clearSearchTimers();
+      setActiveHistory(button);
+      if (button.dataset.mode) setMode(button.dataset.mode);
+      if (button.dataset.prompt) {
+        promptInput.value = button.dataset.prompt;
+        setUserMessage(button.dataset.prompt);
+        showDialogContent();
+        renderAll();
+      } else {
+        promptInput.value = "";
+        setUserMessage("");
+        showEmptyChat();
+        closeResults();
+      }
+      showToast(`已切换到会话：${button.textContent}`);
+    }
+
+    function renderImageResults(data) {
+      return `
+        <div class="image-result-grid">${data.map((item, index) => `
+          <article class="image-tile" data-index="${index}">
+            <span class="tile-check"></span>
+            <img src="${item.img}" alt="${item.title}" />
+            <div class="score-ribbon">匹配度 <b>${item.score.toFixed(2)}%</b></div>
+            <div class="tile-meta">⌖ ${item.title}<span>◷ ${item.time}</span></div>
+            <div class="tile-actions">
+              <button class="btn" data-action="append" data-result-index="${index}">加入</button>
+              <button class="btn" data-action="track" data-result-index="${index}">轨迹</button>
+              <button class="btn" data-action="deploy" data-result-index="${index}">布防</button>
+            </div>
+          </article>
+        `).join("")}</div>
+      `;
+    }
+
+    function renderVideoResults(data) {
+      return `<div class="video-result-list">${data.map((item, index) => `
+        <article class="video-result" data-index="${index}">
+          <div class="video-placeholder"><img src="${item.img}" alt="${item.title}" /><span class="play-dot">▶</span></div>
+          <div class="video-info">
+            <span class="status ${item.status === "异常" ? "alert" : ""}">状态：${item.status}</span>
+            <h4>${item.title}</h4>
+            <p>${item.time}</p>
+            <p><b>对象特征：</b>京A·12345 白色 奔驰</p>
+            <p><b>事件详情：</b>${item.desc}</p>
+          </div>
+        </article>
+      `).join("")}</div>`;
+    }
+
+    function setResultsView(view) {
+      resultsView = view;
+      const isTrack = view === "track";
+      resultsPanel.classList.toggle("track-mode", isTrack);
+      workbench.classList.toggle("track-results-open", isTrack);
+      resultsTitle.textContent = isTrack ? "轨迹还原" : "分析详情";
+      countPill.hidden = isTrack;
+    }
+
+    function renderTrackTimeline() {
+      return `
+        <div class="track-timeline">
+          ${trackEvents.map(item => `
+            <article class="track-event">
+              <div>
+                <h4>${item.title}</h4>
+                <p>${item.desc}</p>
+                <time>${item.time}</time>
+              </div>
+              <img src="${item.img}" alt="${item.title}抓拍画面" />
+            </article>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function renderTrackTool() {
+      return `
+        <section class="track-view">
+          <div class="track-filter-grid">
+            <div class="track-field">
+              <span class="track-field-label">目标</span>
+              <div class="track-target-row">
+                <button class="track-target-image" id="trackTargetImageBtn" type="button" title="更换目标图片"><img id="trackTargetPreview" src="${assets.car}" alt="轨迹目标图片" /></button>
+                <button class="track-target-add" id="trackTargetAddBtn" type="button"><span><strong>＋</strong>上传目标图片</span></button>
+                <input id="trackTargetFile" type="file" accept="image/*" style="display:none" />
+              </div>
+            </div>
+            <div class="track-field">
+              <label class="track-field-label" for="trackStartInput">时间范围</label>
+              <div class="track-date-row">
+                <input class="input" id="trackStartInput" value="2026/07/12 12:23" aria-label="开始时间" />
+                <span class="track-date-separator">~</span>
+                <input class="input" id="trackEndInput" value="2026/07/13 00:23" aria-label="结束时间" />
+              </div>
+            </div>
+            <div class="track-field">
+              <label class="track-field-label" for="trackThresholdInput">相似度 ≥</label>
+              <div class="track-threshold-row">
+                <input id="trackThresholdInput" type="range" min="0" max="100" value="100" />
+                <output id="trackThresholdValue" for="trackThresholdInput">100</output><span>%</span>
+              </div>
+            </div>
+            <div class="track-field">
+              <label class="track-field-label" for="trackAreaSelect">区域</label>
+              <div class="track-area-query-row">
+                <select class="select" id="trackAreaSelect"><option>全部监控点位</option><option>园区南门</option><option>A座大堂</option><option>办公区</option></select>
+                <button class="btn primary" id="trackQueryBtn" type="button">⌕ 查询轨迹</button>
+              </div>
+            </div>
+          </div>
+          <div class="track-summary">
+            <span class="track-summary-item">◷ 总时长：<b>2h15min</b></span>
+            <span class="track-summary-item">⌖ 经过点位：<b>12个</b></span>
+            <span class="track-summary-item">⌘ 总距离：<b>5.3km</b></span>
+          </div>
+          <div id="trackViewContent">${renderTrackTimeline()}</div>
+        </section>
+      `;
+    }
+
+    function bindTrackTool() {
+      const threshold = document.getElementById("trackThresholdInput");
+      const thresholdValue = document.getElementById("trackThresholdValue");
+      const targetFile = document.getElementById("trackTargetFile");
+      const targetPreview = document.getElementById("trackTargetPreview");
+      const targetButtons = [document.getElementById("trackTargetImageBtn"), document.getElementById("trackTargetAddBtn")];
+      const viewContent = document.getElementById("trackViewContent");
+
+      threshold.addEventListener("input", () => {
+        thresholdValue.textContent = threshold.value;
+      });
+      targetButtons.forEach(button => button.addEventListener("click", () => targetFile.click()));
+      targetFile.addEventListener("change", () => {
+        const file = targetFile.files && targetFile.files[0];
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+          showToast("请选择图片文件");
+          return;
+        }
+        targetPreview.src = URL.createObjectURL(file);
+        showToast("目标图片已更新");
+      });
+      document.getElementById("trackQueryBtn").addEventListener("click", () => {
+        viewContent.innerHTML = renderTrackTimeline();
+        showToast("已按当前条件更新轨迹");
+      });
+    }
+
+    function openTrackTool() {
+      setResultsView("track");
+      resultsRoot.innerHTML = renderTrackTool();
+      resultsRoot.scrollTop = 0;
+      openResults();
+      bindTrackTool();
+    }
+
+    function bindResultButtons() {
+      document.querySelectorAll("[data-index]").forEach(el => {
+        el.addEventListener("click", () => {
+          const item = (isImageMode() ? imageResults : videoResults)[Number(el.dataset.index)];
+          showResultDetail(item);
+        });
+      });
+      document.querySelectorAll("[data-action]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.stopPropagation();
+          const item = (isImageMode() ? imageResults : videoResults)[Number(button.dataset.resultIndex)];
+          if (button.dataset.action === "append") appendToInput(item);
+          if (button.dataset.action === "track") showToast(`已将「${item.area}」加入轨迹还原`);
+          if (button.dataset.action === "deploy") showToast(`已基于「${item.area}」生成布防草稿`);
+        });
+      });
+    }
+
+    function renderResultsList() {
+      const data = isImageMode() ? imageResults : videoResults;
+      setResultsView("search");
+      document.getElementById("countPill").textContent = `${data.length} 个事件`;
+      document.getElementById("footerActionBtn").textContent = isImageMode() ? "轨迹还原" : "生成报告";
+      resultsRoot.innerHTML = isImageMode() ? renderImageResults(data) : renderVideoResults(data);
+      bindResultButtons();
+    }
+
+    function showResultDetail(item) {
+      setResultsView("detail");
+      document.getElementById("countPill").textContent = "详情";
+      document.getElementById("footerActionBtn").textContent = "返回列表";
+      resultsRoot.innerHTML = `
+        <section class="result-detail-page">
+          <div class="detail-page-head">
+            <button class="btn detail-back" id="resultBackBtn">‹ 返回</button>
+            <h3>分析结果</h3>
+          </div>
+          <img class="result-detail-hero" src="${item.img}" alt="${item.title}" />
+          <section class="detail-section">
+            <dl class="detail-list" style="margin:0;">
+              <dt>结果名称</dt><dd>${item.title}</dd>
+              <dt>点位区域</dt><dd>${item.area}</dd>
+              <dt>捕获时间</dt><dd>${item.time}</dd>
+              <dt>相似度</dt><dd>${item.score}%</dd>
+              <dt>状态</dt><dd><span class="detail-status ${item.status === "待复核" ? "review" : ""}">${item.status}</span></dd>
+              <dt>模型说明</dt><dd>${item.desc}</dd>
+            </dl>
+          </section>
+          <div class="detail-page-actions">
+            <button class="btn primary" id="detailImageSearchBtn">以图搜图</button>
+            <button class="btn primary" id="detailDeployBtn">快速布防</button>
+            <button class="btn primary" id="detailTrackBtn">轨迹还原</button>
+          </div>
+        </section>
+      `;
+      document.getElementById("resultBackBtn").addEventListener("click", renderResultsList);
+      document.getElementById("detailImageSearchBtn").addEventListener("click", () => openImageCrop("imageSearch", item));
+      document.getElementById("detailDeployBtn").addEventListener("click", () => openImageCrop("quickDeploy", item));
+      document.getElementById("detailTrackBtn").addEventListener("click", () => openImageCrop("track", item));
+    }
+
+    function runSearch() {
+      const value = promptInput.value.trim();
+      if (!value) {
+        showToast("请先输入要检索的人、车、地点或时间");
+        return;
+      }
+      showDialogContent();
+      if (value) setUserMessage(value);
+      stampMessageTime();
+      if (value && activeHistoryButton) {
+        activeHistoryButton.dataset.prompt = value;
+        activeHistoryButton.dataset.mode = mode;
+        activeHistoryButton.textContent = value.length > 14 ? `${value.slice(0, 14)}...` : value;
+      }
+      runSearchFlow();
+    }
+
+    function openResults() {
+      workbench.classList.remove("results-hidden");
+    }
+
+    function closeResults() {
+      if (resultsView === "track") renderResultsList();
+      workbench.style.gridTemplateColumns = "";
+      workbench.classList.add("results-hidden");
+    }
+
+    function appendToInput(item) {
+      promptInput.value = `基于结果「${item.title}」，继续查看它的前后轨迹并生成布防建议。`;
+      promptInput.focus();
+      showToast("已添加到聊天输入框");
+    }
+
+    function startNewConversation() {
+      clearSearchTimers();
+      conversationCount += 1;
+      const title = `新会话 ${conversationCount}`;
+      const item = createHistoryItem(title);
+      item.dataset.prompt = "";
+      historyList.prepend(item);
+      setActiveHistory(item);
+      setMode("image");
+      promptInput.value = "";
+      setUserMessage("");
+      document.getElementById("countPill").textContent = "0 个事件";
+      processTable.innerHTML = `<div class="process-row"><span>等待输入</span><b style="color:#98a2b3">-</b></div>`;
+      setProgress("0%", "等待输入");
+      setAnalysisStatus("待开始", true);
+      setResultVisibility(false);
+      analysisInner.innerHTML = `<div class="tip" style="margin:0;">请输入自然语言描述，开始一轮新的文搜图或文搜视频。</div>`;
+      resultsRoot.innerHTML = "";
+      showEmptyChat();
+      closeResults();
+      showToast(`已创建${title}`);
+    }
+
+    function runQuickPrompt(button) {
+      const prompt = button.textContent.trim();
+      const nextMode = button.dataset.modePrompt || "image";
+      setMode(nextMode);
+      promptInput.value = prompt;
+      runSearch();
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(window.toastTimer);
+      window.toastTimer = setTimeout(() => toast.classList.remove("show"), 1700);
+    }
+
+    function openDeployDrawer() {
+      if (imageCropState.item) setDeployDrawerTarget(imageCropState.item, imageCropSelectionState);
+      deployDrawer.classList.add("open");
+      deployDrawer.setAttribute("aria-hidden", "false");
+      deployDrawer.querySelector(".deploy-drawer-close").focus();
+    }
+
+    function closeDeployDrawer() {
+      deployDrawer.classList.remove("open");
+      deployDrawer.setAttribute("aria-hidden", "true");
+      deployQuickButton.focus();
+    }
+
+    function confirmDeployTask() {
+      closeDeployDrawer();
+      showToast("布控任务已保存");
+    }
+
+    function setDeployDrawerTarget(item, crop) {
+      if (!item) return;
+      const target = document.getElementById("deployTargetUpload");
+      target.innerHTML = `<span style="position:relative;display:block;width:100%;height:100%;overflow:hidden;"><img src="${item.img}" alt="${item.title}" style="width:100%;height:100%;object-fit:cover;" /><i style="position:absolute;left:${crop.x}%;top:${crop.y}%;width:${crop.width}%;height:${crop.height}%;border:2px solid #20b7d5;box-sizing:border-box;"></i></span>`;
+    }
+
+    const imageCropActionLabels = {
+      imageSearch: "以图搜图",
+      quickDeploy: "快速布防",
+      track: "轨迹还原"
+    };
+
+    function renderImageCropSelection() {
+      const { x, y, width, height } = imageCropSelectionState;
+      imageCropSelection.style.left = `${x}%`;
+      imageCropSelection.style.top = `${y}%`;
+      imageCropSelection.style.width = `${width}%`;
+      imageCropSelection.style.height = `${height}%`;
+      imageCropConfirmBtn.disabled = width < 3 || height < 3;
+    }
+
+    function openImageCrop(action, item) {
+      imageCropState = { action, item };
+      imageCropSelectionState = { x: 15, y: 15, width: 70, height: 70 };
+      imageCropDragStart = null;
+      imageCropDragging = false;
+      imageCropTitle.textContent = `${imageCropActionLabels[action]} · 框选目标`;
+      imageCropImage.src = item.img;
+      imageCropImage.alt = item.title;
+      renderImageCropSelection();
+      renderResultsList();
+      imageCropModal.classList.add("open");
+      imageCropModal.setAttribute("aria-hidden", "false");
+    }
+
+    function closeImageCrop() {
+      imageCropDragging = false;
+      imageCropDragStart = null;
+      imageCropModal.classList.remove("open");
+      imageCropModal.setAttribute("aria-hidden", "true");
+    }
+
+    function imageCropPoint(event) {
+      const rect = imageCropStage.getBoundingClientRect();
+      return {
+        x: Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100)),
+        y: Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100))
+      };
+    }
+
+    function startImageCropSelection(event) {
+      const point = imageCropPoint(event);
+      imageCropDragStart = point;
+      imageCropSelectionState = { x: point.x, y: point.y, width: 0, height: 0 };
+      imageCropDragging = true;
+      if (imageCropStage.setPointerCapture) imageCropStage.setPointerCapture(event.pointerId);
+      renderImageCropSelection();
+    }
+
+    function updateImageCropSelection(event) {
+      if (!imageCropDragging || !imageCropDragStart) return;
+      const point = imageCropPoint(event);
+      imageCropSelectionState = {
+        x: Math.min(imageCropDragStart.x, point.x),
+        y: Math.min(imageCropDragStart.y, point.y),
+        width: Math.abs(point.x - imageCropDragStart.x),
+        height: Math.abs(point.y - imageCropDragStart.y)
+      };
+      renderImageCropSelection();
+    }
+
+    function finishImageCropSelection(event) {
+      if (!imageCropDragging) return;
+      updateImageCropSelection(event);
+      imageCropDragging = false;
+      imageCropDragStart = null;
+    }
+
+    function confirmImageCrop() {
+      const { action, item } = imageCropState;
+      const { x, y, width, height } = imageCropSelectionState;
+      if (!action || !item || width < 3 || height < 3) return;
+      const crop = {
+        x: Number(x.toFixed(2)),
+        y: Number(y.toFixed(2)),
+        width: Number(width.toFixed(2)),
+        height: Number(height.toFixed(2))
+      };
+      closeImageCrop();
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: "sxin-result-crop-confirm", action, item, crop }, "*");
+        return;
+      }
+      if (action === "imageSearch") {
+        mode = "imageSearch";
+        setActiveQuickTool(document.getElementById("modeImageSearchBtn"));
+        document.querySelectorAll(".nav-item[data-mode]").forEach(btn => btn.classList.toggle("active", btn.dataset.mode === mode));
+        document.getElementById("crumb").textContent = getModeLabel();
+        renderAll();
+        openResults();
+        showToast("已将框选目标带入图搜图");
+      } else if (action === "quickDeploy") {
+        setDeployDrawerTarget(item, crop);
+        openDeployDrawer();
+      } else {
+        openTrackTool();
+        const trackTargetPreview = document.getElementById("trackTargetPreview");
+        if (trackTargetPreview) trackTargetPreview.src = item.img;
+        showToast("已根据框选目标生成轨迹");
+      }
+    }
+
+    const splitter = document.getElementById("splitter");
+    let dragging = false;
+    splitter.addEventListener("mousedown", event => {
+      dragging = true;
+      splitter.classList.add("dragging");
+      document.body.style.userSelect = "none";
+      event.preventDefault();
+    });
+    window.addEventListener("mousemove", event => {
+      if (!dragging) return;
+      const rect = workbench.getBoundingClientRect();
+      const resultWidth = Math.max(330, Math.min(560, rect.right - event.clientX));
+      workbench.style.gridTemplateColumns = `minmax(520px, 1fr) 7px ${resultWidth}px`;
+    });
+    window.addEventListener("mouseup", () => {
+      dragging = false;
+      splitter.classList.remove("dragging");
+      document.body.style.userSelect = "";
+    });
+
+    cameraPointGrid.querySelectorAll("[data-camera]").forEach(button => {
+      button.addEventListener("click", event => {
+        cameraPointGrid.querySelectorAll("[data-camera]").forEach(item => {
+          item.setAttribute("aria-pressed", String(item === button));
+        });
+        if (event.detail === 0) activateCameraPoint(button);
+      });
+      button.addEventListener("dblclick", () => activateCameraPoint(button));
+    });
+
+    moreCameraPoints.addEventListener("click", () => {
+      const expanded = moreCameraPoints.getAttribute("aria-expanded") === "true";
+      moreCameraPoints.setAttribute("aria-expanded", String(!expanded));
+      document.querySelectorAll(".extra-camera-point").forEach(item => {
+        item.hidden = expanded;
+      });
+      moreCameraCount.textContent = expanded ? "+3" : "−";
+      moreCameraText.textContent = expanded ? "查看更多" : "收起";
+    });
+
+    videoPreviewPlay.addEventListener("click", toggleVideoPreview);
+    videoPreviewMute.addEventListener("click", () => {
+      const muted = videoPreviewMute.dataset.muted === "true";
+      videoPreviewMute.dataset.muted = String(!muted);
+      videoPreviewMute.textContent = muted ? "◖" : "×";
+      videoPreviewMute.title = muted ? "静音" : "取消静音";
+      videoPreviewMute.setAttribute("aria-label", muted ? "静音" : "取消静音");
+    });
+    videoPreviewFullscreen.addEventListener("click", async () => {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await videoPreviewFrame.requestFullscreen();
+        }
+      } catch {
+        showToast("当前浏览器不支持全屏预览");
+      }
+    });
+
+    videoPlaybackCard.addEventListener("dragstart", event => {
+      draggingVideoAttachment = true;
+      const cameraName = videoPlaybackTitle.textContent;
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("application/x-sxin-video", cameraName);
+      event.dataTransfer.setData("text/plain", `请进一步分析 ${cameraName} 的监控视频片段`);
+    });
+    videoPlaybackCard.addEventListener("dragend", () => {
+      draggingVideoAttachment = false;
+      promptInput.classList.remove("video-drop-ready");
+    });
+    promptInput.addEventListener("dragover", event => {
+      if (!draggingVideoAttachment) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      promptInput.classList.add("video-drop-ready");
+    });
+    promptInput.addEventListener("dragleave", () => {
+      promptInput.classList.remove("video-drop-ready");
+    });
+    promptInput.addEventListener("drop", event => {
+      if (!draggingVideoAttachment) return;
+      event.preventDefault();
+      const cameraName = event.dataTransfer.getData("application/x-sxin-video") || videoPlaybackTitle.textContent;
+      const instruction = `请进一步分析 ${cameraName} 的监控视频片段`;
+      promptInput.value = promptInput.value.trim() ? `${promptInput.value.trim()}\n${instruction}` : instruction;
+      promptInput.classList.remove("video-drop-ready");
+      promptInput.focus();
+      draggingVideoAttachment = false;
+      showToast("已将回放视频添加到输入框");
+    });
+
+    document.querySelectorAll(".nav-item[data-mode]").forEach(btn => btn.addEventListener("click", () => setMode(btn.dataset.mode)));
+    newChatBtn.addEventListener("click", startNewConversation);
+    document.getElementById("newChatMiniBtn").addEventListener("click", startNewConversation);
+    document.querySelectorAll(".quick-tool").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (btn.dataset.action === "quick-deploy") {
+          openDeployDrawer();
+          return;
+        }
+        if (btn.dataset.tool === "track") {
+          setActiveQuickTool(btn);
+          openTrackTool();
+          return;
+        }
+        if (btn.dataset.modeSwitch) {
+          setMode(btn.dataset.modeSwitch);
+          return;
+        }
+        setActiveQuickTool(btn);
+      });
+    });
+    processToggle.addEventListener("click", () => processBlock.classList.toggle("collapsed"));
+    originalAnalysisBtn.addEventListener("click", () => {
+      processBlock.classList.remove("collapsed");
+      analysisCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      showToast("已定位原始分析结果");
+    });
+    analysisInner.addEventListener("click", event => {
+      if (event.target.closest("[data-open-results]")) openResults();
+    });
+    document.querySelectorAll("[data-mode-prompt]").forEach(btn => btn.addEventListener("click", () => runQuickPrompt(btn)));
+    document.getElementById("sendBtn").addEventListener("click", runSearch);
+    promptInput.addEventListener("keydown", event => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        runSearch();
+      }
+    });
+    document.getElementById("collapseResultsBtn").addEventListener("click", closeResults);
+    document.getElementById("footerActionBtn").addEventListener("click", () => {
+      if (document.getElementById("countPill").textContent === "详情") {
+        renderResultsList();
+        return;
+      }
+      showToast(isImageMode() ? "已进入轨迹还原演示" : "已生成事件报告");
+    });
+    document.getElementById("imageCropCloseBtn").addEventListener("click", closeImageCrop);
+    document.getElementById("imageCropCancelBtn").addEventListener("click", closeImageCrop);
+    imageCropConfirmBtn.addEventListener("click", confirmImageCrop);
+    imageCropModal.addEventListener("click", event => {
+      if (event.target === imageCropModal) closeImageCrop();
+    });
+    imageCropStage.addEventListener("pointerdown", startImageCropSelection);
+    imageCropStage.addEventListener("pointermove", updateImageCropSelection);
+    imageCropStage.addEventListener("pointerup", finishImageCropSelection);
+    imageCropStage.addEventListener("pointercancel", finishImageCropSelection);
+    document.getElementById("deployDrawerCloseBtn").addEventListener("click", closeDeployDrawer);
+    document.getElementById("deployDrawerCancelBtn").addEventListener("click", closeDeployDrawer);
+    document.getElementById("deployDrawerConfirmBtn").addEventListener("click", confirmDeployTask);
+    document.getElementById("deployTargetUpload").addEventListener("click", () => showToast("请选择 jpg、png 或 jpeg 图像"));
+    deploySimilarity.addEventListener("input", () => {
+      deploySimilarityValue.textContent = `${deploySimilarity.value}%`;
+    });
+    deployDrawer.addEventListener("click", event => {
+      if (event.target === deployDrawer) closeDeployDrawer();
+    });
+    window.addEventListener("keydown", event => {
+      if (event.key !== "Escape") return;
+      if (deployDrawer.classList.contains("open")) {
+        closeDeployDrawer();
+        return;
+      }
+      if (imageCropModal.classList.contains("open")) closeImageCrop();
+    });
+
+    historyList.querySelectorAll(".history-item").forEach(button => {
+      button.addEventListener("click", () => loadConversation(button));
+    });
+    setActiveHistory(historyList.querySelector(".history-item"));
+    renderAll();
+  </script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import asyncio
 import base64
 import json
 import logging
@@ -63,6 +64,7 @@ FACE_METADATA_FILE = FACE_STORAGE_DIR / "faces.json"
 FACE_EMBEDDINGS_FILE = FACE_STORAGE_DIR / "face_embeddings.json"
 CAMERA_METADATA_FILE = CAMERA_STORAGE_DIR / "cameras.json"
 PERSON_API_BASE_URL = os.getenv("PERSON_API_BASE_URL", "http://192.168.11.192:18890").strip().rstrip("/")
+RETRIEVE_API_BASE_URL = os.getenv("RETRIEVE_API_BASE_URL", "http://192.168.11.194:15011").strip().rstrip("/")
 BACKEND_PUBLIC_URL = os.getenv("VIDEOAI_BACKEND_PUBLIC_URL", os.getenv("BACKEND_PUBLIC_URL", "")).strip().rstrip("/")
 FACE_SCAN_ENABLED = os.getenv("FACE_SCAN_ENABLED", "false").lower() != "false"
 FACE_SCAN_INTERVAL_SECONDS = int(os.getenv("FACE_SCAN_INTERVAL_SECONDS", "300"))
@@ -77,7 +79,7 @@ HIKVISION_NVR_BASE_URL = os.getenv("HIKVISION_NVR_BASE_URL", "").strip().rstrip(
 HIKVISION_NVR_USERNAME = os.getenv("HIKVISION_NVR_USERNAME", "").strip()
 HIKVISION_NVR_PASSWORD = os.getenv("HIKVISION_NVR_PASSWORD", "").strip()
 PTZ_HTTP_TIMEOUT_SECONDS = float(os.getenv("VIDEOAI_PTZ_HTTP_TIMEOUT_SECONDS", "5"))
-PREVIEW_IDLE_SECONDS = float(os.getenv("VIDEOAI_PREVIEW_IDLE_SECONDS", "60"))
+PREVIEW_IDLE_SECONDS = float(os.getenv("VIDEOAI_PREVIEW_IDLE_SECONDS", "10"))
 PREVIEW_START_TIMEOUT_MS = int(os.getenv("VIDEOAI_PREVIEW_START_TIMEOUT_MS", "15000"))
 PREVIEW_FFMPEG_CMD_KEY = os.getenv(
     "VIDEOAI_PREVIEW_FFMPEG_CMD_KEY", "ffmpeg.cmd_preview_h264"
@@ -326,6 +328,15 @@ class PersonSearchByBboxRequest(BaseModel):
     endTime: Optional[str] = None
     similarityThreshold: float = 0.6
     topK: int = 10
+
+
+class TextSearchQueryRequest(BaseModel):
+    message: str
+    startTime: Optional[str] = None
+    endTime: Optional[str] = None
+    location: Optional[str] = None
+    page: int = 1
+    pageSize: int = 10
 
 
 class ModelRegisterRequest(BaseModel):
@@ -868,6 +879,19 @@ def person_search_result_proxy(task_id: str):
     return person_api_get(f"/vlm-application/search/searchPersonResult/{quote(safe_task_id, safe='')}")
 
 
+@app.post("/api/text-search/query")
+def text_search_query_proxy(request: TextSearchQueryRequest):
+    payload = {
+        "message": required_text(request.message, "message"),
+        "start_time": request.startTime or None,
+        "end_time": request.endTime or None,
+        "location": request.location or None,
+        "page": max(1, int(request.page or 1)),
+        "page_size": max(1, min(int(request.pageSize or 10), 100)),
+    }
+    return retrieve_api_post("/v1/retrieve/query", payload)
+
+
 @app.get("/api/events", response_model=List[FaceEventResponse])
 def events(limit: int = 100):
     safe_limit = max(1, min(limit, 200))
@@ -1197,15 +1221,15 @@ def proxy_flv_stream(stream_name: str):
         raise HTTPException(status_code=502, detail="Preview relay startup failed") from exc
 
     try:
-        response = open_remote(remote_url)
+        response = open_preview_remote(remote_url)
     except Exception:
-        preview_relay_manager.release(stream_name)
+        preview_relay_manager.stop_stream(stream_name)
         raise
 
-    def stream():
+    async def stream():
         try:
             while True:
-                chunk = response.read(64 * 1024)
+                chunk = await asyncio.to_thread(response.read, 64 * 1024)
                 if not chunk:
                     break
                 yield chunk
@@ -1954,6 +1978,16 @@ def parse_person_api_response(response: requests.Response) -> dict:
     if 200 <= response.status_code < 300:
         return payload if isinstance(payload, dict) else {"data": payload}
     raise HTTPException(status_code=response.status_code, detail=payload)
+
+
+def retrieve_api_post(path: str, payload: dict) -> dict:
+    if not RETRIEVE_API_BASE_URL:
+        raise HTTPException(status_code=500, detail="RETRIEVE_API_BASE_URL is not configured")
+    try:
+        response = requests.post(f"{RETRIEVE_API_BASE_URL}{path}", json=payload, timeout=120)
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Text search API unavailable: {exc}") from exc
+    return parse_person_api_response(response)
 
 
 def required_text(value: str, name: str) -> str:
@@ -2862,6 +2896,17 @@ def open_remote(url: str):
         raise HTTPException(status_code=error.code, detail=f"SRS stream request failed: {error.reason}") from error
     except URLError as error:
         raise HTTPException(status_code=502, detail=f"SRS stream unavailable: {error.reason}") from error
+
+
+def open_preview_remote(url: str):
+    deadline = time.monotonic() + max(1, PREVIEW_START_TIMEOUT_MS / 1000)
+    while True:
+        try:
+            return open_remote(url)
+        except HTTPException as error:
+            if error.status_code != 404 or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.25)
 
 
 def fetch_remote_bytes(url: str) -> bytes:

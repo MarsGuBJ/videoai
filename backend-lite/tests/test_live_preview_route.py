@@ -81,12 +81,20 @@ def test_live_proxy_acquires_derived_h264_relay_and_releases_after_stream(monkey
     manager = FakePreviewManager()
     remote = FakeRemoteResponse([b"FLV\x01", b"payload"])
     opened_urls = []
+    offloaded_calls = []
+
+    async def fake_to_thread(function, *args):
+        offloaded_calls.append((function, args))
+        return function(*args)
 
     monkeypatch.setattr(main, "preview_relay_manager", manager, raising=False)
+    monkeypatch.setattr(main, "asyncio", asyncio, raising=False)
+    monkeypatch.setattr(main.asyncio, "to_thread", fake_to_thread)
     monkeypatch.setattr(
         main,
-        "open_remote",
+        "open_preview_remote",
         lambda url: opened_urls.append(url) or remote,
+        raising=False,
     )
 
     response = main.proxy_flv_stream("camera-1")
@@ -94,6 +102,11 @@ def test_live_proxy_acquires_derived_h264_relay_and_releases_after_stream(monkey
     assert manager.acquired == [("camera-1", SOURCE_URL)]
     assert opened_urls == ["http://zlm:82/live/preview-camera-1.live.flv"]
     assert asyncio.run(collect_async_body(response.body_iterator)) == b"FLV\x01payload"
+    assert offloaded_calls == [
+        (remote.read, (64 * 1024,)),
+        (remote.read, (64 * 1024,)),
+        (remote.read, (64 * 1024,)),
+    ]
     assert manager.released == ["camera-1"]
     assert remote.closed is True
 
@@ -158,12 +171,31 @@ def test_upstream_open_failure_releases_acquired_relay(monkeypatch):
     def fail_open(_url):
         raise HTTPException(status_code=502, detail="upstream unavailable")
 
-    monkeypatch.setattr(main, "open_remote", fail_open)
+    monkeypatch.setattr(main, "open_preview_remote", fail_open, raising=False)
 
     with pytest.raises(HTTPException):
         main.proxy_flv_stream("camera-1")
 
-    assert manager.released == ["camera-1"]
+    assert manager.stopped == ["camera-1"]
+
+
+def test_preview_open_retries_404_until_derived_stream_is_ready(monkeypatch):
+    remote = FakeRemoteResponse([b"FLV\x01"])
+    attempts = []
+
+    def open_after_publish(url):
+        attempts.append(url)
+        if len(attempts) < 3:
+            raise HTTPException(status_code=404, detail="not published yet")
+        return remote
+
+    monkeypatch.setattr(main, "open_remote", open_after_publish)
+    monkeypatch.setattr(main.time, "sleep", lambda _seconds: None)
+
+    response = main.open_preview_remote("http://zlm/live/preview-camera-1.live.flv")
+
+    assert response is remote
+    assert len(attempts) == 3
 
 
 def test_stopping_camera_stops_preview_relay(monkeypatch):

@@ -8,7 +8,7 @@
 - Triton Inference Server 以 explicit model control 方式托管 SCRFD-10GF 和 ArcFace/MobileFaceNet 模型。
 - Spring Boot 后端管理摄像头、人脸库、识别事件和 Triton 模型服务。
 - Python worker 负责视频采样、人脸检测、对齐、向量提取和事件上报。
-- React 前端提供监控、数字 PTZ、人脸库 CRUD、事件列表和模型管理页面。
+- Vue 3（Vite）前端提供监控、数字 PTZ、人脸库 CRUD、事件列表和模型管理页面。
 
 ## 启动
 

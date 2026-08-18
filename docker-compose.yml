@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-videoai}
       POSTGRES_USER: ${POSTGRES_USER:-videoai}
@@ -51,6 +52,7 @@ services:
     build:
       context: ./backend-lite
       network: host
+    restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-videoai}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-videoai}
@@ -59,7 +61,7 @@ services:
       VIDEOAI_ZLM_PUBLIC_HTTP_URL: ${ZLM_PUBLIC_HTTP_URL:-http://localhost:8080}
       VIDEOAI_ZLM_SECRET: ${ZLM_SECRET:-035c73f7-bb6b-4889-a715-d9eb2d1925cc}
       VIDEOAI_ZLM_RTMP_PUSH_BASE: ${ZLM_RTMP_PUSH_BASE:-rtmp://localhost/live}
-      VIDEOAI_PREVIEW_IDLE_SECONDS: ${VIDEOAI_PREVIEW_IDLE_SECONDS:-60}
+      VIDEOAI_PREVIEW_IDLE_SECONDS: ${VIDEOAI_PREVIEW_IDLE_SECONDS:-10}
       VIDEOAI_PREVIEW_START_TIMEOUT_MS: ${VIDEOAI_PREVIEW_START_TIMEOUT_MS:-15000}
       VIDEOAI_PREVIEW_FFMPEG_CMD_KEY: ${VIDEOAI_PREVIEW_FFMPEG_CMD_KEY:-ffmpeg.cmd_preview_h264}
       VIDEOAI_ZLM_PREVIEW_RTMP_BASE: ${ZLM_PREVIEW_RTMP_BASE:-rtmp://127.0.0.1/live}
@@ -199,6 +201,7 @@ services:
     build:
       context: ./frontend
       network: host
+    restart: unless-stopped
     environment:
       VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
     ports:
