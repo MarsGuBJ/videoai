@@ -1,7 +1,6 @@
-import math
 import json
+import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 import cv2
@@ -14,6 +13,8 @@ from .config import Settings
 
 @dataclass
 class FaceDetection:
+    """One detected face: bbox, 5-point landmarks and score."""
+
     bbox: np.ndarray
     kps: np.ndarray
     score: float
@@ -21,6 +22,8 @@ class FaceDetection:
 
 @dataclass
 class ObjectDetection:
+    """One detected object: label, score and bbox."""
+
     label_id: int
     label_name: str
     score: float
@@ -56,13 +59,16 @@ RETINAFACE_STEPS = [8, 16, 32]
 
 
 class TritonFaceClient:
+    """HTTP client for face detection/alignment/embedding models served by Triton."""
+
     def __init__(self, config: Settings):
         self.config = config
         self.base_url = config.triton_http_url.rstrip("/")
         self.session = requests.Session()
-        self._model_config_cache: Dict[str, Dict] = {}
+        self._model_config_cache: dict[str, dict] = {}
 
-    def extract_embedding(self, image_bgr: np.ndarray) -> List[float]:
+    def extract_embedding(self, image_bgr: np.ndarray) -> list[float]:
+        """Detect the single face in an image and return its normalized embedding."""
         detections = self.detect_faces(image_bgr)
         if len(detections) != 1:
             raise HTTPException(status_code=400, detail=f"expected exactly one face, found {len(detections)}")
@@ -70,12 +76,14 @@ class TritonFaceClient:
         embedding = self.embed(aligned)
         return embedding.tolist()
 
-    def detect_faces(self, image_bgr: np.ndarray) -> List[FaceDetection]:
+    def detect_faces(self, image_bgr: np.ndarray) -> list[FaceDetection]:
+        """Detect faces with the configured detector (scrfd or retinaface)."""
         if self.config.face_detector == "retinaface":
             return self.detect_faces_retinaface(image_bgr)
         return self.detect_faces_scrfd(image_bgr)
 
-    def detect_faces_scrfd(self, image_bgr: np.ndarray) -> List[FaceDetection]:
+    def detect_faces_scrfd(self, image_bgr: np.ndarray) -> list[FaceDetection]:
+        """Detect faces with the SCRFD model."""
         input_tensor, ratio, pad = preprocess_scrfd(image_bgr)
         output_map = {
             "score_8": self.config.scrfd_score_8_output,
@@ -98,7 +106,8 @@ class TritonFaceClient:
         detections = decode_scrfd(result, ratio, pad)
         return nms(detections, 0.4)
 
-    def detect_faces_retinaface(self, image_bgr: np.ndarray) -> List[FaceDetection]:
+    def detect_faces_retinaface(self, image_bgr: np.ndarray) -> list[FaceDetection]:
+        """Detect faces with the RetinaFace model."""
         input_tensor, resize = preprocess_retinaface(image_bgr)
         output_map = {
             "loc": self.config.retinaface_loc_output,
@@ -117,6 +126,7 @@ class TritonFaceClient:
         return nms(detections, 0.4)
 
     def embed(self, aligned_bgr: np.ndarray) -> np.ndarray:
+        """Compute the normalized ArcFace embedding of an aligned face crop."""
         tensor = preprocess_arcface(aligned_bgr)
         input_name = self._input_name(self.config.arcface_model_name, self.config.arcface_input_name)
         output_name = self._output_names(self.config.arcface_model_name, [self.config.arcface_output_name])[0]
@@ -133,11 +143,13 @@ class TritonFaceClient:
         return embedding
 
     def alignment_template(self) -> np.ndarray:
+        """Return the 5-point alignment template for the configured detector."""
         if self.config.face_detector == "retinaface":
             return RETINAFACE_TEMPLATE
         return ARC_TEMPLATE
 
     def align_detection(self, image_bgr: np.ndarray, detection: FaceDetection) -> np.ndarray:
+        """Align a detected face to a 112x112 crop."""
         if self.config.face_detector == "retinaface":
             return align_retinaface(image_bgr, detection.bbox, detection.kps)
         return align_face(image_bgr, detection.kps, ARC_TEMPLATE)
@@ -151,7 +163,7 @@ class TritonFaceClient:
             raise RuntimeError(f"Triton model {model_name} has no configured inputs")
         return inputs[0]["name"]
 
-    def _output_names(self, model_name: str, configured: List[str]) -> List[str]:
+    def _output_names(self, model_name: str, configured: list[str]) -> list[str]:
         if configured and all(name and name.lower() != "auto" for name in configured):
             return configured
         config = self._model_config(model_name)
@@ -160,7 +172,7 @@ class TritonFaceClient:
             raise RuntimeError(f"Triton model {model_name} has no configured outputs")
         return [outputs[0]["name"]]
 
-    def _model_config(self, model_name: str) -> Dict:
+    def _model_config(self, model_name: str) -> dict:
         if model_name not in self._model_config_cache:
             response = self.session.get(f"{self.base_url}/v2/models/{model_name}/config", timeout=10)
             if response.status_code >= 400:
@@ -171,7 +183,7 @@ class TritonFaceClient:
             self._model_config_cache[model_name] = response.json()
         return self._model_config_cache[model_name]
 
-    def _infer(self, model_name: str, input_name: str, tensor: np.ndarray, outputs: List[str]) -> Dict[str, np.ndarray]:
+    def _infer(self, model_name: str, input_name: str, tensor: np.ndarray, outputs: list[str]) -> dict[str, np.ndarray]:
         try:
             tensor = np.ascontiguousarray(tensor.astype(np.float32, copy=False))
             tensor_bytes = tensor.tobytes(order="C")
@@ -202,7 +214,7 @@ class TritonFaceClient:
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Triton inference failed for {model_name}: {exc}") from exc
 
-    def _infer_request(self, model_name: str, body: bytes, headers: Dict[str, str], timeout: int) -> requests.Response:
+    def _infer_request(self, model_name: str, body: bytes, headers: dict[str, str], timeout: int) -> requests.Response:
         return self.session.post(
             f"{self.base_url}/v2/models/{model_name}/infer",
             data=body,
@@ -220,7 +232,8 @@ class TritonFaceClient:
             raise RuntimeError(response.text)
 
 
-def parse_triton_binary_response(response: requests.Response, expected_outputs: List[str]) -> Dict[str, np.ndarray]:
+def parse_triton_binary_response(response: requests.Response, expected_outputs: list[str]) -> dict[str, np.ndarray]:
+    """Parse a Triton infer response (binary or JSON) into named output tensors."""
     header_length = int(response.headers.get("Inference-Header-Content-Length", "0"))
     if header_length <= 0:
         return parse_triton_json_response(response.json(), expected_outputs)
@@ -229,7 +242,7 @@ def parse_triton_binary_response(response: requests.Response, expected_outputs: 
     metadata = json.loads(content[:header_length])
     binary = memoryview(content)[header_length:]
     offset = 0
-    outputs: Dict[str, np.ndarray] = {}
+    outputs: dict[str, np.ndarray] = {}
     for output in metadata.get("outputs", []):
         name = output["name"]
         dtype = triton_dtype_to_numpy(output["datatype"])
@@ -246,8 +259,9 @@ def parse_triton_binary_response(response: requests.Response, expected_outputs: 
     return outputs
 
 
-def parse_triton_json_response(metadata: Dict, expected_outputs: List[str]) -> Dict[str, np.ndarray]:
-    outputs: Dict[str, np.ndarray] = {}
+def parse_triton_json_response(metadata: dict, expected_outputs: list[str]) -> dict[str, np.ndarray]:
+    """Parse a Triton JSON infer response into named output tensors."""
+    outputs: dict[str, np.ndarray] = {}
     for output in metadata.get("outputs", []):
         if "data" not in output:
             continue
@@ -260,6 +274,7 @@ def parse_triton_json_response(metadata: Dict, expected_outputs: List[str]) -> D
 
 
 def triton_dtype_to_numpy(datatype: str) -> np.dtype:
+    """Map a Triton datatype string to its numpy dtype."""
     mapping = {
         "BOOL": np.bool_,
         "UINT8": np.uint8,
@@ -279,7 +294,8 @@ def triton_dtype_to_numpy(datatype: str) -> np.dtype:
     return np.dtype(mapping[datatype])
 
 
-def preprocess_scrfd(image_bgr: np.ndarray) -> Tuple[np.ndarray, float, Tuple[int, int]]:
+def preprocess_scrfd(image_bgr: np.ndarray) -> tuple[np.ndarray, float, tuple[int, int]]:
+    """Letterbox an image to 640x640 and normalize for SCRFD; return tensor, ratio, pad."""
     height, width = image_bgr.shape[:2]
     target = 640
     ratio = min(target / width, target / height)
@@ -296,8 +312,9 @@ def preprocess_scrfd(image_bgr: np.ndarray) -> Tuple[np.ndarray, float, Tuple[in
     return np.ascontiguousarray(tensor), ratio, (pad_x, pad_y)
 
 
-def decode_scrfd(outputs: Dict[str, np.ndarray], ratio: float, pad: Tuple[int, int]) -> List[FaceDetection]:
-    detections: List[FaceDetection] = []
+def decode_scrfd(outputs: dict[str, np.ndarray], ratio: float, pad: tuple[int, int]) -> list[FaceDetection]:
+    """Decode SCRFD stride outputs into face detections (pre-NMS)."""
+    detections: list[FaceDetection] = []
     input_size = 640
     score_threshold = 0.5
     pad_x, pad_y = pad
@@ -317,17 +334,23 @@ def decode_scrfd(outputs: Dict[str, np.ndarray], ratio: float, pad: Tuple[int, i
             y1 = (anchor[1] - distance[1]) * stride
             x2 = (anchor[0] + distance[2]) * stride
             y2 = (anchor[1] + distance[3]) * stride
-            bbox = np.array([(x1 - pad_x) / ratio, (y1 - pad_y) / ratio, (x2 - pad_x) / ratio, (y2 - pad_y) / ratio], dtype=np.float32)
+            bbox = np.array(
+                [(x1 - pad_x) / ratio, (y1 - pad_y) / ratio, (x2 - pad_x) / ratio, (y2 - pad_y) / ratio],
+                dtype=np.float32,
+            )
             points = []
             for i in range(5):
                 px = (anchor[0] + kps[index][i * 2]) * stride
                 py = (anchor[1] + kps[index][i * 2 + 1]) * stride
                 points.append([(px - pad_x) / ratio, (py - pad_y) / ratio])
-            detections.append(FaceDetection(bbox=bbox, kps=np.array(points, dtype=np.float32), score=float(scores[index])))
+            detections.append(
+                FaceDetection(bbox=bbox, kps=np.array(points, dtype=np.float32), score=float(scores[index]))
+            )
     return detections
 
 
-def preprocess_retinaface(image_bgr: np.ndarray) -> Tuple[np.ndarray, float]:
+def preprocess_retinaface(image_bgr: np.ndarray) -> tuple[np.ndarray, float]:
+    """Resize an image to fit 640x640 and normalize for RetinaFace; return tensor, scale."""
     height, width = image_bgr.shape[:2]
     target = 640
     resize = float(target) / float(max(height, width))
@@ -339,7 +362,8 @@ def preprocess_retinaface(image_bgr: np.ndarray) -> Tuple[np.ndarray, float]:
     return np.ascontiguousarray(tensor), resize
 
 
-def retinaface_priors(image_size: Tuple[int, int]) -> np.ndarray:
+def retinaface_priors(image_size: tuple[int, int]) -> np.ndarray:
+    """Generate RetinaFace anchor priors for the given input size."""
     anchors = []
     image_h, image_w = image_size
     feature_maps = [[math.ceil(image_h / step), math.ceil(image_w / step)] for step in RETINAFACE_STEPS]
@@ -356,7 +380,10 @@ def retinaface_priors(image_size: Tuple[int, int]) -> np.ndarray:
     return np.array(anchors, dtype=np.float32)
 
 
-def decode_retinaface(outputs: Dict[str, np.ndarray], resize: float, priors: np.ndarray, threshold: float) -> List[FaceDetection]:
+def decode_retinaface(
+    outputs: dict[str, np.ndarray], resize: float, priors: np.ndarray, threshold: float
+) -> list[FaceDetection]:
+    """Decode RetinaFace outputs into face detections above the threshold (pre-NMS)."""
     loc = outputs["loc"].reshape(-1, 4)
     conf = outputs["cls"].reshape(-1, 2)
     land = outputs["land"].reshape(-1, 10)
@@ -389,7 +416,7 @@ def decode_retinaface(outputs: Dict[str, np.ndarray], resize: float, priors: np.
 
     scores = conf[:, 1]
     keep = np.where(scores >= threshold)[0]
-    detections: List[FaceDetection] = []
+    detections: list[FaceDetection] = []
     for index in keep:
         detections.append(
             FaceDetection(
@@ -401,13 +428,14 @@ def decode_retinaface(outputs: Dict[str, np.ndarray], resize: float, priors: np.
     return detections
 
 
-def nms(detections: List[FaceDetection], threshold: float) -> List[FaceDetection]:
+def nms(detections: list[FaceDetection], threshold: float) -> list[FaceDetection]:
+    """Greedy non-maximum suppression over face detections."""
     if not detections:
         return []
     boxes = np.array([d.bbox for d in detections])
     scores = np.array([d.score for d in detections])
     order = scores.argsort()[::-1]
-    keep: List[int] = []
+    keep: list[int] = []
     while order.size > 0:
         i = int(order[0])
         keep.append(i)
@@ -426,6 +454,7 @@ def nms(detections: List[FaceDetection], threshold: float) -> List[FaceDetection
 
 
 def align_face(image_bgr: np.ndarray, landmarks: np.ndarray, template: np.ndarray = ARC_TEMPLATE) -> np.ndarray:
+    """Align a face crop to 112x112 via similarity transform on 5 landmarks."""
     transform, _ = cv2.estimateAffinePartial2D(landmarks.astype(np.float32), template, method=cv2.LMEDS)
     if transform is None:
         raise HTTPException(status_code=400, detail="failed to align face")
@@ -433,6 +462,7 @@ def align_face(image_bgr: np.ndarray, landmarks: np.ndarray, template: np.ndarra
 
 
 def align_retinaface(image_bgr: np.ndarray, bbox: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
+    """Align a RetinaFace detection to 112x112 using its bbox and landmarks."""
     height, width = image_bgr.shape[:2]
     x1, y1, x2, y2 = bbox[:4].astype(np.int32)
     x1 = max(0, min(width - 1, x1))
@@ -454,6 +484,7 @@ def align_retinaface(image_bgr: np.ndarray, bbox: np.ndarray, landmarks: np.ndar
 
 
 def preprocess_arcface(image_bgr: np.ndarray) -> np.ndarray:
+    """Resize an aligned crop to 112x112 and normalize for ArcFace."""
     resized = cv2.resize(image_bgr, (112, 112))
     rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32)
     rgb = (rgb - 127.5) / 127.5
@@ -462,28 +493,105 @@ def preprocess_arcface(image_bgr: np.ndarray) -> np.ndarray:
 
 
 COCO_LABELS = [
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
-    "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench",
-    "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra",
-    "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove",
-    "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup",
-    "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
-    "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse",
-    "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
-    "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-    "hair drier", "toothbrush",
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "backpack",
+    "umbrella",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "dining table",
+    "toilet",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
 ]
 
 BOX_COLORS = [
-    (0, 0, 255), (255, 0, 20), (0, 255, 0), (170, 170, 20),
-    (255, 128, 0), (0, 128, 255), (128, 0, 255), (255, 255, 0),
-    (0, 255, 255), (255, 0, 255),
+    (0, 0, 255),
+    (255, 0, 20),
+    (0, 255, 0),
+    (170, 170, 20),
+    (255, 128, 0),
+    (0, 128, 255),
+    (128, 0, 255),
+    (255, 255, 0),
+    (0, 255, 255),
+    (255, 0, 255),
 ]
 
 
 class DinoDetectionClient:
+    """HTTP client for the DINO object-detection model served by Triton."""
+
     def __init__(self, config: Settings):
         self.config = config
         self.base_url = config.dino_triton_http_url.rstrip("/")
@@ -491,6 +599,7 @@ class DinoDetectionClient:
         self.labels = config.dino_labels if hasattr(config, "dino_labels") else COCO_LABELS
 
     def preprocess(self, image_bgr: np.ndarray):
+        """Resize/normalize an image for the DINO model; return tensors and original size."""
         height, width = image_bgr.shape[:2]
         target = self.config.dino_target_size
         target_h, target_w = target[0], target[1]
@@ -510,7 +619,8 @@ class DinoDetectionClient:
         scale_factor = np.array([im_scale, im_scale], dtype=np.float32).reshape(1, 2)
         return image, im_shape, scale_factor, (height, width)
 
-    def detect_objects(self, image_bgr: np.ndarray) -> List[ObjectDetection]:
+    def detect_objects(self, image_bgr: np.ndarray) -> list[ObjectDetection]:
+        """Run DINO object detection and return detections above the confidence threshold."""
         image, im_shape, scale_factor, _ = self.preprocess(image_bgr)
         result = self._infer(image, im_shape, scale_factor)
         outputs = result[self.config.dino_output_0].reshape(-1, 6)
@@ -522,15 +632,17 @@ class DinoDetectionClient:
                 continue
             label_id = int(label_id)
             label_name = self.labels[label_id] if label_id < len(self.labels) else str(label_id)
-            detections.append(ObjectDetection(
-                label_id=label_id,
-                label_name=label_name,
-                score=float(score),
-                bbox=np.array([x1, y1, x2, y2], dtype=np.float32),
-            ))
+            detections.append(
+                ObjectDetection(
+                    label_id=label_id,
+                    label_name=label_name,
+                    score=float(score),
+                    bbox=np.array([x1, y1, x2, y2], dtype=np.float32),
+                )
+            )
         return detections
 
-    def _infer(self, image: np.ndarray, im_shape: np.ndarray, scale_factor: np.ndarray) -> Dict[str, np.ndarray]:
+    def _infer(self, image: np.ndarray, im_shape: np.ndarray, scale_factor: np.ndarray) -> dict[str, np.ndarray]:
         try:
             image_bytes = image.tobytes(order="C")
             im_shape_bytes = im_shape.tobytes(order="C")
@@ -581,7 +693,7 @@ class DinoDetectionClient:
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"DINO Triton inference failed: {exc}") from exc
 
-    def _infer_request(self, body: bytes, headers: Dict[str, str]) -> requests.Response:
+    def _infer_request(self, body: bytes, headers: dict[str, str]) -> requests.Response:
         return self.session.post(
             f"{self.base_url}/v2/models/{self.config.dino_model_name}/infer",
             data=body,
@@ -599,7 +711,8 @@ class DinoDetectionClient:
             raise RuntimeError(response.text)
 
 
-def draw_object_boxes(frame: np.ndarray, detections: List[ObjectDetection], conf_thres: float = 0.3) -> np.ndarray:
+def draw_object_boxes(frame: np.ndarray, detections: list[ObjectDetection], conf_thres: float = 0.3) -> np.ndarray:
+    """Draw labeled bounding boxes for detections above the threshold onto the frame."""
     for det in detections:
         if det.score < conf_thres:
             continue
@@ -608,6 +721,5 @@ def draw_object_boxes(frame: np.ndarray, detections: List[ObjectDetection], conf
         color = BOX_COLORS[color_idx]
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         label = f"{det.label_name}: {det.score:.2f}"
-        cv2.putText(frame, label, (x1, max(y1 - 10, 20)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
+        cv2.putText(frame, label, (x1, max(y1 - 10, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
     return frame

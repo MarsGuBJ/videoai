@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.videoai.monitoring.core.dao.CameraDao">
+
+    <select id="selectAllOrdered" resultType="com.videoai.monitoring.core.entity.CameraEntity">
+        SELECT * FROM cameras ORDER BY created_at DESC
+    </select>
+
+    <select id="selectByStreamName" resultType="com.videoai.monitoring.core.entity.CameraEntity">
+        SELECT * FROM cameras WHERE stream_name = #{streamName}
+    </select>
+
+    <update id="updateCamera" parameterType="com.videoai.monitoring.core.entity.CameraEntity">
+        UPDATE cameras
+        SET name = #{name},
+            source_url = #{sourceUrl},
+            description = #{description},
+            area = #{area},
+            stream_name = #{streamName},
+            nvr_id = #{nvrId},
+            nvr_channel = #{nvrChannel},
+            nvr_track_id = #{nvrTrackId},
+            nvr_stream_type = #{nvrStreamType},
+            protocol = #{protocol},
+            vendor = #{vendor},
+            ip = #{ip},
+            port = #{port},
+            username = #{username},
+            password = #{password},
+            device_code = #{deviceCode},
+            serial_number = #{serialNumber},
+            updated_at = now()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE cameras SET status = #{status}, updated_at = now() WHERE id = #{id}
+    </update>
+
+    <insert id="insertIgnore" parameterType="com.videoai.monitoring.core.entity.CameraEntity">
+        INSERT INTO cameras (id, name, source_url, stream_app, stream_name, ffmpeg_key,
+                             description, area, status, created_at, updated_at,
+                             nvr_id, nvr_channel, nvr_track_id, nvr_stream_type,
+                             protocol, vendor, ip, port, username, password, device_code, serial_number)
+        VALUES (#{id}, #{name}, #{sourceUrl}, #{streamApp}, #{streamName}, #{ffmpegKey},
+                #{description}, #{area}, #{status}, #{createdAt}, #{updatedAt},
+                #{nvrId}, #{nvrChannel}, #{nvrTrackId}, #{nvrStreamType},
+                #{protocol}, #{vendor}, #{ip}, #{port}, #{username}, #{password}, #{deviceCode}, #{serialNumber})
+        ON CONFLICT (id) DO NOTHING
+    </insert>
+
+</mapper>

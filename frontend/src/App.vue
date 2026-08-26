@@ -1,6 +1,8 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { store } from "./store";
+import { api } from "./api";
+import { APP_DEFAULT_ROUTE } from "./router";
 import AppSidebar from "./components/AppSidebar.vue";
 import AppTopbar from "./components/AppTopbar.vue";
 import DrawerHost from "./components/DrawerHost.vue";
@@ -26,12 +28,14 @@ export default defineComponent({
         trackView: "timeline",
         prefill: "",
         imageCrop: null as any,
-        selectedResultIndexes: [] as any[]
+        selectedResultIndexes: [] as any[],
+        camerasVersion: 0
       },
       selectedVersion: store.versionRows[0],
       selectedDeployTask: store.deployTaskRows[0],
       selectedEvent: store.eventRows[0],
       selectedAlgorithm: null as any,
+      selectedCamera: null as any,
       drawer: {
         open: false,
         type: "",
@@ -82,7 +86,10 @@ export default defineComponent({
       openVersionDetail: (row: any) => this.openVersionDetail(row),
       openVersionPreview: (row: any) => this.openVersionPreview(row),
       openDeployDetail: (row: any) => this.openDeployDetail(row),
-      openEventDetail: (row: any) => this.openEventDetail(row)
+      openEventDetail: (row: any) => this.openEventDetail(row),
+      openCameraDetail: (row: any) => this.openCameraDetail(row),
+      openCameraEdit: (row: any) => this.openCameraEdit(row),
+      refreshCameras: () => this.refreshCameras()
     };
   },
   mounted() {
@@ -119,6 +126,9 @@ export default defineComponent({
         this.openModal("version");
         route = "versionManager";
       }
+      // 子包构建只含本模块路由：跨模块跳转回退到子包默认路由。
+      // 全量模式所有 route 均存在，行为零变化。
+      if (!this.$router.hasRoute(route)) route = APP_DEFAULT_ROUTE;
       if (options.prefill) this.state.prefill = options.prefill;
       if (Object.prototype.hasOwnProperty.call(options, "imageCrop")) this.state.imageCrop = options.imageCrop;
       else if (options.prefill) this.state.imageCrop = null;
@@ -195,12 +205,11 @@ export default defineComponent({
       const config = ({
         reviewTask: { title: "事件判断", narrow: false },
         eventDetail: { title: "事件详情", narrow: false },
-        reviewType: { title: "新增算法", narrow: true },
+        reviewType: { title: "新增复核类型", narrow: true },
         algorithm: { title: "新增算法", narrow: false },
         deployTask: { title: "新建布控任务", narrow: false },
         version: { title: "新增版本号", narrow: false },
         eventSource: { title: "新增数据源", narrow: false },
-        modelConfig: { title: "新增配置", narrow: false },
         permissionRole: { title: "新建角色", narrow: false },
         mediaImport: { title: "批量导入设备", wide: true },
         mediaSmartDiscover: { title: "智能发现", wide: true },
@@ -209,6 +218,7 @@ export default defineComponent({
         mediaCapability: { title: "批量配置设备能力", narrow: true },
         mediaCloud: { title: "从云平台同步设备", wide: true },
         mediaDelete: { title: "删除设备", narrow: true },
+        mediaRegion: { title: "新增区域", narrow: true },
         videoConfig: { title: "视频参数配置", wide: true },
         customLayout: { title: "自定义分屏布局", wide: true },
         quickReplay: { title: "即时回放", narrow: true },
@@ -231,6 +241,14 @@ export default defineComponent({
       this.modal.open = false;
     },
     submitModal(type: string) {
+      if (type === "mediaDelete") {
+        this.submitMediaDelete();
+        return;
+      }
+      if (type === "mediaMove") {
+        this.submitMediaMove();
+        return;
+      }
       const messages: Record<string, string> = {
         reviewTask: "复核任务已提交，已进入任务管理列表",
         reviewType: "复核类型配置已保存",
@@ -238,14 +256,11 @@ export default defineComponent({
         deployTask: "布控任务已保存，已停留在布控任务列表",
         version: "版本号已保存，已停留在版本号管理页面",
         eventSource: "数据源已保存，已停留在事件配置页面",
-        modelConfig: "大模型配置已保存，已停留在大模型配置页面",
         permissionRole: "角色已保存，已停留在权限中心页面",
         mediaImport: "导入文件校验已通过，设备已加入导入队列",
         mediaExport: "设备列表已按当前范围导出",
-        mediaMove: "设备已移动到目标区域",
         mediaCapability: "设备能力配置已批量保存",
         mediaCloud: "云平台设备同步已开始",
-        mediaDelete: "设备已删除，联动关系已解除",
         videoConfig: "视频参数配置已保存",
         customLayout: "自定义分屏布局已保存",
         quickReplay: "已返回实时预览画面",
@@ -268,8 +283,47 @@ export default defineComponent({
       if (type === "deployTask") this.setRoute("deployTasks");
       if (type === "version") this.setRoute("versionManager");
       if (type === "eventSource") this.setRoute("eventConfig");
-      if (type === "modelConfig") this.setRoute("modelConfig");
       if (type === "permissionRole") this.setRoute("permissions");
+    },
+    async submitMediaDelete() {
+      const rows = (this.modal.item && this.modal.item.rows) || [];
+      this.closeModal();
+      let succeeded = 0;
+      let failed = 0;
+      for (const row of rows) {
+        try {
+          await api.deleteCamera(row.id);
+          succeeded += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed === 0) this.showToast(`已删除 ${succeeded} 台设备`);
+      else this.showToast(`已删除 ${succeeded} 台设备，${failed} 台删除失败`);
+      this.refreshCameras();
+    },
+    async submitMediaMove() {
+      const item = this.modal.item || {};
+      const rows = item.rows || [];
+      const area = item.area;
+      this.closeModal();
+      if (!area) {
+        this.showToast("请选择目标区域");
+        return;
+      }
+      let succeeded = 0;
+      let failed = 0;
+      for (const row of rows) {
+        try {
+          await api.updateCamera(row.id, { area });
+          succeeded += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed === 0) this.showToast(`已移动 ${succeeded} 台设备到「${area}」`);
+      else this.showToast(`已移动 ${succeeded} 台设备，${failed} 台移动失败`);
+      this.refreshCameras();
     },
     openVersionManager(row: any) {
       this.selectedAlgorithm = row;
@@ -290,6 +344,17 @@ export default defineComponent({
     openEventDetail(row: any) {
       this.selectedEvent = row || this.store.eventRows[0];
       this.setRoute("eventDetail");
+    },
+    openCameraDetail(row: any) {
+      this.selectedCamera = row;
+      this.setRoute("mediaDeviceDetail");
+    },
+    openCameraEdit(row: any) {
+      this.selectedCamera = row;
+      this.setRoute("mediaDeviceEdit");
+    },
+    refreshCameras() {
+      this.state.camerasVersion = (this.state.camerasVersion || 0) + 1;
     },
     handleDrawerAction(name: string) {
       const messages: Record<string, string> = {
@@ -346,7 +411,7 @@ export default defineComponent({
       <app-topbar :route="state.route" :names="store.routeNames"></app-topbar>
       <main class="workspace" id="workspace">
         <div class="workspace-inner">
-          <router-view :key="state.route + '-' + state.routeVersion" :store="store" :state="state" :selected-version="selectedVersion" :selected-deploy-task="selectedDeployTask" :selected-event="selectedEvent" :selected-algorithm="selectedAlgorithm"></router-view>
+          <router-view :key="state.route + '-' + state.routeVersion" :store="store" :state="state" :selected-version="selectedVersion" :selected-deploy-task="selectedDeployTask" :selected-event="selectedEvent" :selected-algorithm="selectedAlgorithm" :selected-camera="selectedCamera"></router-view>
         </div>
       </main>
     </section>

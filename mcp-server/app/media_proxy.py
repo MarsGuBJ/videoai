@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from pathlib import Path
 import time
+from pathlib import Path
 
 import httpx
 
@@ -78,12 +78,12 @@ class MediaProxy:
                 except (RuntimeError, TimeoutError) as exc:
                     last_error = exc
                     await self._terminate_and_wait(stream_name, proc)
-                    if fallback_file and Path(fallback_file).is_file() and "453" in str(exc):
+                    if fallback_file and await _is_file(fallback_file) and "453" in str(exc):
                         break
                     if attempt < max_attempts - 1:
                         await asyncio.sleep(min(2 * (attempt + 1), 10))
 
-            if fallback_file and Path(fallback_file).is_file():
+            if fallback_file and await _is_file(fallback_file):
                 proc = await self._start_file_ffmpeg(stream_name, fallback_file, overlay_text)
                 self._remember_process(stream_name, proc)
                 try:
@@ -100,7 +100,9 @@ class MediaProxy:
 
         return playback_url
 
-    async def _start_ffmpeg(self, stream_name: str, rtsp_url: str, overlay_text: str = "") -> asyncio.subprocess.Process:
+    async def _start_ffmpeg(
+        self, stream_name: str, rtsp_url: str, overlay_text: str = ""
+    ) -> asyncio.subprocess.Process:
         return await asyncio.create_subprocess_exec(
             *self._rtsp_ffmpeg_args(stream_name, rtsp_url, overlay_text),
             stdin=asyncio.subprocess.DEVNULL,
@@ -112,32 +114,42 @@ class MediaProxy:
         args = [
             "ffmpeg",
             "-nostdin",
-            "-loglevel", "error",
+            "-loglevel",
+            "error",
             "-re",
-            "-rtsp_transport", "tcp",
-            "-i", rtsp_url,
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            rtsp_url,
         ]
         if overlay_text:
             args.extend(
                 [
-                    "-vf", self._overlay_filter(overlay_text),
+                    "-vf",
+                    self._overlay_filter(overlay_text),
                     "-an",
-                    "-c:v", "libx264",
-                    "-preset", "veryfast",
-                    "-tune", "zerolatency",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-tune",
+                    "zerolatency",
                 ]
             )
         else:
             args.extend(["-an", "-c:v", "copy"])
         args.extend(
             [
-                "-f", "flv",
+                "-f",
+                "flv",
                 f"{self.zlm_rtmp_push_base}/{stream_name}",
             ]
         )
         return args
 
-    async def _start_file_ffmpeg(self, stream_name: str, source_file: str, overlay_text: str = "") -> asyncio.subprocess.Process:
+    async def _start_file_ffmpeg(
+        self, stream_name: str, source_file: str, overlay_text: str = ""
+    ) -> asyncio.subprocess.Process:
         return await asyncio.create_subprocess_exec(
             *self._file_ffmpeg_args(stream_name, source_file, overlay_text),
             stdin=asyncio.subprocess.DEVNULL,
@@ -149,26 +161,34 @@ class MediaProxy:
         args = [
             "ffmpeg",
             "-nostdin",
-            "-loglevel", "error",
+            "-loglevel",
+            "error",
             "-re",
-            "-stream_loop", "-1",
-            "-i", source_file,
+            "-stream_loop",
+            "-1",
+            "-i",
+            source_file,
         ]
         if overlay_text:
             args.extend(
                 [
-                    "-vf", self._overlay_filter(overlay_text),
+                    "-vf",
+                    self._overlay_filter(overlay_text),
                     "-an",
-                    "-c:v", "libx264",
-                    "-preset", "veryfast",
-                    "-tune", "zerolatency",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-tune",
+                    "zerolatency",
                 ]
             )
         else:
             args.extend(["-an", "-c:v", "copy"])
         args.extend(
             [
-                "-f", "flv",
+                "-f",
+                "flv",
                 f"{self.zlm_rtmp_push_base}/{stream_name}",
             ]
         )
@@ -208,7 +228,7 @@ class MediaProxy:
                 response = await client.get(url)
                 response.raise_for_status()
                 payload = response.json()
-        except Exception:
+        except (httpx.HTTPError, ValueError):
             return False
         if payload.get("code") != 0:
             return False
@@ -222,14 +242,12 @@ class MediaProxy:
                 response = await client.get(url)
                 response.raise_for_status()
                 payload = response.json()
-        except Exception:
+        except (httpx.HTTPError, ValueError):
             return set()
         if payload.get("code") != 0:
             return set()
         return {
-            item.get("stream")
-            for item in payload.get("data") or []
-            if is_recording_stream_name(item.get("stream"))
+            item.get("stream") for item in payload.get("data") or [] if is_recording_stream_name(item.get("stream"))
         }
 
     async def _wait_until_recording_streams_closed(self) -> None:
@@ -257,14 +275,10 @@ class MediaProxy:
     def _terminate(self, stream_name: str, proc: asyncio.subprocess.Process) -> None:
         self._processes.pop(stream_name, None)
         if proc.returncode is None:
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 proc.terminate()
-            except ProcessLookupError:
-                pass
-            try:
+            with contextlib.suppress(RuntimeError):
                 asyncio.create_task(proc.wait())
-            except RuntimeError:
-                pass
 
     async def _terminate_and_wait(self, stream_name: str, proc: asyncio.subprocess.Process) -> None:
         self._processes.pop(stream_name, None)
@@ -336,11 +350,15 @@ class MediaProxy:
             "stream": stream_name,
             "force": "1",
         }
-        try:
+        # 尽力而为关闭 ZLM 上的旧流，请求失败可忽略
+        with contextlib.suppress(httpx.HTTPError):
             async with httpx.AsyncClient(timeout=min(self.timeout, 5)) as client:
                 await client.get(f"{self.zlm_http_url}/index/api/close_streams", params=params)
-        except Exception:
-            pass
+
+
+async def _is_file(path: str) -> bool:
+    """Check ``Path(path).is_file()`` without blocking the event loop."""
+    return await asyncio.to_thread(Path(path).is_file)
 
 
 def is_recording_stream_name(value) -> bool:

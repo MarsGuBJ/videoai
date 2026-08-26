@@ -1,5 +1,9 @@
 <script lang="ts">
+import * as XLSX from "xlsx";
+import { api } from "../api";
+import type { Camera } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
+import { addCustomRegion, computeSourceUrl } from "../utils/regions";
 
 export default {
   name: "ModalHost",
@@ -10,7 +14,8 @@ export default {
   // `inject: ["showToast", "setRoute"]`. `setRoute` is only used in script.
   inject: {
     toastImpl: { from: "showToast" },
-    setRoute: { from: "setRoute" }
+    setRoute: { from: "setRoute" },
+    refreshCamerasImpl: { from: "refreshCameras", default: () => {} }
   },
   data() {
     return {
@@ -22,13 +27,50 @@ export default {
       deployTargetUrl: "",
       deployTargetName: "",
       deployAlgorithm: "",
-      modelTimeout: 30,
-      modelConcurrency: 5,
-      modelTemperature: 0.7,
-      modelMaxTokens: 2048,
-      modelFps: 1,
+      versionFileName: "",
+      algorithmPackageName: "",
+      deployCameraTreeOpen: false,
+      deploySelectedCameras: [] as string[],
+      deployAreaExpanded: {
+        "园区南门": true,
+        "A座停车区": false,
+        "生产通道": false,
+        "仓储区域": false,
+        "外围周界": false
+      } as Record<string, boolean>,
+      deployCameraAreas: [
+        { name: "园区南门", cameras: [
+          { name: "南门入口枪机", code: "CAM-001", status: "在线" },
+          { name: "南门广角球机", code: "CAM-002", status: "在线" },
+          { name: "访客通道半球", code: "CAM-009", status: "在线" }
+        ] },
+        { name: "A座停车区", cameras: [
+          { name: "A1停车场东侧", code: "CAM-003", status: "在线" },
+          { name: "A2停车场出口", code: "CAM-008", status: "在线" }
+        ] },
+        { name: "生产通道", cameras: [
+          { name: "生产通道1号门", code: "CAM-004", status: "在线" },
+          { name: "生产通道东侧", code: "CAM-010", status: "在线" }
+        ] },
+        { name: "仓储区域", cameras: [
+          { name: "仓储区西门", code: "CAM-005", status: "连接异常" },
+          { name: "仓储装卸口", code: "CAM-011", status: "在线" }
+        ] },
+        { name: "外围周界", cameras: [
+          { name: "外围周界北侧", code: "CAM-006", status: "连接异常" },
+          { name: "东侧围栏通道", code: "CAM-012", status: "在线" }
+        ] }
+      ],
       smartPrompt: "",
-      smartMessages: [{ role: "assistant", text: "你好，我是设备管理智能助手。你可以告诉我需要搜索、添加或更新哪些设备。" }]
+      smartMessages: [{ role: "assistant", text: "你好，我是设备管理智能助手。你可以告诉我需要搜索、添加或更新哪些设备。" }],
+      importFile: null as File | null,
+      importFileName: "",
+      importBusy: false,
+      importResult: null as any,
+      exportRange: "filtered",
+      exportFields: "all",
+      moveArea: "",
+      regionInput: ""
     };
   },
   computed: {
@@ -40,6 +82,15 @@ export default {
       return this.store.algorithmManageRows
         .map((row: any) => row.name)
         .filter((name: string) => name !== "人员布控" && name !== "车辆布控");
+    },
+    deployCameraSummary() {
+      const count = this.deploySelectedCameras.length;
+      if (!count) return "请选择摄像机（可多选）";
+      const names = this.deployCameraAreas
+        .flatMap((area: any) => area.cameras)
+        .filter((camera: any) => this.deploySelectedCameras.includes(camera.code))
+        .map((camera: any) => camera.name);
+      return `已选 ${count} 台：${names.join("、")}`;
     },
     imageCropStyle() {
       const crop = this.state && this.state.imageCrop ? this.state.imageCrop : { x: 0, y: 0, width: 0, height: 0 };
@@ -72,13 +123,38 @@ export default {
     deployTargetSource() {
       this.deployAlgorithm = "";
     },
+    moveArea(value: string) {
+      // 批量设备移动：把选定的目标区域写回 modal.item，App.submitModal 的
+      // mediaMove 分支在提交时读取它。
+      if (this.modal && this.modal.item) this.modal.item.area = value;
+    },
     "modal.open"(open: boolean) {
       if (!open) {
         this.resetDeployTargetUpload();
         this.deployAlgorithm = "";
+        this.deployCameraTreeOpen = false;
+        this.deploySelectedCameras = [];
+        this.versionFileName = "";
+        this.algorithmPackageName = "";
       } else if (this.modal.type === "mediaSmartDiscover") {
         this.smartPrompt = "";
         this.smartMessages = [{ role: "assistant", text: "你好，我是设备管理智能助手。你可以告诉我需要搜索、添加或更新哪些设备。" }];
+      } else if (this.modal.type === "mediaImport") {
+        this.importFile = null;
+        this.importFileName = "";
+        this.importBusy = false;
+        this.importResult = null;
+        const input: any = this.$refs.importFileInput;
+        if (input) input.value = "";
+      } else if (this.modal.type === "mediaExport") {
+        this.exportRange = "filtered";
+        this.exportFields = "all";
+      } else if (this.modal.type === "mediaMove") {
+        const areas = (this.modal.item && this.modal.item.areas) || [];
+        this.moveArea = areas[0] || "";
+        if (this.modal.item) this.modal.item.area = this.moveArea;
+      } else if (this.modal.type === "mediaRegion") {
+        this.regionInput = "";
       }
     }
   },
@@ -86,6 +162,210 @@ export default {
     statusClass,
     showToast(message: string) {
       (this as any).toastImpl(message);
+    },
+    toggleDeployArea(name: string) {
+      this.deployAreaExpanded[name] = !this.deployAreaExpanded[name];
+    },
+    toggleDeployCamera(code: string) {
+      this.deploySelectedCameras = this.deploySelectedCameras.includes(code)
+        ? this.deploySelectedCameras.filter(item => item !== code)
+        : this.deploySelectedCameras.concat(code);
+    },
+    triggerVersionFile() {
+      const input: any = this.$refs.versionFileInput;
+      if (input) input.click();
+    },
+    handleVersionFile(event: any) {
+      const file = event.target.files && event.target.files[0];
+      this.versionFileName = file ? file.name : "";
+    },
+    triggerAlgorithmPackage() {
+      const input: any = this.$refs.algorithmPackageInput;
+      if (input) input.click();
+    },
+    handleAlgorithmPackage(event: any) {
+      const file = event.target.files && event.target.files[0];
+      this.algorithmPackageName = file ? file.name : "";
+    },
+    refreshCameras() {
+      (this as any).refreshCamerasImpl();
+    },
+    triggerImportFile() {
+      const input: any = this.$refs.importFileInput;
+      if (input) input.click();
+    },
+    handleImportFile(event: any) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      this.importFile = file;
+      this.importFileName = file.name;
+      this.importResult = null;
+    },
+    handleImportDrop(event: any) {
+      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (!file) return;
+      this.importFile = file;
+      this.importFileName = file.name;
+      this.importResult = null;
+    },
+    downloadImportTemplate() {
+      const rows = [
+        {
+          设备名称: "示例摄像机",
+          协议: "RTSP 拉流",
+          IP: "192.168.1.64",
+          端口: "554",
+          区域: "园区总部 / A区",
+          账号: "admin",
+          密码: "12345678",
+          设备编号: "100000000000000001",
+          序列号: "SN-0001",
+          拉流地址: ""
+        }
+      ];
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, "设备导入模板");
+      XLSX.writeFile(book, "设备导入模板.xlsx");
+      this.showToast("导入模板已开始下载");
+    },
+    async runImport() {
+      if (this.importBusy) return;
+      if (!this.importFile) {
+        this.showToast("请先选择导入文件");
+        return;
+      }
+      this.importBusy = true;
+      try {
+        const buffer = await this.importFile.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as any[];
+        const failures: any[] = [];
+        let succeeded = 0;
+        for (let index = 0; index < rows.length; index += 1) {
+          const raw = rows[index];
+          const rowNo = index + 2;
+          const cell = (key: string) => String(raw[key] ?? "").trim();
+          const name = cell("设备名称");
+          if (!name) {
+            failures.push({ row: rowNo, reason: "设备名称必填" });
+            continue;
+          }
+          const protocol = cell("协议");
+          const ip = cell("IP");
+          let sourceUrl = cell("拉流地址");
+          if (!sourceUrl) {
+            const built = computeSourceUrl(protocol || "RTSP 拉流", ip, cell("端口"), cell("账号"), cell("密码"));
+            if ((protocol === "" || protocol === "RTSP 拉流") && ip && built) {
+              sourceUrl = built;
+            } else {
+              failures.push({ row: rowNo, reason: "缺少拉流地址且无法按协议拼装" });
+              continue;
+            }
+          }
+          try {
+            await api.createCamera({
+              name,
+              sourceUrl,
+              protocol: protocol || undefined,
+              ip: ip || undefined,
+              port: cell("端口") || undefined,
+              username: cell("账号") || undefined,
+              password: cell("密码") || undefined,
+              area: cell("区域") || undefined,
+              deviceCode: cell("设备编号") || undefined,
+              serialNumber: cell("序列号") || undefined
+            });
+            succeeded += 1;
+          } catch (error: any) {
+            failures.push({ row: rowNo, reason: `创建失败：${error?.message || error}` });
+          }
+        }
+        this.importResult = { ok: succeeded, fail: failures };
+        if (succeeded > 0) this.refreshCameras();
+        if (!rows.length) this.showToast("文件中没有可导入的数据行");
+      } catch (error: any) {
+        this.showToast(`文件解析失败：${error?.message || error}`);
+      } finally {
+        this.importBusy = false;
+      }
+    },
+    runExport() {
+      const item = this.modal.item || {};
+      const datasets: any = {
+        filtered: item.filtered || [],
+        selected: item.selected || [],
+        all: item.all || []
+      };
+      const cameras = (datasets[this.exportRange] || []) as Camera[];
+      if (!cameras.length) {
+        this.showToast("没有可导出的设备");
+        return;
+      }
+      const statusText = (status?: string) => {
+        const value = (status || "").toUpperCase();
+        if (value === "RUNNING") return "在线";
+        if (value === "STOPPED") return "离线";
+        if (value === "DISABLED") return "停用";
+        return "未成功连接";
+      };
+      const columnSets: any = {
+        all: [
+          ["设备名称", (c: Camera) => c.name],
+          ["所在区域", (c: Camera) => c.area || "未分配"],
+          ["接入协议", (c: Camera) => c.protocol || ""],
+          ["IP", (c: Camera) => c.ip || ""],
+          ["端口", (c: Camera) => c.port || ""],
+          ["设备编号", (c: Camera) => c.deviceCode || ""],
+          ["设备序列号", (c: Camera) => c.serialNumber || ""],
+          ["厂商", (c: Camera) => c.vendor || ""],
+          ["状态", (c: Camera) => statusText(c.status)],
+          ["描述", (c: Camera) => c.description || ""],
+          ["拉流地址", (c: Camera) => c.sourceUrl || ""]
+        ],
+        base: [
+          ["设备名称", (c: Camera) => c.name],
+          ["所在区域", (c: Camera) => c.area || "未分配"],
+          ["设备编号", (c: Camera) => c.deviceCode || ""],
+          ["设备序列号", (c: Camera) => c.serialNumber || ""],
+          ["厂商", (c: Camera) => c.vendor || ""],
+          ["状态", (c: Camera) => statusText(c.status)]
+        ],
+        connect: [
+          ["设备名称", (c: Camera) => c.name],
+          ["接入协议", (c: Camera) => c.protocol || ""],
+          ["IP", (c: Camera) => c.ip || ""],
+          ["端口", (c: Camera) => c.port || ""],
+          ["拉流地址", (c: Camera) => c.sourceUrl || ""]
+        ]
+      };
+      const columns = columnSets[this.exportFields] || columnSets.all;
+      const rows = cameras.map((camera: Camera) => {
+        const row: any = {};
+        columns.forEach(([label, getter]: any) => {
+          row[label] = getter(camera);
+        });
+        return row;
+      });
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, "设备列表");
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      XLSX.writeFile(book, `设备导出_${date}.xlsx`);
+      this.showToast("设备列表已按当前范围导出");
+      this.$emit("close");
+    },
+    submitRegion() {
+      const value = this.regionInput.trim();
+      if (!value) {
+        this.showToast("请输入区域名称");
+        return;
+      }
+      addCustomRegion(value);
+      this.showToast("区域已新增");
+      this.$emit("close");
+      this.refreshCameras();
     },
     resetDeployTargetUpload() {
       if (this.deployTargetUrl) URL.revokeObjectURL(this.deployTargetUrl);
@@ -200,7 +480,10 @@ export default {
         <template v-if="modal.type === 'reviewType'">
           <div class="modal-form-row">
             <label><span class="required">*</span>算法名称：</label>
-            <input class="input" placeholder="请输入算法名称" />
+            <select class="select">
+              <option value="">请选择算法名称</option>
+              <option v-for="row in store.eventInfoRows" :key="row.code">{{ row.name }}</option>
+            </select>
           </div>
           <div class="modal-form-row">
             <label><span class="required">*</span>提示词：</label>
@@ -221,6 +504,10 @@ export default {
             <input class="input" placeholder="请输入算法名称" value="人员入侵检测" />
           </div>
           <div class="modal-form-row">
+            <label><span class="required">*</span>算法编号：</label>
+            <input class="input" placeholder="请输入算法编号" />
+          </div>
+          <div class="modal-form-row">
             <label><span class="required">*</span>算法类型：</label>
             <select class="select">
               <option>请选择算法类型</option>
@@ -233,6 +520,13 @@ export default {
           <div class="modal-form-row">
             <label><span class="required">*</span>初始版本：</label>
             <input class="input" placeholder="请输入初始版本，如 v1.0.0" value="v1.0.0" />
+          </div>
+          <div class="modal-form-row">
+            <label><span class="required">*</span>算法包文件：</label>
+            <div class="deploy-target-field">
+              <input ref="algorithmPackageInput" class="hidden-file-input" type="file" accept=".onnx,.pt,.zip,.tar,.gz" @change="handleAlgorithmPackage" />
+              <button class="file-upload-tile version-upload-single" type="button" @click="triggerAlgorithmPackage"><span><b>{{ algorithmPackageName || '＋ 上传算法包文件' }}</b><br />onnx / pt / zip / tar / gz</span></button>
+            </div>
           </div>
           <div class="modal-form-row">
             <label>版本说明：</label>
@@ -250,13 +544,17 @@ export default {
           </div>
           <div class="modal-form-row">
             <label><span class="required">*</span>布控区域：</label>
-            <select class="select">
-              <option>请选择布控区域</option>
-              <option>园区南门</option>
-              <option>A座停车区</option>
-              <option>仓储区</option>
-              <option>园区周界</option>
-            </select>
+            <div class="exact-tree-select deploy-camera-tree">
+              <button class="exact-tree-trigger" :class="{ open: deployCameraTreeOpen }" type="button" @click="deployCameraTreeOpen = !deployCameraTreeOpen"><span>{{ deployCameraSummary }}</span><span>{{ deployCameraTreeOpen ? '收起' : '展开' }}⌄</span></button>
+              <div v-if="deployCameraTreeOpen" class="exact-tree-dropdown">
+                <div v-for="area in deployCameraAreas" :key="area.name">
+                  <button class="exact-tree-area-row" type="button" @click="toggleDeployArea(area.name)"><span>{{ deployAreaExpanded[area.name] ? '⌄' : '›' }} {{ area.name }}</span><span>{{ area.cameras.length }} 台设备</span></button>
+                  <div v-if="deployAreaExpanded[area.name]" class="exact-tree-children">
+                    <label v-for="camera in area.cameras" :key="camera.code" class="exact-tree-device deploy-tree-camera"><input type="checkbox" :checked="deploySelectedCameras.includes(camera.code)" :aria-label="'选择' + camera.name" @change="toggleDeployCamera(camera.code)" /><span class="camera-name">{{ camera.name }}</span><span>{{ camera.status }}</span></label>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="modal-form-row">
             <label>布控目标：</label>
@@ -325,11 +623,10 @@ export default {
             <textarea class="textarea" style="height:72px;" placeholder="请输入本次版本优化内容"></textarea>
           </div>
           <div class="modal-form-row">
-            <label>版本文件：</label>
-            <div class="version-upload-grid">
-              <button class="file-upload-tile"><span><b>＋ 模型文件</b><br />onnx / pt / zip</span></button>
-              <button class="file-upload-tile"><span><b>＋ 配置文件</b><br />json / yaml</span></button>
-              <button class="file-upload-tile"><span><b>＋ 说明文档</b><br />md / pdf / doc</span></button>
+            <label><span class="required">*</span>版本文件：</label>
+            <div class="deploy-target-field">
+              <input ref="versionFileInput" class="hidden-file-input" type="file" accept=".onnx,.pt,.zip,.json,.yaml,.yml,.md,.pdf,.doc,.docx" @change="handleVersionFile" />
+              <button class="file-upload-tile version-upload-single" type="button" @click="triggerVersionFile"><span><b>{{ versionFileName || '＋ 上传版本文件' }}</b><br />onnx / pt / zip / json / yaml / md / pdf / doc</span></button>
             </div>
           </div>
         </template>
@@ -363,55 +660,6 @@ export default {
             <textarea class="textarea" style="height:82px;" placeholder="请输入接入说明">聚合后的事件将作为原始事件，为后续去重、复核提供支撑。</textarea>
           </div>
         </template>
-        <template v-if="modal.type === 'modelConfig'">
-          <div class="model-config-section-title">基础配置</div>
-          <div class="modal-form-row">
-            <label><span class="required">*</span>模型名称：</label>
-            <input class="input" value="通义千问-Max" placeholder="请输入模型名称" />
-          </div>
-          <div class="modal-form-row">
-            <label><span class="required">*</span>接口地址：</label>
-            <input class="input" value="dashscope.aliyuncs.com/api/v1" placeholder="请输入接口地址" />
-          </div>
-          <div class="modal-form-row">
-            <label><span class="required">*</span>API Key：</label>
-            <div class="model-api-field">
-              <input class="input" value="sk-***************" placeholder="请输入API Key" />
-              <button class="model-api-toggle" type="button" aria-label="显示或隐藏 API Key">&#xf06e;</button>
-            </div>
-          </div>
-          <div class="modal-form-row">
-            <label><span class="required">*</span>部署方式：</label>
-            <div class="model-config-radio-group">
-              <label class="model-config-radio"><input type="radio" name="model-deploy-mode" checked />云端部署</label>
-              <label class="model-config-radio"><input type="radio" name="model-deploy-mode" />本地部署</label>
-            </div>
-          </div>
-          <div class="model-config-section-title">高级配置</div>
-          <div class="modal-form-row">
-            <label>超时时间（秒）：</label>
-            <input class="input" type="number" min="10" max="120" v-model.number="modelTimeout" />
-          </div>
-          <p class="model-config-field-note">请求的最大等待时间，建议范围：10 - 120s</p>
-          <div class="modal-form-row">
-            <label>温度参数（Temperature）：</label>
-            <div class="model-config-range">
-              <input type="range" min="0" max="1" step="0.1" v-model.number="modelTemperature" />
-              <output>{{ modelTemperature }}</output>
-            </div>
-          </div>
-          <p class="model-config-field-note">控制输出的随机性：0 表示最稳定，1 表示最富创造力</p>
-          <div class="modal-form-row">
-            <label>最大输出长度（Tokens）：</label>
-            <input class="input" type="number" min="1" v-model.number="modelMaxTokens" />
-          </div>
-          <p class="model-config-field-note">模型生成的最大 Token 数量</p>
-          <div class="modal-form-row">
-            <label>视频帧数（FPS）：</label>
-            <input class="input" type="number" min="1" v-model.number="modelFps" />
-          </div>
-          <p class="model-config-field-note">视频理解任务中的采样帧率</p>
-        </template>
         <template v-if="modal.type === 'permissionRole'">
           <div class="modal-form-row">
             <label><span class="required">*</span>角色名称：</label>
@@ -435,11 +683,15 @@ export default {
           </div>
         </template>
         <template v-if="modal.type === 'mediaImport'">
-          <div class="media-resource-tabs"><button class="active">模板导入</button><button @click="showToast('手动录入模式已模拟切换')">手动录入</button></div>
-          <div class="modal-drop-zone">
-            <strong>拖拽或选择文件上传</strong>
+          <input ref="importFileInput" type="file" accept=".xlsx,.csv" style="display:none" aria-label="选择导入文件" @change="handleImportFile" />
+          <div class="modal-drop-zone" style="cursor:pointer;" @click="triggerImportFile" @dragover.prevent @drop.prevent="handleImportDrop">
+            <strong>{{ importFileName || '拖拽或点击选择文件上传' }}</strong>
             <span>支持 .xlsx / .csv，字段包含设备名称、协议、IP、端口、区域、账号、密码、设备编号。</span>
           </div>
+          <div v-if="importResult" class="modal-summary-strip" style="margin-top:10px;"><strong>导入结果</strong><span>成功 {{ importResult.ok }} 条，失败 {{ importResult.fail.length }} 条</span></div>
+          <ul v-if="importResult && importResult.fail.length" style="max-height:140px;overflow:auto;margin:8px 0 0;padding-left:18px;">
+            <li v-for="(failure, index) in importResult.fail" :key="index">第 {{ failure.row }} 行：{{ failure.reason }}</li>
+          </ul>
         </template>
         <template v-if="modal.type === 'mediaSmartDiscover'">
           <div class="exact-dialog-chat" style="margin-top:0;padding-top:0;border-top:0;">
@@ -459,12 +711,12 @@ export default {
           </div>
         </template>
         <template v-if="modal.type === 'mediaExport'">
-          <div class="modal-form-row"><label>导出范围：</label><select class="select"><option>当前筛选结果</option><option>选中设备</option><option>全部设备</option></select></div>
-          <div class="modal-form-row"><label>导出字段：</label><select class="select"><option>全部展示字段</option><option>基础信息</option><option>连接信息</option></select></div>
+          <div class="modal-form-row"><label>导出范围：</label><select class="select" v-model="exportRange"><option value="filtered">当前筛选结果</option><option value="selected">选中设备</option><option value="all">全部设备</option></select></div>
+          <div class="modal-form-row"><label>导出字段：</label><select class="select" v-model="exportFields"><option value="all">全部展示字段</option><option value="base">基础信息</option><option value="connect">连接信息</option></select></div>
         </template>
         <template v-if="modal.type === 'mediaMove'">
-          <p class="modal-hint">将已选择设备移动到其他区域，通道与告警联动关系保持不变。</p>
-          <div class="modal-form-row"><label>目标区域：</label><select class="select"><option>园区总部 / A区 / A2栋</option><option>园区总部 / B区 / B1栋</option><option>园区总部 / 停车场</option></select></div>
+          <p class="modal-hint">将已选择 {{ (modal.item && modal.item.rows ? modal.item.rows.length : 0) }} 台设备移动到其他区域，通道与告警联动关系保持不变。</p>
+          <div class="modal-form-row"><label>目标区域：</label><select class="select" v-model="moveArea"><option v-for="area in ((modal.item && modal.item.areas) || [])" :key="area" :value="area">{{ area }}</option></select></div>
         </template>
         <template v-if="modal.type === 'mediaCapability'">
           <div class="modal-check-grid">
@@ -480,6 +732,7 @@ export default {
         <template v-if="modal.type === 'mediaCloud'">
           <div class="modal-form-grid">
             <div class="modal-form-row"><label>云平台：</label><select class="select"><option>省级视频云平台</option><option>集团云平台</option><option>第三方安防云</option></select></div>
+            <div class="modal-form-row"><label>IP：</label><input class="input" placeholder="请输入 IP 地址" inputmode="decimal" pattern="^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$" aria-label="IP 地址" /></div>
             <div class="modal-form-row"><label>同步范围：</label><select class="select"><option>全部授权设备</option><option>指定区域</option><option>最近新增设备</option></select></div>
             <div class="modal-form-row"><label>冲突处理：</label><select class="select"><option>保留本地配置，仅补充云端字段</option><option>云端覆盖本地</option><option>生成待确认清单</option></select></div>
             <div class="modal-form-row"><label>所属区域：</label><select class="select"><option>园区总部</option><option>园区总部 / A区</option><option>园区总部 / B区</option></select></div>
@@ -497,8 +750,12 @@ export default {
           </div>
         </template>
         <template v-if="modal.type === 'mediaDelete'">
-          <p class="modal-hint danger">删除后将解除设备、通道、预览分组和告警联动关系。历史录像索引可按策略保留。</p>
+          <p class="modal-hint danger">将删除 {{ (modal.item && modal.item.rows ? modal.item.rows.length : 0) }} 台设备。删除后将解除设备、通道、预览分组和告警联动关系。历史录像索引可按策略保留。</p>
           <div class="modal-form-row"><label>删除选项：</label><span style="padding-top:7px;"><label class="video-device-include"><input type="checkbox" />同时删除通道配置</label></span></div>
+        </template>
+        <template v-if="modal.type === 'mediaRegion'">
+          <div class="modal-form-row"><label><span class="required">*</span>区域名称：</label><input class="input" v-model.trim="regionInput" placeholder="如：园区总部 / C区" /></div>
+          <p class="modal-hint">支持使用「/」分层，如：园区总部 / C区 / C1栋。</p>
         </template>
         <template v-if="modal.type === 'videoConfig'">
           <div class="modal-split">
@@ -778,8 +1035,16 @@ export default {
           <button class="btn danger" @click="$emit('close')">删除</button>
         </template>
         <template v-else-if="modal.type === 'mediaImport'">
-          <button class="btn" @click="showToast('导入模板已开始下载')">下载模板</button>
-          <button class="btn primary" @click="$emit('submit', modal.type)">开始校验</button>
+          <button class="btn" @click="downloadImportTemplate">下载模板</button>
+          <button class="btn primary" :disabled="importBusy" @click="runImport">{{ importResult ? '重新导入' : '开始校验 / 导入' }}</button>
+        </template>
+        <template v-else-if="modal.type === 'mediaExport'">
+          <button class="btn" @click="$emit('close')">取消</button>
+          <button class="btn primary" @click="runExport">导出</button>
+        </template>
+        <template v-else-if="modal.type === 'mediaRegion'">
+          <button class="btn" @click="$emit('close')">取消</button>
+          <button class="btn primary" @click="submitRegion">确认</button>
         </template>
         <template v-else-if="modal.type === 'mediaSmartDiscover'">
           <button class="btn" @click="$emit('close')">关闭</button>

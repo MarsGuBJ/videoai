@@ -16,6 +16,159 @@ export type Camera = {
   nvrTrackId?: string | null;
   nvrStreamType?: string | null;
   objectDetectionEnabled?: boolean;
+  protocol?: string | null;
+  vendor?: string | null;
+  ip?: string | null;
+  port?: string | null;
+  username?: string | null;
+  password?: string | null;
+  deviceCode?: string | null;
+  serialNumber?: string | null;
+};
+
+export type CloudPlatform = {
+  id: string;
+  name: string;
+  type: string;
+  key: string;
+  secret: string;
+  ip: string;
+  port: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LlmConfig = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  apiKeyConfigured: boolean;
+  deployType: 'cloud' | 'local';
+  timeout: number;
+  temperature: number;
+  maxTokens: number;
+  fps: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LlmConfigPayload = {
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+  deployType: 'cloud' | 'local';
+  timeout: number;
+  temperature: number;
+  maxTokens: number;
+  fps: number;
+};
+
+export type LlmTestResult = {
+  ok: boolean;
+  latencyMs?: number;
+  statusCode?: number;
+  error?: string;
+  checkedAt?: string;
+};
+
+export type EventInfoAttr = {
+  key: string;
+  value: string;
+};
+
+export type EventInfo = {
+  id: string;
+  name: string;
+  code: string;
+  level: string;
+  category: string;
+  mark: string;
+  iconName: string;
+  source: string;
+  eventSource: string;
+  algorithmCode: string;
+  attrs: EventInfoAttr[];
+  sortOrder: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EventInfoPayload = {
+  name: string;
+  code: string;
+  level: string;
+  category: string;
+  mark: string;
+  iconName: string;
+  source: string;
+  eventSource: string;
+  algorithmCode: string;
+  attrs: EventInfoAttr[];
+  sortOrder?: number;
+  enabled: boolean;
+};
+
+export type DedupRule = {
+  id: string;
+  name: string;
+  algorithm: string;
+  strategy: string;
+  durationMinutes?: number | null;
+  similarity?: number | null;
+  allCameras: boolean;
+  cameras: string[];
+  remark: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DedupRulePayload = {
+  name: string;
+  algorithm: string;
+  strategy: string;
+  durationMinutes?: number | null;
+  similarity?: number | null;
+  allCameras: boolean;
+  cameras: string[];
+  remark: string;
+  enabled: boolean;
+};
+
+export type PushTask = {
+  id: string;
+  name: string;
+  type: 'mq' | 'http';
+  address: string;
+  mqAddr: string;
+  mqUser: string;
+  mqPass: string;
+  mqPassConfigured: boolean;
+  token: string;
+  expireDays: number;
+  eventSource: string;
+  eventTypes: string;
+  desc: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PushTaskPayload = {
+  name: string;
+  type: 'mq' | 'http';
+  address: string;
+  mqAddr: string;
+  mqUser: string;
+  mqPass?: string;
+  token: string;
+  expireDays: number;
+  eventSource: string;
+  eventTypes: string;
+  desc: string;
+  enabled: boolean;
 };
 
 export type PtzCommand =
@@ -128,6 +281,42 @@ export type DeploymentTask = {
   faceProfilePhotoUrl?: string | null;
   cameraIds: string[];
   recognitionPerMinute: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AccessGb28181Config = {
+  enabled: boolean;
+  sipId: string;
+  sipDomain: string;
+  sipIp: string;
+  sipPort: string;
+  password: string;
+  parentPort: string;
+  receivePortStart: string;
+  receivePortEnd: string;
+};
+
+export type AccessGa1400Config = {
+  enabled: boolean;
+  platformId: string;
+  platformIp: string;
+  port: string;
+  password: string;
+  resourcePath: string;
+  autoRegister: boolean;
+};
+
+export type AccessConfig = {
+  gb28181?: AccessGb28181Config | null;
+  ga1400?: AccessGa1400Config | null;
+};
+
+export type AccessCertificate = {
+  id: string;
+  deviceCode: string;
+  certificate: string;
+  authMode: string;
   createdAt: string;
   updatedAt: string;
 };

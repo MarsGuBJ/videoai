@@ -69,6 +69,7 @@ services:
       VIDEOAI_DINO_CAMERA_HOSTS: ${VIDEOAI_DINO_CAMERA_HOSTS:-192.168.11.65}
       PERSON_API_BASE_URL: ${PERSON_API_BASE_URL:-http://192.168.11.192:18890}
       VIDEOAI_BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
+      VIDEOAI_MEDIA_BACKEND_URL: http://backend-media:8081
       VIDEOAI_TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://192.168.11.194:8003}
       TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://192.168.11.194:8003}
       TRITON_MODEL_REPOSITORY: /models
@@ -90,8 +91,8 @@ services:
       http_proxy: ""
       https_proxy: ""
       all_proxy: ""
-      NO_PROXY: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
-      no_proxy: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      NO_PROXY: localhost,127.0.0.1,backend,backend-media,worker,triton,zlm,postgres,videoai-backend-1,videoai-backend-media-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      no_proxy: localhost,127.0.0.1,backend,backend-media,worker,triton,zlm,postgres,videoai-backend-1,videoai-backend-media-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
     ports:
       - "192.168.11.194:8081:8081"
     volumes:
@@ -104,6 +105,50 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  backend-media:
+    build:
+      context: ./backend
+      network: host
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${MEDIA_POSTGRES_DB:-videoai}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-videoai}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-videoai}
+      VIDEOAI_ZLM_HTTP_URL: ${ZLM_HTTP_URL:-http://zlm}
+      VIDEOAI_ZLM_PUBLIC_HTTP_URL: ${ZLM_PUBLIC_HTTP_URL:-http://localhost:8080}
+      VIDEOAI_ZLM_SECRET: ${ZLM_SECRET:-035c73f7-bb6b-4889-a715-d9eb2d1925cc}
+      VIDEOAI_ZLM_RTMP_PUSH_BASE: ${ZLM_RTMP_PUSH_BASE:-rtmp://localhost/live}
+      VIDEOAI_ZLM_PREVIEW_RTMP_BASE: ${ZLM_PREVIEW_RTMP_BASE:-rtmp://127.0.0.1/live}
+      VIDEOAI_PREVIEW_IDLE_SECONDS: ${VIDEOAI_PREVIEW_IDLE_SECONDS:-10}
+      VIDEOAI_PREVIEW_START_TIMEOUT_MS: ${VIDEOAI_PREVIEW_START_TIMEOUT_MS:-15000}
+      VIDEOAI_PREVIEW_FFMPEG_CMD_KEY: ${VIDEOAI_PREVIEW_FFMPEG_CMD_KEY:-ffmpeg.cmd_preview_h264}
+      VIDEOAI_WORKER_URL: ${WORKER_URL:-http://worker:8090}
+      VIDEOAI_DINO_CAMERA_HOSTS: ${VIDEOAI_DINO_CAMERA_HOSTS:-192.168.11.65}
+      HIKVISION_NVR_BASE_URL: ${HIKVISION_NVR_BASE_URL:-}
+      HIKVISION_NVR_USERNAME: ${HIKVISION_NVR_USERNAME:-}
+      HIKVISION_NVR_PASSWORD: ${HIKVISION_NVR_PASSWORD:-}
+      LIVE_RTSP_RELAY_MODE: ${LIVE_RTSP_RELAY_MODE:-}
+      FFMPEG_BIN: ${FFMPEG_BIN:-ffmpeg}
+      VIDEOAI_STORAGE_CAMERA_DIR: /data/cameras
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: localhost,127.0.0.1,backend,backend-media,worker,triton,zlm,postgres,videoai-backend-1,videoai-backend-media-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      no_proxy: localhost,127.0.0.1,backend,backend-media,worker,triton,zlm,postgres,videoai-backend-1,videoai-backend-media-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+    ports:
+      - "${MEDIA_BACKEND_BIND:-192.168.11.194:8082}:8081"
+    volumes:
+      # Java 服务启动时一次性把 backend-lite 的 cameras.json 导入 PG
+      - ./storage/cameras:/data/cameras:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      zlm:
+        condition: service_started
 
   worker:
     profiles:
@@ -130,8 +175,8 @@ services:
       http_proxy: ""
       https_proxy: ""
       all_proxy: ""
-      NO_PROXY: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
-      no_proxy: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      NO_PROXY: localhost,127.0.0.1,backend,backend-media,worker,triton,zlm,postgres,videoai-backend-1,videoai-backend-media-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      no_proxy: localhost,127.0.0.1,backend,backend-media,worker,triton,zlm,postgres,videoai-backend-1,videoai-backend-media-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
     depends_on:
       backend:
         condition: service_started
@@ -149,6 +194,7 @@ services:
       network: host
     environment:
       VIDEOAI_BACKEND_URL: ${BACKEND_INTERNAL_URL:-http://backend:8081}
+      VIDEOAI_MEDIA_BACKEND_URL: http://backend-media:8081
       PERSON_API_BASE_URL: ${PERSON_API_BASE_URL:-http://192.168.11.192:18890}
       VIDEOAI_ZLM_HTTP_URL: ${ZLM_HTTP_URL:-http://zlm}
       VIDEOAI_ZLM_PUBLIC_HTTP_URL: ${ZLM_PUBLIC_HTTP_URL:-http://localhost:8080}
@@ -184,8 +230,8 @@ services:
       http_proxy: ""
       https_proxy: ""
       all_proxy: ""
-      NO_PROXY: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
-      no_proxy: localhost,127.0.0.1,backend,worker,triton,zlm,postgres,videoai-backend-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      NO_PROXY: localhost,127.0.0.1,backend,backend-media,worker,triton,zlm,postgres,videoai-backend-1,videoai-backend-media-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
+      no_proxy: localhost,127.0.0.1,backend,backend-media,worker,triton,zlm,postgres,videoai-backend-1,videoai-backend-media-1,videoai-worker-1,videoai-triton-1,videoai-zlm-1,videoai-postgres-1,host.docker.internal
     depends_on:
       backend:
         condition: service_started
@@ -204,8 +250,83 @@ services:
     restart: unless-stopped
     environment:
       VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
+      # 无 frontend/.env.example：VITE_MEDIA_API_BASE_URL 默认 http://localhost:8082，
+      # 指向 backend-media（/api/cameras|/api/live|/api/streams），可用 MEDIA_BACKEND_PUBLIC_URL 覆盖
+      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
     ports:
       - "192.168.11.194:5173:5173"
+    depends_on:
+      backend:
+        condition: service_started
+
+  frontend-search:
+    profiles:
+      - modular
+    build:
+      context: ./frontend
+      network: host
+      args:
+        BUILD_MODE: search
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
+      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
+    ports:
+      - "192.168.11.194:5174:5173"
+    depends_on:
+      backend:
+        condition: service_started
+
+  frontend-media:
+    profiles:
+      - modular
+    build:
+      context: ./frontend
+      network: host
+      args:
+        BUILD_MODE: media
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
+      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
+    ports:
+      - "192.168.11.194:5175:5173"
+    depends_on:
+      backend:
+        condition: service_started
+
+  frontend-control:
+    profiles:
+      - modular
+    build:
+      context: ./frontend
+      network: host
+      args:
+        BUILD_MODE: control
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
+      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
+    ports:
+      - "192.168.11.194:5176:5173"
+    depends_on:
+      backend:
+        condition: service_started
+
+  frontend-review:
+    profiles:
+      - modular
+    build:
+      context: ./frontend
+      network: host
+      args:
+        BUILD_MODE: review
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
+      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
+    ports:
+      - "192.168.11.194:5177:5173"
     depends_on:
       backend:
         condition: service_started

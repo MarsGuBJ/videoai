@@ -1859,11 +1859,6 @@
             <div class="composer-toolbar">
               <div class="left-tools">
                 <button class="btn plus-btn" id="newChatMiniBtn">＋</button>
-                <button class="btn quick-tool active" id="modeImageBtn" data-mode-switch="image">▧ 文搜图</button>
-                <button class="btn quick-tool" id="modeVideoBtn" data-mode-switch="video">▶ 文搜视频</button>
-                <button class="btn quick-tool" id="modeImageSearchBtn" data-mode-switch="imageSearch">△ 图搜图</button>
-        <button class="btn quick-tool" data-action="quick-deploy">⛉ 快速布防</button>
-                <button class="btn quick-tool" data-tool="track">⌘ 轨迹跟踪</button>
               </div>
               <div class="right-tools">
                 <button class="btn primary send-btn" id="sendBtn">发送指令 ▶</button>
@@ -2685,7 +2680,7 @@
     function closeDeployDrawer() {
       deployDrawer.classList.remove("open");
       deployDrawer.setAttribute("aria-hidden", "true");
-      deployQuickButton.focus();
+      if (deployQuickButton) deployQuickButton.focus();
     }
 
     function confirmDeployTask() {

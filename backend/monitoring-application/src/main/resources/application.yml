@@ -1,0 +1,60 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: videoai-monitoring-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/videoai}
+    username: ${SPRING_DATASOURCE_USERNAME:videoai}
+    password: ${SPRING_DATASOURCE_PASSWORD:videoai}
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 25MB
+  flyway:
+    enabled: true
+    # 数据库可能已被 backend-lite 先行建表（无 flyway 历史表）：从 0 基线起步，V1 起全部幂等迁移
+    baseline-on-migrate: true
+    baseline-version: 0
+  mvc:
+    async:
+      # Long-lived stream proxies (FLV/MJPEG) must not be cut by the async request timeout.
+      request-timeout: -1
+
+videoai:
+  zlm:
+    http-url: ${VIDEOAI_ZLM_HTTP_URL:http://localhost:8080}
+    public-http-url: ${VIDEOAI_ZLM_PUBLIC_HTTP_URL:http://localhost:8080}
+    secret: ${VIDEOAI_ZLM_SECRET:035c73f7-bb6b-4889-a715-d9eb2d1925cc}
+    rtmp-push-base: ${VIDEOAI_ZLM_RTMP_PUSH_BASE:rtmp://localhost/live}
+    preview-rtmp-base: ${VIDEOAI_ZLM_PREVIEW_RTMP_BASE:rtmp://127.0.0.1/live}
+  worker:
+    url: ${VIDEOAI_WORKER_URL:http://localhost:8090}
+  triton:
+    http-url: ${VIDEOAI_TRITON_HTTP_URL:http://localhost:8000}
+  storage:
+    face-dir: ${VIDEOAI_STORAGE_FACE_DIR:../storage/faces}
+    snapshot-dir: ${VIDEOAI_STORAGE_SNAPSHOT_DIR:../storage/snapshots}
+    camera-dir: ${VIDEOAI_STORAGE_CAMERA_DIR:../storage/cameras}
+  matching:
+    threshold: ${FACE_MATCH_THRESHOLD:0.55}
+    cooldown-seconds: ${FACE_EVENT_COOLDOWN_SECONDS:10}
+  preview:
+    idle-seconds: ${VIDEOAI_PREVIEW_IDLE_SECONDS:10}
+    start-timeout-ms: ${VIDEOAI_PREVIEW_START_TIMEOUT_MS:15000}
+    ffmpeg-cmd-key: ${VIDEOAI_PREVIEW_FFMPEG_CMD_KEY:ffmpeg.cmd_preview_h264}
+  live-rtsp-relay-mode: ${LIVE_RTSP_RELAY_MODE:${VIDEOAI_LIVE_RTSP_RELAY_MODE:auto}}
+  live-ffmpeg-relay-streams: ${VIDEOAI_LIVE_FFMPEG_RELAY_STREAMS:nvr198}
+  dino-camera-hosts: ${VIDEOAI_DINO_CAMERA_HOSTS:192.168.11.65}
+  ffmpeg-bin: ${FFMPEG_BIN:ffmpeg}
+  hikvision:
+    nvr-base-url: ${HIKVISION_NVR_BASE_URL:}
+    nvr-username: ${HIKVISION_NVR_USERNAME:}
+    nvr-password: ${HIKVISION_NVR_PASSWORD:}
+
+mybatis-plus:
+  mapper-locations: classpath*:mybatis/**/*.xml
+  type-handlers-package: com.videoai.monitoring.core.config
+  configuration:
+    map-underscore-to-camel-case: true

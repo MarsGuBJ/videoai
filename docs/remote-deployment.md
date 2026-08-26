@@ -15,15 +15,20 @@
 
 | 服务 | 内网地址 | 公网开放 |
 | --- | --- | --- |
-| Frontend | `http://192.168.11.194:5173/` | 否 |
+| Frontend（全量） | `http://192.168.11.194:5173/` | 否 |
+| Frontend Search 子包 | `http://192.168.11.194:5174/` | 否 |
+| Frontend Media 子包 | `http://192.168.11.194:5175/` | 否 |
+| Frontend Control 子包 | `http://192.168.11.194:5176/` | 否 |
+| Frontend Review 子包 | `http://192.168.11.194:5177/` | 否 |
 | SXin Proxy | `http://192.168.11.194:10997/` | 否 |
-| Backend API | `http://192.168.11.194:8081/` | 否 |
+| Backend API（backend-lite） | `http://192.168.11.194:8081/` | 否 |
+| Backend Media API（Java） | `http://192.168.11.194:8083/` | 否 |
 | MCP Server | `http://192.168.11.194:8097/mcp` | 否 |
 | PostgreSQL | `192.168.11.194:5434` | 否 |
 | Worker | `http://192.168.11.194:18099/` | 否 |
+| Triton（triton-docker-compose.yml，项目名 triton-deploy） | `192.168.11.194:8003-8005` | 否 |
 | ZLM HTTP（启用时） | `http://192.168.11.194:8080/` | 否 |
 | ZLM RTMP（启用时） | `rtmp://192.168.11.194:1935/live` | 否 |
-| Triton HTTP/gRPC/Metrics（启用时） | `192.168.11.194:8000-8002` | 否 |
 
 公网 `119.3.237.220` 仅用于 SSH 管理入口，不作为业务服务访问地址。
 
@@ -49,12 +54,16 @@
 
 ## 已知部署风险
 
+- 服务器上其它项目容器已占用 `0.0.0.0:8082`（openclaw-middleware-zlmediakit）、`8000-8002`（zlmmediakit-main、openclaw 网关）等端口。本项目 backend-media 固定绑定 `192.168.11.194:8083`（远程 `.env` 的 `MEDIA_BACKEND_BIND` / `MEDIA_BACKEND_PUBLIC_URL`），禁止使用 8082。
+- Triton 不由主 compose 启动（主 compose 的 triton 服务端口 8000-8002 与其它项目冲突）。使用 `docker compose -p triton-deploy -f triton-docker-compose.yml up -d`，端口 8003-8005，`.env` 的 `TRITON_HTTP_URL` / `TRITON_GRPC_URL` 指向 8003/8004。
+- 人脸识别模型文件不入库：`retinaface_mobilenet` 与 `arcface_finetune` 的 `model.onnx` 从服务器 `/home/public/face_models_extract/` 拷贝到 `infra/model_repository/<model>/1/model.onnx`；`arcface_mbf`、`scrfd_10g` 已随仓库同步。
+
 - 前端构建和运行必须优先使用远程 `.env` 中的 `BACKEND_PUBLIC_URL=http://192.168.11.194:8081`。即使通过 `127.0.0.1` 或 `localhost` 访问前端页面，也不能把 API 自动改成访问浏览器本机 `127.0.0.1:8081`，否则设备管理页会显示摄像头消失。
 - 实时预览和总览页的视频播放不要让浏览器直接依赖 ZLM 原始地址。普通摄像头应使用后端代理 `/api/live/{streamName}.live.flv`，DINO 物品识别摄像头使用后端 `/api/cameras/{cameraId}/annotated.mjpeg`，避免客户端网络无法直连视频流端口导致无画面。
-- 后端重建或重启后，所有持久化状态为 `RUNNING` 的摄像头必须恢复 ZLM 流代理；DINO 摄像头还必须恢复 Worker 识别流。不要只依赖 30 秒定时守护线程做首次恢复。
+- 后端重建或重启后，所有持久化状态为 `RUNNING` 的摄像头必须恢复 ZLM 流代理（现由 backend-media 负责）；DINO 摄像头还必须恢复 Worker 识别流。不要只依赖 30 秒定时守护线程做首次恢复。
 - MCP `search_recordings` 返回 `url` 依赖 MCP 容器内的 `ffmpeg` 推流到 ZLM；MCP 镜像必须安装 `ffmpeg` 和 `procps`。当 NVR 返回 `453 Not Enough Bandwidth` 时，使用 `/data/demo-recording-601.ps` 回退文件生成 FLV/HLS 代理流，避免返回结果缺少录像视频流链接。
-- 浏览器实时预览通过后端 `/api/live/{streamName}.live.flv` 按需创建独立的 `preview-{streamName}` H.264 流。原始 ZLM 流保持不变，供算法和其他内部消费者继续使用。
-- 按需预览状态保存在后端进程内，因此生产环境必须保持 `UVICORN_WORKERS=1`。最后一个观看者断开 60 秒后，后端调用 ZLM `delFFmpegSource` 清理转码进程。
+- 浏览器实时预览通过 backend-media `/api/live/{streamName}.live.flv` 按需创建独立的 `preview-{streamName}` H.264 流。原始 ZLM 流保持不变，供算法和其他内部消费者继续使用。
+- 按需预览状态保存在 backend-media 进程内，因此生产环境 backend-media 必须保持单实例运行。最后一个观看者断开 60 秒后，后端调用 ZLM `delFFmpegSource` 清理转码进程。
 
 ### ZLMediaKit 按需 H.264 预览配置
 
@@ -113,32 +122,48 @@ rsync -az -e 'ssh -p 3479 -o StrictHostKeyChecking=no' \
   public@119.3.237.220:/home/public/videoai/docs/
 ```
 
-2. 前端变更部署：
+2. 前端变更部署（全量 + 4 个子包）：
 
 ```bash
 ssh -p 3479 public@119.3.237.220 \
-  'cd /home/public/videoai && docker compose up -d --no-deps --build frontend'
+  'cd /home/public/videoai && docker compose build frontend frontend-search frontend-media frontend-control frontend-review && docker compose up -d --no-deps frontend frontend-search frontend-media frontend-control frontend-review'
 ```
 
-3. SXin 代理变更部署：
+3. backend-lite（Python 后端，容器名 backend，端口 8081）/ worker 变更部署：
+
+```bash
+ssh -p 3479 public@119.3.237.220 \
+  'cd /home/public/videoai && docker compose build backend worker && docker compose up -d --no-deps backend worker'
+```
+
+4. SXin 代理变更部署：
 
 ```bash
 ssh -p 3479 public@119.3.237.220 \
   'cd /home/public/videoai && docker compose up -d --no-deps sxin-proxy'
 ```
 
-4. MCP 变更部署：
+5. MCP 变更部署：
 
 ```bash
 ssh -p 3479 public@119.3.237.220 \
   'cd /home/public/videoai && docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple mcp-server && docker compose up -d --no-deps mcp-server'
 ```
 
-5. 仅端口、环境或 Compose 配置变更时，按需重建容器，不重建镜像：
+6. 仅端口、环境或 Compose 配置变更时，按需重建容器，不重建镜像：
 
 ```bash
 ssh -p 3479 public@119.3.237.220 \
-  'cd /home/public/videoai && docker compose up -d --no-deps --no-build postgres backend frontend worker mcp-server sxin-proxy'
+  'cd /home/public/videoai && docker compose up -d --no-deps --no-build postgres backend backend-media frontend frontend-search frontend-media frontend-control frontend-review worker mcp-server sxin-proxy'
+```
+
+注意统一使用 `--no-deps`：主 compose 的 `zlm` 服务端口与服务器上已有的其它项目容器冲突，不能让 compose 顺带拉起它。
+
+Java backend-media（`backend/` 多模块 Maven 工程）变更：
+
+```bash
+ssh -p 3479 public@119.3.237.220 \
+  'cd /home/public/videoai && docker compose build backend-media && docker compose up -d --no-deps backend-media'
 ```
 
 涉及 `storage/`、数据库、摄像头配置或后端持久化逻辑的变更，先备份：
@@ -222,27 +247,27 @@ ssh -p 3479 public@119.3.237.220 \
 
 `ffmpeg` 缺失时 `search_recordings` 无法生成 `url`。NVR 忙或带宽不足返回 `453` 时，会使用 `/data/demo-recording-601.ps` 生成演示录像流。
 
-摄像头数量验证：
+摄像头数量验证（`/api/cameras` 已迁移到 backend-media 8083，backend-lite 8081 不再提供该接口）：
 
 ```bash
 ssh -p 3479 public@119.3.237.220 \
-  'curl -fsS http://192.168.11.194:8081/api/cameras | python3 -c "import sys,json; print(len(json.load(sys.stdin)))"'
+  'curl -fsS http://192.168.11.194:8083/api/cameras | python3 -c "import sys,json; print(len(json.load(sys.stdin)))"'
 ```
 
-前端 API 地址验证：
+前端 API 代理验证（前端为构建产物，`/api/cameras`、`/api/live`、`/api/streams`、`/api/access-config` 由前端 nginx 反代到 backend-media，其余 `/api/` 反代到 backend-lite）：
 
 ```bash
 ssh -p 3479 public@119.3.237.220 \
-  'curl -fsS http://192.168.11.194:5173/src/api.ts | grep -E "if \\(configured\\)|/api/live|localHosts" -n'
+  'curl -fsS http://192.168.11.194:5173/api/health && curl -fsS -o /dev/null -w "%{http_code}\n" http://192.168.11.194:5173/api/cameras'
 ```
 
-预期前端代码优先使用 `configured`，并且普通视频流路径包含 `/api/live`。如果这里变成 localhost 优先，远程或端口转发访问时设备管理页会误连本机 API。
+预期两个请求都返回 200。前端构建必须使用远程 `.env` 的 `BACKEND_PUBLIC_URL=http://192.168.11.194:8081`；即使通过 `127.0.0.1` 或 `localhost` 访问前端页面，也不能把 API 自动改成访问浏览器本机 `127.0.0.1:8081`，否则设备管理页会显示摄像头消失。
 
-实时视频流验证：
+实时视频流验证（`/api/live` 已迁移到 backend-media 8083）：
 
 ```bash
 ssh -p 3479 public@119.3.237.220 \
-  'for name in nvr65 nvr198; do out=/tmp/$name.flv; rm -f $out; curl --max-time 5 -sS http://192.168.11.194:8081/api/live/$name.live.flv -o $out; printf "%s bytes=%s head=" "$name" "$(wc -c < $out 2>/dev/null || echo 0)"; head -c 4 $out | xxd -p; rm -f $out; done'
+  'for name in nvr65 nvr198; do out=/tmp/$name.flv; rm -f $out; curl --max-time 5 -sS http://192.168.11.194:8083/api/live/$name.live.flv -o $out; printf "%s bytes=%s head=" "$name" "$(wc -c < $out 2>/dev/null || echo 0)"; head -c 4 $out | xxd -p; rm -f $out; done'
 ```
 
 预期 FLV 流头为 `464c5601`，且超时前已收到视频数据。
@@ -254,4 +279,4 @@ ssh -p 3479 public@119.3.237.220 \
   'curl -fsS http://192.168.11.194:18099/v1/streams'
 ```
 
-预期仅 `192.168.11.65` 对应摄像头的 Worker 流状态为 `running`。再抽样访问 `/api/cameras/{cameraId}/annotated.mjpeg`，应能收到以 `--frame` 开头的 MJPEG 数据。
+预期 DINO（`192.168.11.65`）与人脸识别摄像头的 Worker 流状态为 `running`。再抽样访问 backend-media `/api/cameras/{cameraId}/annotated.mjpeg`（`http://192.168.11.194:8083`），应能收到以 `--frame` 开头的 MJPEG 数据。

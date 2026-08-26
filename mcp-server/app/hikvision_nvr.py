@@ -1,10 +1,10 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
 from urllib.parse import quote, urlparse, urlunparse
+from uuid import uuid4
 from xml.etree import ElementTree
 
 from .models import Camera, RecordingSegment
-
 
 NAMESPACE = "http://www.hikvision.com/ver20/XMLSchema"
 BEIJING_TZ = timezone(timedelta(hours=8))
@@ -40,7 +40,11 @@ class HikvisionNvrClient:
         track_id = camera.track_id
         if not track_id:
             raise HikvisionError(f"Camera {camera.id} is not bound to a Hikvision track/channel")
-        return [build_rtsp_direct_recording(camera, track_id, start_time, end_time, self._nvr_host, self.username, self.password)]
+        return [
+            build_rtsp_direct_recording(
+                camera, track_id, start_time, end_time, self._nvr_host, self.username, self.password
+            )
+        ]
 
     async def search_by_track(
         self,
@@ -68,7 +72,11 @@ class HikvisionNvrClient:
             nvrTrackId=track_id,
             nvrStreamType="main",
         )
-        return [build_rtsp_direct_recording(cam, track_id, start_time, end_time, self._nvr_host, self.username, self.password)]
+        return [
+            build_rtsp_direct_recording(
+                cam, track_id, start_time, end_time, self._nvr_host, self.username, self.password
+            )
+        ]
 
     async def list_record_tracks(self) -> list[str]:
         return []
@@ -107,7 +115,7 @@ def parse_search_response(
     username: str = "",
     password: str = "",
 ) -> list[RecordingSegment]:
-    root = ElementTree.fromstring(xml_text)
+    root = ElementTree.fromstring(xml_text)  # noqa: S314  # XML 来自内网受信 NVR 的 ISAPI 响应
     matches = root.findall(".//{*}searchMatchItem")
     if not matches and root.tag.endswith("searchMatchItem"):
         matches = [root]
@@ -180,9 +188,9 @@ def parse_hik_time(value: str | None) -> datetime | None:
 
 
 def stable_recording_id(camera_id: str, track_id: str, start: datetime, end: datetime, playback_uri: str) -> str:
-    import hashlib
-
-    digest = hashlib.sha256(f"{camera_id}|{track_id}|{start.isoformat()}|{end.isoformat()}|{playback_uri}".encode()).hexdigest()
+    digest = hashlib.sha256(
+        f"{camera_id}|{track_id}|{start.isoformat()}|{end.isoformat()}|{playback_uri}".encode()
+    ).hexdigest()
     return digest[:32]
 
 

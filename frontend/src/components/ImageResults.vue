@@ -32,7 +32,7 @@ export default {
 
 <template>
   <div class="result-grid">
-    <article class="result-card clickable" :class="{ selected: selectable && isSelected(index) }" v-for="(item, index) in items" :key="item.title" @click="openResult(globalIndex(index), item)">
+    <article class="result-card clickable" :class="{ selected: selectable && isSelected(index) }" v-for="(item, index) in items" :key="globalIndex(index)" @click="openResult(globalIndex(index), item)">
       <label v-if="selectable" class="result-select" @click.stop>
         <input type="checkbox" :checked="isSelected(index)" :aria-label="'选择' + item.title" @change.stop="$emit('toggle-selection', globalIndex(index))" />
       </label>

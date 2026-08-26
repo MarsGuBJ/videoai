@@ -35,7 +35,7 @@
           </div>
         </div>
         <div class="track-query-actions">
-          <button class="btn primary" @click="runCandidateSearch">⌕ 搜索候选图片</button>
+          <button class="btn primary" :disabled="searching" @click="runCandidateSearch">⌕ 搜索候选图片</button>
         </div>
       </div>
       <div class="track-main-grid">
@@ -56,6 +56,7 @@
           <div class="track-empty" v-else>点击左侧“搜索候选图片”，系统将使用搜索结果直接生成轨迹图。</div>
         </div>
       </div>
+      <div v-if="searching" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索候选图片，请稍候...</p></div></div>
     </div>
   </section>
 </template>
@@ -84,6 +85,7 @@ export default defineComponent({
     const initialSelectedIndexes = [...(this.state.selectedResultIndexes || [])];
     return {
       searched: initialSelectedIndexes.length > 0,
+      searching: false,
       selectedIndexes: initialSelectedIndexes,
       trackGenerated: initialSelectedIndexes.length > 0,
       trackStart: "2026-07-12T08:00",
@@ -163,10 +165,15 @@ export default defineComponent({
       this.pointDropdownOpen = false;
     },
     runCandidateSearch() {
-      this.searched = true;
-      this.selectedIndexes = this.store.results.slice(0, 6).map((_: any, index: number) => index);
-      this.trackGenerated = true;
-      this.showToast("已根据搜索结果生成轨迹图");
+      if (this.searching) return;
+      this.searching = true;
+      window.setTimeout(() => {
+        this.searching = false;
+        this.searched = true;
+        this.selectedIndexes = this.store.results.slice(0, 6).map((_: any, index: number) => index);
+        this.trackGenerated = true;
+        this.showToast("已根据搜索结果生成轨迹图");
+      }, 600);
     },
     removeTrackItem(item: any) {
       const resultIndex = this.store.results.indexOf(item);

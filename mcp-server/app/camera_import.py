@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import logging
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from ipaddress import ip_address
 from itertools import permutations
-import json
-import os
 from pathlib import Path
-import sys
 from typing import Literal
 from urllib.parse import quote, urlparse
 from urllib.request import (
@@ -22,6 +21,10 @@ from urllib.request import (
 )
 from xml.etree import ElementTree
 
+from .hcnetsdk_playback import HcNetSdkLibrary
+from .settings import load_settings
+
+logger = logging.getLogger(__name__)
 
 EXPECTED_ROW_COUNT = 359
 EXPECTED_HOST_COUNT = 336
@@ -66,7 +69,16 @@ class ImportOperation:
 
 
 def parse_isapi_channels(xml: bytes, rtsp_port: int = 554) -> list[StreamChannel]:
-    root = ElementTree.fromstring(xml)
+    """Parse the ISAPI StreamingChannel list and return main-stream channels.
+
+    Args:
+        xml: Raw ISAPI ``/ISAPI/Streaming/channels`` response body.
+        rtsp_port: RTSP port to record on each returned channel.
+
+    Returns:
+        Main-stream channels sorted by streaming id.
+    """
+    root = ElementTree.fromstring(xml)  # noqa: S314  # XML 来自内网受信 NVR 的 ISAPI 响应
     channels: list[StreamChannel] = []
     for element in root.iter():
         if _local_name(element.tag) != "StreamingChannel":
@@ -89,7 +101,8 @@ def parse_isapi_channels(xml: bytes, rtsp_port: int = 554) -> list[StreamChannel
 
 
 def parse_rtsp_port(xml: bytes) -> int:
-    root = ElementTree.fromstring(xml)
+    """Extract the RTSP port from an ISAPI network ports response, defaulting to 554."""
+    root = ElementTree.fromstring(xml)  # noqa: S314  # XML 来自内网受信 NVR 的 ISAPI 响应
     for element in root.iter():
         local_name = _local_name(element.tag)
         if local_name == "rtspPortNo" and (element.text or "").strip().isdigit():
@@ -111,23 +124,36 @@ def discover_device_channels(
     isapi_request=None,
     sdk_library=None,
 ) -> list[StreamChannel]:
+    """Discover main-stream channels for one device, preferring ISAPI and falling back to HCNetSDK.
+
+    Args:
+        row: Manifest row describing the device.
+        username: Device login username.
+        password: Device login password.
+        isapi_request: Optional override for the ISAPI GET callable (testing).
+        sdk_library: Optional override for the HCNetSDK library (testing).
+
+    Returns:
+        Discovered main-stream channels.
+    """
     if isapi_request is None:
-        isapi_request = lambda path: _digest_get(f"http://{row.host}{path}", username, password)
+
+        def isapi_request(path):
+            return _digest_get(f"http://{row.host}{path}", username, password)
+
     rtsp_port = 554
     try:
         try:
             rtsp_port = parse_rtsp_port(isapi_request("/ISAPI/System/Network/ports"))
-        except Exception:
+        except Exception:  # noqa: BLE001  # 端口探测失败时回退默认 554
             rtsp_port = 554
         channels = parse_isapi_channels(isapi_request("/ISAPI/Streaming/channels"), rtsp_port)
         if channels:
             return channels
-    except Exception:
+    except Exception:  # noqa: S110, BLE001  # ISAPI 不可用时静默回退 HCNetSDK 通道发现
         pass
 
     if sdk_library is None:
-        from .hcnetsdk_playback import HcNetSdkLibrary
-
         sdk_library = HcNetSdkLibrary.instance()
     session = sdk_library.login_with_device_info(row.host, row.sdk_port, username, password)
     try:
@@ -147,6 +173,19 @@ def discover_and_map(
     discoverer=discover_device_channels,
     max_workers: int = 16,
 ) -> tuple[list[ChannelMapping], list[dict]]:
+    """Discover channels for all manifest rows concurrently and map rows to channels.
+
+    Args:
+        rows: Manifest rows to map.
+        username: Device login username.
+        password: Device login password.
+        discoverer: Channel discovery callable (testing override).
+        max_workers: Thread pool size for per-host discovery.
+
+    Returns:
+        A ``(mappings, failures)`` pair; failures carry host, row sequences and
+        a password-redacted error message.
+    """
     rows_by_host: dict[str, list[CameraRow]] = defaultdict(list)
     for row in rows:
         rows_by_host[row.host].append(row)
@@ -161,14 +200,13 @@ def discover_and_map(
 
     with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
         futures = {
-            executor.submit(discover_host, host_rows): (host, host_rows)
-            for host, host_rows in rows_by_host.items()
+            executor.submit(discover_host, host_rows): (host, host_rows) for host, host_rows in rows_by_host.items()
         }
         for future in as_completed(futures):
             host, host_rows = futures[future]
             try:
                 mappings.extend(future.result())
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # 单台主机失败记入 failures，不中断其余主机
                 failures.append(
                     {
                         "host": host,
@@ -191,12 +229,18 @@ def _digest_get(url: str, username: str, password: str, timeout: float = 5.0) ->
     password_manager = HTTPPasswordMgrWithDefaultRealm()
     password_manager.add_password(None, url, username, password)
     opener = build_opener(HTTPDigestAuthHandler(password_manager))
-    request = Request(url, headers={"Accept": "application/xml", "User-Agent": "VideoAI-Camera-Import/1.0"})
+    # URL 来自清单中的内网设备地址
+    request = Request(url, headers={"Accept": "application/xml", "User-Agent": "VideoAI-Camera-Import/1.0"})  # noqa: S310
     with opener.open(request, timeout=timeout) as response:
         return response.read()
 
 
 def map_camera_rows(rows: list[CameraRow], channels: list[StreamChannel]) -> list[ChannelMapping]:
+    """Map manifest rows to discovered channels using name/kind scoring.
+
+    Raises:
+        ValueError: If no channels were discovered or the mapping is ambiguous.
+    """
     if not rows:
         return []
     if not channels:
@@ -214,7 +258,7 @@ def map_camera_rows(rows: list[CameraRow], channels: list[StreamChannel]) -> lis
     ordered_channels = sorted(channels, key=lambda channel: channel.streaming_id)
     candidates: list[tuple[int, tuple[StreamChannel, ...]]] = []
     for selected_channels in permutations(ordered_channels, len(rows)):
-        score = sum(_mapping_score(row, channel) for row, channel in zip(rows, selected_channels))
+        score = sum(_mapping_score(row, channel) for row, channel in zip(rows, selected_channels, strict=True))
         candidates.append((score, selected_channels))
     best_score = max(score for score, _ in candidates)
     best = [selected for score, selected in candidates if score == best_score]
@@ -224,17 +268,15 @@ def map_camera_rows(rows: list[CameraRow], channels: list[StreamChannel]) -> lis
         selected = tuple(ordered_channels)
     else:
         raise ValueError(f"{rows[0].host}: channel mapping is ambiguous")
-    return [ChannelMapping(row=row, channel=channel) for row, channel in zip(rows, selected)]
+    return [ChannelMapping(row=row, channel=channel) for row, channel in zip(rows, selected, strict=True)]
 
 
 def build_camera_payload(mapping: ChannelMapping, username: str, password: str) -> dict[str, str]:
+    """Build the backend camera create/update payload for one mapping."""
     row = mapping.row
     channel = mapping.channel
     credentials = f"{quote(username, safe='')}:{quote(password, safe='')}@"
-    source_url = (
-        f"rtsp://{credentials}{row.host}:{channel.rtsp_port}"
-        f"/Streaming/Channels/{channel.streaming_id}"
-    )
+    source_url = f"rtsp://{credentials}{row.host}:{channel.rtsp_port}/Streaming/Channels/{channel.streaming_id}"
     return {
         "name": row.name,
         "sourceUrl": source_url,
@@ -253,6 +295,7 @@ def plan_import(
     username: str,
     password: str,
 ) -> list[ImportOperation]:
+    """Diff mappings against existing cameras and plan create/update/skip operations."""
     used_camera_ids: set[str] = set()
     operations: list[ImportOperation] = []
     for mapping in mappings:
@@ -262,8 +305,7 @@ def plan_import(
             (
                 camera
                 for camera in existing_cameras
-                if str(camera.get("id", "")) not in used_camera_ids
-                and str(camera.get("description") or "") == marker
+                if str(camera.get("id", "")) not in used_camera_ids and str(camera.get("description") or "") == marker
             ),
             None,
         )
@@ -297,6 +339,10 @@ def apply_import_operations(
     apply_changes: bool,
     request_json=None,
 ) -> dict[str, int | bool]:
+    """Execute planned operations against the backend and return a write summary.
+
+    With ``apply_changes=False`` only counts what would change (dry-run).
+    """
     summary: dict[str, int | bool] = {
         "created": 0,
         "updated": 0,
@@ -322,7 +368,7 @@ def apply_import_operations(
             url = f"{url}/{operation.camera_id}"
         try:
             requester(method, url, operation.payload)
-        except Exception:
+        except Exception:  # noqa: BLE001  # 单条写入失败计入 failed，继续后续操作
             summary["failed"] = int(summary["failed"]) + 1
         else:
             key = "created" if operation.action == "create" else "updated"
@@ -341,6 +387,11 @@ def run_import(
     request_json=None,
     max_workers: int = 16,
 ) -> dict:
+    """Run the full import pipeline: fetch existing cameras, discover, plan and apply.
+
+    Returns:
+        Summary dict with input/mapping counts, write summary and discovery failures.
+    """
     requester = request_json or _request_json
     existing_cameras = requester("GET", f"{backend_url.rstrip('/')}/api/cameras")
     mappings, discovery_failures = discover_and_map(
@@ -369,6 +420,11 @@ def run_import(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entrypoint: parse args, load settings and run the import.
+
+    Returns:
+        Exit code: 0 on success, 1 when any row failed, 2 when credentials are missing.
+    """
     parser = argparse.ArgumentParser(description="Discover and import Hikvision cameras into VideoAI")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true", help="Discover and plan changes without writing")
@@ -381,19 +437,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-workers", type=int, default=16)
     args = parser.parse_args(argv)
 
-    username = os.getenv("CAMERA_IMPORT_USERNAME", "").strip()
-    password = os.getenv("CAMERA_IMPORT_PASSWORD", "")
-    backend_url = os.getenv("VIDEOAI_BACKEND_URL", "http://backend:8081").strip()
-    if not username or not password:
-        print(json.dumps({"error": "camera import credentials are not configured"}), file=sys.stderr)
+    settings = load_settings()
+    if not settings.camera_import_username or not settings.camera_import_password:
+        logger.error("camera import credentials are not configured")
         return 2
 
     rows = load_camera_rows(args.manifest)
     summary = run_import(
         rows,
-        username,
-        password,
-        backend_url,
+        settings.camera_import_username,
+        settings.camera_import_password,
+        settings.camera_import_backend_url,
         apply_changes=args.apply,
         max_workers=args.max_workers,
     )
@@ -403,13 +457,14 @@ def main(argv: list[str] | None = None) -> int:
 
 def _request_json(method: str, url: str, payload: dict | None = None):
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
-    request = Request(
+    # URL 来自配置的后端内网地址
+    request = Request(  # noqa: S310
         url,
         data=body,
         method=method,
         headers={"Accept": "application/json", "Content-Type": "application/json"},
     )
-    with urlopen(request, timeout=30) as response:
+    with urlopen(request, timeout=30) as response:  # noqa: S310
         content = response.read()
     return json.loads(content) if content else None
 
@@ -462,6 +517,12 @@ def _stream_kind(value: str) -> str:
 
 
 def load_camera_rows(path: Path) -> list[CameraRow]:
+    """Load and validate the camera manifest CSV.
+
+    Raises:
+        ValueError: On missing values, invalid hosts/ports, duplicate keys or
+            unexpected row/host/group counts.
+    """
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         records = list(csv.DictReader(handle))
 

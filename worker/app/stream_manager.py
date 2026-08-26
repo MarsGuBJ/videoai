@@ -1,9 +1,9 @@
 import base64
+import logging
 import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Dict, Optional
 from uuid import UUID
 
 import cv2
@@ -11,12 +11,24 @@ import numpy as np
 import requests
 
 from .config import Settings
-from .schemas import FaceEventIngestRequest, FaceTarget, MatchRequest, MatchResponse, ObjectEventIngestRequest, StreamStartRequest, utc_now
-from .triton_models import DinoDetectionClient, ObjectDetection, TritonFaceClient, draw_object_boxes
+from .schemas import (
+    FaceEventIngestRequest,
+    FaceTarget,
+    MatchRequest,
+    MatchResponse,
+    ObjectEventIngestRequest,
+    StreamStartRequest,
+    utc_now,
+)
+from .triton_models import DinoDetectionClient, TritonFaceClient, draw_object_boxes
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class StreamTask:
+    """One running stream: its request, stop signal, worker thread and status."""
+
     request: StreamStartRequest
     stop_event: threading.Event
     thread: threading.Thread
@@ -24,16 +36,19 @@ class StreamTask:
 
 
 class StreamManager:
+    """Manage per-camera stream processing loops (start/stop/status/annotated frames)."""
+
     def __init__(self, settings: Settings, face_client: TritonFaceClient, dino_client: DinoDetectionClient = None):
         self.settings = settings
         self.face_client = face_client
         self.dino_client = dino_client
-        self.tasks: Dict[str, StreamTask] = {}
+        self.tasks: dict[str, StreamTask] = {}
         self.lock = threading.Lock()
-        self.detection_cooldowns: Dict[str, float] = {}
-        self.latest_annotated_frames: Dict[str, np.ndarray] = {}
+        self.detection_cooldowns: dict[str, float] = {}
+        self.latest_annotated_frames: dict[str, np.ndarray] = {}
 
     def start(self, request: StreamStartRequest) -> None:
+        """Start the processing loop for a stream, replacing any existing one."""
         key = str(request.cameraId)
         old_task = None
         with self.lock:
@@ -56,6 +71,7 @@ class StreamManager:
             task.thread.start()
 
     def stop(self, camera_id: UUID) -> None:
+        """Stop the processing loop for one camera, if running."""
         key = str(camera_id)
         with self.lock:
             task = self.tasks.pop(key, None)
@@ -65,7 +81,8 @@ class StreamManager:
             task.stop_event.set()
             task.thread.join(timeout=2)
 
-    def status(self) -> Dict[str, str]:
+    def status(self) -> dict[str, str]:
+        """Return a snapshot of ``{camera_key: status}`` for all managed streams."""
         with self.lock:
             return {key: task.status for key, task in self.tasks.items()}
 
@@ -136,21 +153,32 @@ class StreamManager:
 
     def _start_ffmpeg_pipe(self, stream_url: str):
         try:
-            proc = subprocess.Popen(
-                [
+            # ffmpeg 可执行文件由部署环境 PATH 提供，URL 来自后端登记的流地址
+            return subprocess.Popen(  # noqa: S603
+                [  # noqa: S607
                     "ffmpeg",
-                    "-hide_banner", "-loglevel", "error",
-                    "-fflags", "nobuffer",
-                    "-flags", "low_delay",
-                    "-i", stream_url,
-                    "-an", "-c:v", "rawvideo", "-pix_fmt", "bgr24",
-                    "-f", "rawvideo", "pipe:1",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-fflags",
+                    "nobuffer",
+                    "-flags",
+                    "low_delay",
+                    "-i",
+                    stream_url,
+                    "-an",
+                    "-c:v",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "bgr24",
+                    "-f",
+                    "rawvideo",
+                    "pipe:1",
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
-            return proc
-        except Exception:
+        except OSError:
             return None
 
     def _read_ffmpeg_frame(self, proc, width, height):
@@ -160,7 +188,7 @@ class StreamManager:
             if len(raw) < frame_size:
                 return None
             return np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 3))
-        except Exception:
+        except (OSError, ValueError):
             return None
 
     def _process_frame(self, request: StreamStartRequest, frame) -> None:
@@ -196,6 +224,7 @@ class StreamManager:
                         )
                         self._ingest_event(event)
             except Exception as exc:
+                logger.exception("face processing failed for camera %s", request.cameraId)
                 self._set_status(str(request.cameraId), f"face processing error: {exc}")
 
         if request.objectDetectionEnabled:
@@ -217,6 +246,7 @@ class StreamManager:
                 self._ingest_object_events(request, object_detections, frame, snapshot_base64)
             self.latest_annotated_frames[camera_key] = annotated
         except Exception as exc:
+            logger.exception("dino processing failed for camera %s", camera_key)
             self._set_status(camera_key, f"dino processing error: {exc}")
 
     def _match(self, embedding, face_profile_id=None) -> MatchResponse:
@@ -263,19 +293,23 @@ class StreamManager:
         )
         response.raise_for_status()
 
-    def _ingest_object_events(self, request: StreamStartRequest, detections: list, frame, snapshot_base64: str = "") -> None:
+    def _ingest_object_events(
+        self, request: StreamStartRequest, detections: list, frame, snapshot_base64: str = ""
+    ) -> None:
         h, w = frame.shape[:2]
         objects_payload = []
         for det in detections:
-            objects_payload.append({
-                "labelId": det.label_id,
-                "labelName": det.label_name,
-                "score": det.score,
-                "x1": float(det.bbox[0]),
-                "y1": float(det.bbox[1]),
-                "x2": float(det.bbox[2]),
-                "y2": float(det.bbox[3]),
-            })
+            objects_payload.append(
+                {
+                    "labelId": det.label_id,
+                    "labelName": det.label_name,
+                    "score": det.score,
+                    "x1": float(det.bbox[0]),
+                    "y1": float(det.bbox[1]),
+                    "x2": float(det.bbox[2]),
+                    "y2": float(det.bbox[3]),
+                }
+            )
         if not objects_payload:
             return
         snapshot = snapshot_base64 or encode_jpeg(frame)
@@ -295,14 +329,16 @@ class StreamManager:
                 timeout=10,
             )
             response.raise_for_status()
-        except Exception:
+        except Exception:  # noqa: S110, BLE001  # 事件上报失败不阻断拉流，丢弃本帧事件
             pass
 
-    def get_annotated_frame(self, camera_id: str) -> Optional[np.ndarray]:
+    def get_annotated_frame(self, camera_id: str) -> np.ndarray | None:
+        """Return the latest annotated frame for a camera, or None."""
         return self.latest_annotated_frames.get(camera_id)
 
 
 def encode_jpeg(frame) -> str:
+    """Encode a frame as a base64 data-URL JPEG string (empty string on failure)."""
     ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
     if not ok:
         return ""

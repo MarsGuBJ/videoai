@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.videoai.monitoring.core.dao.ModelRegistryDao">
+
+    <select id="selectAllOrdered" resultType="com.videoai.monitoring.core.entity.ModelRegistryEntity">
+        SELECT * FROM model_registry ORDER BY created_at DESC
+    </select>
+
+    <insert id="upsert" parameterType="com.videoai.monitoring.core.entity.ModelRegistryEntity">
+        INSERT INTO model_registry
+        (id, name, display_name, repository_path, model_type, description)
+        VALUES (#{id}, #{name}, #{displayName}, #{repositoryPath}, #{modelType}, #{description})
+        ON CONFLICT (name) DO UPDATE
+        SET display_name = excluded.display_name,
+            repository_path = excluded.repository_path,
+            model_type = excluded.model_type,
+            description = excluded.description,
+            updated_at = now()
+    </insert>
+
+    <update id="updateStateById">
+        UPDATE model_registry SET state = #{state}, updated_at = now() WHERE id = #{id}
+    </update>
+
+    <update id="updateStateByName">
+        UPDATE model_registry SET state = #{state}, updated_at = now() WHERE name = #{name}
+    </update>
+
+</mapper>

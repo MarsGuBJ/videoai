@@ -6,7 +6,7 @@
 
 - ZLMediaKit 接入本机摄像头并提供直播流。
 - Triton Inference Server 以 explicit model control 方式托管 SCRFD-10GF 和 ArcFace/MobileFaceNet 模型。
-- Spring Boot 后端管理摄像头、人脸库、识别事件和 Triton 模型服务。
+- Spring Boot 后端管理摄像头、人脸库、识别事件和 Triton 模型服务（Java 21，Maven 五模块结构，见下文「后端结构」）。
 - Python worker 负责视频采样、人脸检测、对齐、向量提取和事件上报。
 - Vue 3（Vite）前端提供监控、数字 PTZ、人脸库 CRUD、事件列表和模型管理页面。
 
@@ -38,6 +38,24 @@ ZLMediaKit：http://localhost:8080
 MCP Server：http://192.168.11.194:8097/mcp
 
 Triton：http://localhost:8000
+
+## 后端结构
+
+`backend/` 为 Maven 多模块工程（Java 21 / Spring Boot 3.5.x / MyBatis-Plus），参考智慧城市后端架构拆分：
+
+- `monitoring-common`：DTO / VO / enums / Result / 异常等共享类型。
+- `monitoring-api`：HTTP 接口定义（Spring MVC 注解在接口上）。
+- `monitoring-api-rpc`：接口的 OpenFeign 代理与 fallback，供其他微服务远程调用。
+- `monitoring-core`：业务实现，按 `controller` / `service` / `service.impl` / `dao` / `entity` / `client` / `config` / `support` 分层，复杂 SQL 在 `resources/mybatis/*.xml`。
+- `monitoring-application`：启动入口、`application.yml` 与 Flyway 迁移。
+
+本地构建（需 JDK 21 与 Maven 3.6+）：
+
+```bash
+cd backend && mvn clean verify
+```
+
+Docker 构建不变：`docker compose up --build -d backend-media`（多阶段构建，镜像内 Maven + JDK 21）。
 
 ## 模型目录
 

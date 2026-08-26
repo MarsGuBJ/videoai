@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.videoai.monitoring.core.dao.CloudPlatformDao">
+
+    <select id="selectAllOrdered" resultType="com.videoai.monitoring.core.entity.CloudPlatformEntity">
+        SELECT * FROM cloud_platforms ORDER BY created_at DESC
+    </select>
+
+    <update id="updateCloudPlatform" parameterType="com.videoai.monitoring.core.entity.CloudPlatformEntity">
+        UPDATE cloud_platforms
+        SET name = #{name},
+            type = #{type},
+            key = #{key},
+            secret = #{secret},
+            ip = #{ip},
+            port = #{port},
+            updated_at = now()
+        WHERE id = #{id}
+    </update>
+
+</mapper>

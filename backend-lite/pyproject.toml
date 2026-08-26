@@ -1,0 +1,70 @@
+[project]
+name = "videoai-backend-lite"
+version = "0.1.0"
+requires-python = ">=3.10"
+# 服务非打包分发，运行时依赖仍走 requirements.txt / requirements-dev.txt，
+# 此处只放元信息与工具配置。
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "BLE", "S", "G", "T20", "RET", "SIM", "C4", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # 测试中使用 assert
+# schemas 的 Pydantic 字段与外部 API 契约使用 camelCase（sourceUrl/faceProfileId 等），
+# 属对外契约而非命名风格问题，按目录豁免。
+"app/schemas/*" = ["N815"]
+# faceId 查询参数为既有对外契约（camelCase），不能改名。
+"app/api/routers/events.py" = ["N803"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+# 渐进收敛：新文件必须 strict；以下为存量模块豁免清单，
+# 后续阶段逐个消除，直至可删除全部 overrides。
+[[tool.mypy.overrides]]
+# 注：mypy overrides 模式必须是完整模块名（通配组件只能是整段 *），
+# 故测试代码统一经 tests 包（tests.*）豁免，不可用 "test_*" 前缀模式。
+module = [
+    # 重构前根级存量模块
+    "main",
+    "camera_cache",
+    "db",
+    "models",
+    # 阶段 2 从根级搬迁进 app 包的存量模块，沿用搬迁前豁免口径
+    "app.api.routers.deployment_tasks",
+    "app.api.routers.faces",
+    "app.api.routers.models",
+    "app.api.routers.person_search",
+    "app.core.trace",
+    "app.main",
+    "app.schemas.person_search",
+    "app.services.camera_cache",
+    "app.services.person_search",
+    "app.services.triton",
+    "app.services.worker_streams",
+    "tests.*",
+]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+# 手册目标 ≥80%，渐进提升，禁止下调。
+# 基线为阶段 4 实测值（2026-08-24，pytest --cov 总量 49.82% 向下取整）。
+fail_under = 49

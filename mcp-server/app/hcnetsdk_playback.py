@@ -1,6 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
+import hashlib
+import importlib.util
+import logging
+import queue
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+from contextlib import suppress
 from ctypes import (
     CFUNCTYPE,
     POINTER,
@@ -19,18 +30,9 @@ from ctypes import (
     sizeof,
     string_at,
 )
-import ctypes
 from dataclasses import dataclass
 from datetime import datetime
-import hashlib
-import importlib.util
 from pathlib import Path
-import queue
-import shutil
-import subprocess
-import tempfile
-import threading
-import time
 from typing import Any
 from uuid import uuid4
 
@@ -38,6 +40,7 @@ import httpx
 
 from .models import RecordingSegment
 
+logger = logging.getLogger(__name__)
 
 NET_DVR_PLAYSTART = 1
 NET_DVR_PLAYBACK_BY_TIME = "hikvision_hcnetsdk_playback"
@@ -46,7 +49,7 @@ PLAYBACK_CALLBACK = CFUNCTYPE(None, c_long, c_uint32, POINTER(c_ubyte), c_uint32
 
 
 class HcNetSdkError(RuntimeError):
-    pass
+    """Raised when an HCNetSDK call reports a failure."""
 
 
 class NET_DVR_TIME(Structure):
@@ -160,6 +163,7 @@ def build_hcnetsdk_recording(
     start_time: datetime,
     end_time: datetime,
 ) -> RecordingSegment:
+    """Build a recording segment descriptor for HCNetSDK playback by time."""
     playback_uri = f"hcnetsdk://{host}:{port}/channels/{channel}"
     recording_id = stable_recording_id(host, channel, start_time, end_time)
     return RecordingSegment(
@@ -188,6 +192,7 @@ def build_hcnetsdk_download_recording(
     start_time: datetime,
     end_time: datetime,
 ) -> RecordingSegment:
+    """Build a recording segment descriptor for HCNetSDK download by time."""
     recording = build_hcnetsdk_recording(host, port, channel, start_time, end_time)
     recording.source = NET_DVR_DOWNLOAD_BY_TIME
     recording.metadata["sdkApi"] = "NET_DVR_GetFileByTime"
@@ -195,6 +200,7 @@ def build_hcnetsdk_download_recording(
 
 
 def stable_recording_id(host: str, channel: int, start_time: datetime, end_time: datetime) -> str:
+    """Return a deterministic 32-char recording id for a host/channel/time-range tuple."""
     digest = hashlib.sha256(f"{host}|{channel}|{start_time.isoformat()}|{end_time.isoformat()}".encode()).hexdigest()
     return digest[:32]
 
@@ -205,12 +211,14 @@ def device_channel_numbers(
     start_digital_channel: int,
     digital_count: int,
 ) -> list[int]:
+    """Return the sorted union of analog and digital channel numbers."""
     analog = range(start_channel, start_channel + analog_count) if analog_count > 0 else ()
     digital = range(start_digital_channel, start_digital_channel + digital_count) if digital_count > 0 else ()
     return sorted(set(analog) | set(digital))
 
 
 def channels_from_device_info(device_info: NET_DVR_DEVICEINFO_V40) -> list[int]:
+    """Extract the available channel numbers from a V40 login device-info struct."""
     info = device_info.struDeviceV30
     digital_count = int(info.byIPChanNum) + (int(info.byHighDChanNum) << 8)
     return device_channel_numbers(
@@ -222,6 +230,7 @@ def channels_from_device_info(device_info: NET_DVR_DEVICEINFO_V40) -> list[int]:
 
 
 def to_sdk_time(value: datetime) -> NET_DVR_TIME:
+    """Convert a datetime to the SDK ``NET_DVR_TIME`` struct."""
     return NET_DVR_TIME(
         value.year,
         value.month,
@@ -233,6 +242,8 @@ def to_sdk_time(value: datetime) -> NET_DVR_TIME:
 
 
 class HcNetSdkPlaybackProxy:
+    """Relay HCNetSDK playback sessions to ZLM as short-lived FLV streams."""
+
     def __init__(
         self,
         host: str,
@@ -263,12 +274,15 @@ class HcNetSdkPlaybackProxy:
         self._max_live_sessions_before_reset = 2
 
     def build_recording(self, start_time: datetime, end_time: datetime) -> RecordingSegment:
+        """Build a playback recording descriptor bound to this proxy's device."""
         return build_hcnetsdk_recording(self.host, self.port, self.channel, start_time, end_time)
 
     def build_download_recording(self, start_time: datetime, end_time: datetime) -> RecordingSegment:
+        """Build a download recording descriptor bound to this proxy's device."""
         return build_hcnetsdk_download_recording(self.host, self.port, self.channel, start_time, end_time)
 
     async def start_playback(self, recording: RecordingSegment) -> str:
+        """Start an SDK playback session for the recording and return its public FLV URL."""
         async with self._semaphore:
             await self._cleanup_expired_locked()
             if len(self._sessions) >= self._max_live_sessions_before_reset:
@@ -278,6 +292,7 @@ class HcNetSdkPlaybackProxy:
             return session.playback_url
 
     async def stop_playback(self) -> None:
+        """Stop all live playback sessions held by this proxy."""
         async with self._semaphore:
             await self._stop_all_locked()
 
@@ -300,7 +315,7 @@ class HcNetSdkPlaybackProxy:
             session = self._sessions.pop(stream_name)
             await asyncio.to_thread(self._stop_session, session)
 
-    def _start_session(self, recording: RecordingSegment) -> "PlaybackSession":
+    def _start_session(self, recording: RecordingSegment) -> PlaybackSession:
         stream_name = f"hcn-{recording.recordingId[:12]}-{uuid4().hex[:8]}"
         playback_url = f"{self.zlm_public_http_url}/live/{stream_name}.live.flv"
         self._close_zlm_stream(stream_name)
@@ -327,11 +342,12 @@ class HcNetSdkPlaybackProxy:
             raise
         return session
 
-    def _stop_session(self, session: "PlaybackSession") -> None:
+    def _stop_session(self, session: PlaybackSession) -> None:
         session.stop()
         self._close_zlm_stream(session.stream_name)
 
     async def download_mp4(self, recording: RecordingSegment) -> Path:
+        """Download the recording via SDK and return the remuxed MP4 file path."""
         return await asyncio.to_thread(self._download_mp4, recording)
 
     def _download_mp4(self, recording: RecordingSegment) -> Path:
@@ -371,7 +387,7 @@ class HcNetSdkPlaybackProxy:
                 sdk.sdk.NET_DVR_Logout(user_id)
             shutil.rmtree(work_dir, ignore_errors=True)
 
-    def _wait_until_downloaded(self, sdk: "HcNetSdkLibrary", download_handle: int, recording: RecordingSegment) -> None:
+    def _wait_until_downloaded(self, sdk: HcNetSdkLibrary, download_handle: int, recording: RecordingSegment) -> None:
         duration_seconds = max((recording.endTime - recording.startTime).total_seconds(), 1)
         deadline = time.monotonic() + max(self.timeout, min(duration_seconds * 3 + 60, 3600))
         last_pos = -1
@@ -393,8 +409,9 @@ class HcNetSdkPlaybackProxy:
         raise TimeoutError("HCNetSDK download timed out")
 
     def _remux_to_mp4(self, source_file: Path, mp4_file: Path) -> None:
-        result = subprocess.run(
-            [
+        # ffmpeg 可执行文件由部署环境 PATH 提供，参数均为内部构造
+        result = subprocess.run(  # noqa: S603
+            [  # noqa: S607
                 "ffmpeg",
                 "-nostdin",
                 "-loglevel",
@@ -416,7 +433,7 @@ class HcNetSdkPlaybackProxy:
             detail = result.stderr.strip() or result.stdout.strip() or f"ffmpeg exited with code {result.returncode}"
             raise HcNetSdkError(f"ffmpeg remux to MP4 failed: {detail}")
 
-    def _wait_until_stream_ready(self, stream_name: str, session: "PlaybackSession") -> None:
+    def _wait_until_stream_ready(self, stream_name: str, session: PlaybackSession) -> None:
         deadline = time.monotonic() + min(max(self.timeout, 5), 30)
         while time.monotonic() < deadline:
             if session.failed:
@@ -437,41 +454,44 @@ class HcNetSdkPlaybackProxy:
                 )
                 response.raise_for_status()
                 payload = response.json()
-        except Exception:
+        except (httpx.HTTPError, ValueError):
             return False
         if payload.get("code") != 0:
             return False
         return any(item.get("stream") == stream_name for item in payload.get("data") or [])
 
     def _close_zlm_stream(self, stream_name: str) -> None:
-        try:
-            with httpx.Client(timeout=min(self.timeout, 5)) as client:
-                client.get(
-                    f"{self.zlm_http_url}/index/api/close_streams",
-                    params={
-                        "secret": self.zlm_secret,
-                        "vhost": "__defaultVhost__",
-                        "app": "live",
-                        "stream": stream_name,
-                        "force": "1",
-                    },
-                )
-        except Exception:
-            pass
+        # 尽力而为关闭 ZLM 上的旧流，请求失败可忽略
+        with suppress(httpx.HTTPError), httpx.Client(timeout=min(self.timeout, 5)) as client:
+            client.get(
+                f"{self.zlm_http_url}/index/api/close_streams",
+                params={
+                    "secret": self.zlm_secret,
+                    "vhost": "__defaultVhost__",
+                    "app": "live",
+                    "stream": stream_name,
+                    "force": "1",
+                },
+            )
 
 
 @dataclass(frozen=True)
 class HcNetSdkDeviceSession:
+    """Result of a device login: SDK user id and discovered channel numbers."""
+
     user_id: int
     channels: tuple[int, ...]
 
 
 class HcNetSdkLibrary:
-    _instance: "HcNetSdkLibrary | None" = None
+    """Singleton wrapper around the native HCNetSDK shared library."""
+
+    _instance: HcNetSdkLibrary | None = None
     _lock = threading.Lock()
 
     @classmethod
-    def instance(cls) -> "HcNetSdkLibrary":
+    def instance(cls) -> HcNetSdkLibrary:
+        """Return the lazily initialized shared library wrapper."""
         with cls._lock:
             if cls._instance is None:
                 cls._instance = cls()
@@ -531,11 +551,24 @@ class HcNetSdkLibrary:
         self.sdk.NET_DVR_PlayBackByTime_V40.restype = c_long
         self.sdk.NET_DVR_SetPlayDataCallBack_V40.argtypes = [c_long, PLAYBACK_CALLBACK, c_void_p]
         self.sdk.NET_DVR_SetPlayDataCallBack_V40.restype = c_bool
-        self.sdk.NET_DVR_PlayBackControl_V40.argtypes = [c_long, c_uint32, c_void_p, c_uint32, c_void_p, POINTER(c_uint32)]
+        self.sdk.NET_DVR_PlayBackControl_V40.argtypes = [
+            c_long,
+            c_uint32,
+            c_void_p,
+            c_uint32,
+            c_void_p,
+            POINTER(c_uint32),
+        ]
         self.sdk.NET_DVR_PlayBackControl_V40.restype = c_bool
         self.sdk.NET_DVR_StopPlayBack.argtypes = [c_long]
         self.sdk.NET_DVR_StopPlayBack.restype = c_bool
-        self.sdk.NET_DVR_GetFileByTime.argtypes = [c_long, c_long, POINTER(NET_DVR_TIME), POINTER(NET_DVR_TIME), c_char_p]
+        self.sdk.NET_DVR_GetFileByTime.argtypes = [
+            c_long,
+            c_long,
+            POINTER(NET_DVR_TIME),
+            POINTER(NET_DVR_TIME),
+            c_char_p,
+        ]
         self.sdk.NET_DVR_GetFileByTime.restype = c_long
         self.sdk.NET_DVR_PlayBackControl.argtypes = [c_long, c_uint32, c_uint32, c_void_p]
         self.sdk.NET_DVR_PlayBackControl.restype = c_bool
@@ -552,9 +585,11 @@ class HcNetSdkLibrary:
         self.sdk.NET_DVR_SetSDKInitCfg(4, create_string_buffer(str(self.lib_dir / "libssl.so.1.1").encode()))
 
     def last_error(self) -> int:
+        """Return the SDK's last-error code."""
         return int(self.sdk.NET_DVR_GetLastError())
 
     def login(self, host: str, port: int, username: str, password: str) -> int:
+        """Log in to a device and return the SDK user id."""
         return self.login_with_device_info(host, port, username, password).user_id
 
     def login_with_device_info(
@@ -564,6 +599,11 @@ class HcNetSdkLibrary:
         username: str,
         password: str,
     ) -> HcNetSdkDeviceSession:
+        """Log in via ``NET_DVR_Login_V40`` and return user id plus channel list.
+
+        Raises:
+            HcNetSdkError: If the login fails.
+        """
         login_info = NET_DVR_USER_LOGIN_INFO()
         login_info.sDeviceAddress = host.encode()
         login_info.wPort = port
@@ -578,6 +618,8 @@ class HcNetSdkLibrary:
 
 @dataclass
 class PlaybackSession:
+    """One SDK playback session piped through ffmpeg into an RTMP push."""
+
     sdk: HcNetSdkLibrary
     stream_name: str
     host: str
@@ -602,8 +644,10 @@ class PlaybackSession:
         self.failed = ""
 
     def start(self) -> None:
-        self.ffmpeg = subprocess.Popen(
-            [
+        """Spawn the ffmpeg push process and start SDK playback with data callback."""
+        # ffmpeg 可执行文件由部署环境 PATH 提供，参数均为内部构造
+        self.ffmpeg = subprocess.Popen(  # noqa: S603
+            [  # noqa: S607
                 "ffmpeg",
                 "-nostdin",
                 "-loglevel",
@@ -649,6 +693,7 @@ class PlaybackSession:
             raise HcNetSdkError(f"NET_DVR_PlayBackControl_V40 failed: {self.sdk.last_error()}")
 
     def stop(self) -> None:
+        """Stop SDK playback, drain the writer thread and terminate ffmpeg."""
         if self.playback_handle >= 0:
             self.sdk.sdk.NET_DVR_StopPlayBack(self.playback_handle)
             self.playback_handle = -1
@@ -657,7 +702,7 @@ class PlaybackSession:
             self.writer.join(timeout=5)
         if self.ffmpeg is not None:
             if self.ffmpeg.stdin is not None and not self.ffmpeg.stdin.closed:
-                with suppress_io_errors():
+                with suppress(BrokenPipeError, OSError, ValueError):
                     self.ffmpeg.stdin.close()
             try:
                 self.ffmpeg.wait(timeout=5)
@@ -685,13 +730,15 @@ class PlaybackSession:
         self.queue_put(string_at(buffer, int(size)))
 
     def queue_put(self, item: bytes | None) -> None:
+        """Enqueue one playback data chunk; mark the session failed when the queue is full."""
         try:
             self.queue.put(item, timeout=1)
         except queue.Full:
             self.failed = "HCNetSDK callback queue is full"
 
     def _write_ffmpeg_stdin(self) -> None:
-        assert self.ffmpeg is not None
+        if self.ffmpeg is None:
+            raise RuntimeError("ffmpeg process is not started")
         stdin = self.ffmpeg.stdin
         if stdin is None:
             self.failed = "ffmpeg stdin is not available"
@@ -706,25 +753,18 @@ class PlaybackSession:
             except BrokenPipeError:
                 self.failed = self.ffmpeg_error()
                 break
-            except Exception as exc:
+            except (OSError, ValueError) as exc:
                 self.failed = str(exc)
                 break
-        with suppress_io_errors():
+        with suppress(BrokenPipeError, OSError, ValueError):
             stdin.close()
 
     def ffmpeg_error(self) -> str:
+        """Return ffmpeg's stderr tail (or exit code) as a human-readable error."""
         if self.ffmpeg is None or self.ffmpeg.stderr is None:
             return "ffmpeg failed"
         try:
             error = self.ffmpeg.stderr.read().decode(errors="ignore").strip()
-        except Exception:
+        except (OSError, ValueError):
             error = ""
         return error or f"ffmpeg exited with code {self.ffmpeg.poll()}"
-
-
-class suppress_io_errors:
-    def __enter__(self) -> None:
-        return None
-
-    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> bool:
-        return exc_type in {BrokenPipeError, OSError, ValueError}

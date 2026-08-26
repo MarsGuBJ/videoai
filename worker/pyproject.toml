@@ -1,0 +1,52 @@
+[project]
+name = "videoai-worker"
+version = "0.1.0"
+requires-python = ">=3.10"
+# 服务非打包分发，运行时依赖仍走 requirements.txt / requirements-dev.txt，
+# 此处只放元信息与工具配置。
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "BLE", "S", "G", "T20", "RET", "SIM", "C4", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # 测试中使用 assert
+"app/main.py" = ["B008", "N803"]  # B008 为 FastAPI(File/Query) 惯例；N803 为契约豁免（cameraId 查询参数名）
+"app/schemas.py" = ["N815"]  # 契约豁免：camelCase 字段即 HTTP 出入参 key
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+# 渐进收敛：新文件必须 strict；以下为存量模块豁免清单，
+# 后续阶段逐个消除，直至可删除全部 overrides。
+[[tool.mypy.overrides]]
+module = [
+    "app.config",
+    "app.main",
+    "app.schemas",
+    "app.stream_manager",
+    "app.triton_models",
+    "tests.*",
+]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+# 手册目标 ≥80%，渐进提升，禁止下调。
+# 基线为阶段 4 实测值（2026-08-24，pytest --cov 总量 39.97% 向下取整）。
+fail_under = 39

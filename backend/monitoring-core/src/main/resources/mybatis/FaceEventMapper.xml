@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.videoai.monitoring.core.dao.FaceEventDao">
+
+    <select id="selectFiltered" resultType="com.videoai.monitoring.core.entity.FaceEventEntity">
+        SELECT * FROM face_events WHERE 1=1
+        <if test="cameraId != null">
+            AND camera_id = #{cameraId}
+        </if>
+        <if test="profileId != null">
+            AND face_profile_id = #{profileId}
+        </if>
+        ORDER BY created_at DESC LIMIT #{limit}
+    </select>
+
+    <select id="countRecent" resultType="int">
+        SELECT COUNT(*)
+        FROM face_events
+        WHERE camera_id = #{cameraId}
+          AND face_profile_id = #{profileId}
+          AND created_at &gt; now() - (#{cooldownSeconds} || ' seconds')::interval
+    </select>
+
+</mapper>

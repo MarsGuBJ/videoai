@@ -8,7 +8,7 @@
           <div class="deploy-field"><label>区域 / 监控点</label><div class="exact-tree-select"><button class="exact-tree-trigger" :class="{ open: pointDropdownOpen }" @click="togglePointDropdown"><span>{{ selectedPointLabel }}</span><span>{{ pointDropdownOpen ? '收起' : '展开' }}⌄</span></button><div v-if="pointDropdownOpen" class="exact-tree-dropdown"><div v-for="area in areas" :key="area.name"><button class="exact-tree-area-row" :class="{ active: selectedArea && selectedArea.name === area.name }" @click="toggleArea(area)"><span>{{ expandedAreas[area.name] ? '⌄' : '›' }} {{ area.name }}</span><span>{{ area.count }} 台设备</span></button><div v-if="expandedAreas[area.name]" class="exact-tree-children"><button v-for="camera in area.cameras" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, area)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div></div></div></div>
           <div class="deploy-field"><label>开始时间</label><input class="input" v-model="onlineStart" :placeholder="currentTimePlaceholder" aria-label="开始时间" @input="markPendingSourceChange" /></div>
           <div class="deploy-field"><label>结束时间</label><input class="input" v-model="onlineEnd" :placeholder="currentTimePlaceholder" aria-label="结束时间" @input="markPendingSourceChange" /></div>
-          <button class="btn primary" @click="searchOnlineSources">⌕ 搜索回放</button>
+          <button class="btn primary" :disabled="searching" @click="searchOnlineSources">⌕ 搜索回放</button>
         </div>
         <div v-if="selectedCamera" class="hint-text" style="padding:0 16px 14px;">已选择：{{ selectedArea.name }} / {{ selectedCamera.name }} · {{ selectedArea.count }} 台设备区域</div>
       </div>
@@ -52,8 +52,8 @@
             <div class="exact-conclusion">
               <div class="exact-summary-heading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg><strong>事件摘要</strong></div>
               <div class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>事件概况</div><p>{{ summary.overview }}</p></div>
-              <div class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>涉及人员</div><ul><li v-for="person in summary.persons" :key="person">{{ person }}</li></ul></div>
-              <div class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="11" rx="2"/><circle cx="8" cy="19" r="2"/><circle cx="16" cy="19" r="2"/></svg>涉及车辆</div><ul><li v-for="vehicle in summary.vehicles" :key="vehicle">{{ vehicle }}</li></ul></div>
+              <div v-if="summary.persons.length" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>涉及人员</div><ul><li v-for="person in summary.persons" :key="person">{{ person }}</li></ul></div>
+              <div v-if="summary.vehicles.length" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="11" rx="2"/><circle cx="8" cy="19" r="2"/><circle cx="16" cy="19" r="2"/></svg>涉及车辆</div><ul><li v-for="vehicle in summary.vehicles" :key="vehicle">{{ vehicle }}</li></ul></div>
             </div>
             <div class="exact-section-title" style="margin-top:16px;"><div><h3>分析结果</h3><p>共识别 {{ events.length }} 个关键事件，点击卡片定位上方视频。</p></div></div>
             <div class="exact-event-list">
@@ -74,11 +74,130 @@
     </div>
   </section>
   <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeResultCrop" @confirm="confirmResultCrop"></image-crop-dialog>
+  <div v-if="searching || analyzing" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>{{ analyzing ? '正在分析视频，请稍候...' : '正在搜索回放，请稍候...' }}</p></div></div>
 </template>
 
 <script lang="ts">
 import { defineComponent } from "vue";
 import ImageCropDialog from "../components/ImageCropDialog.vue";
+import { api } from "../api";
+
+function statusLabel(status?: string): string {
+  const value = (status || "").toUpperCase();
+  if (value === "RUNNING") return "在线";
+  if (value === "STOPPED") return "离线";
+  if (value === "DISABLED") return "停用";
+  return "未成功连接";
+}
+
+function isHttpUrl(url?: string | null): boolean {
+  return !!url && /^https?:\/\//i.test(url);
+}
+
+// FLV/HLS/MJPEG 流地址不能作为分析接口的视频文件地址
+function isStreamUrl(url: string): boolean {
+  return /\.(flv|m3u8|mjpeg)(\?|#|$)/i.test(url);
+}
+
+// <video> 可直接播放的文件格式
+function isPlayableFileUrl(url: string): boolean {
+  return /\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(url);
+}
+
+// 摄像头可分析视频地址：回放地址优先，其次源地址；均为流地址时返回空
+function analysisUrlFor(camera: any): string {
+  if (camera && isHttpUrl(camera.playbackUrl) && !isStreamUrl(camera.playbackUrl)) return camera.playbackUrl;
+  if (camera && isHttpUrl(camera.sourceUrl) && !isStreamUrl(camera.sourceUrl)) return camera.sourceUrl;
+  return "";
+}
+
+const ANALYSIS_TEXT_KEYS = ["result", "text", "analysis", "summary", "answer", "content", "description"];
+const EVENT_TIME_KEYS = ["start_time", "start", "time", "timestamp", "begin_time", "begin"];
+const EVENT_DESC_KEYS = ["description", "content", "summary", "text", "result", "detail"];
+const EVENT_NAME_KEYS = ["title", "name", "event", "label", "type"];
+
+// 宽容提取响应中的文本结论：先查当前层已知字段，再递归嵌套对象，最后兜底 message
+function findAnalysisText(node: any, depth = 0): string {
+  if (node === null || node === undefined || depth > 4) return "";
+  if (typeof node === "string") return node.trim();
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findAnalysisText(item, depth + 1);
+      if (found) return found;
+    }
+    return "";
+  }
+  if (typeof node === "object") {
+    for (const key of ANALYSIS_TEXT_KEYS) {
+      const value = node[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    for (const value of Object.values(node)) {
+      if (value && typeof value === "object") {
+        const found = findAnalysisText(value, depth + 1);
+        if (found) return found;
+      }
+    }
+    if (typeof node.message === "string" && node.message.trim()) return node.message.trim();
+  }
+  return "";
+}
+
+function looksLikeEvent(item: any): boolean {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  return EVENT_TIME_KEYS.some(key => key in item) || EVENT_DESC_KEYS.some(key => key in item);
+}
+
+// 在响应里找第一个"像事件列表"的数组（元素含时间/描述字段，或纯字符串分段）
+function findAnalysisEvents(node: any, depth = 0): any[] {
+  if (node === null || node === undefined || depth > 4) return [];
+  if (Array.isArray(node)) {
+    if (node.length && node.every(item => typeof item === "string")) return node;
+    if (node.some(looksLikeEvent)) return node;
+    for (const item of node) {
+      const found = findAnalysisEvents(item, depth + 1);
+      if (found.length) return found;
+    }
+    return [];
+  }
+  if (typeof node === "object") {
+    for (const value of Object.values(node)) {
+      const found = findAnalysisEvents(value, depth + 1);
+      if (found.length) return found;
+    }
+  }
+  return [];
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function formatHms(seconds: number): string {
+  const value = Math.max(0, Math.floor(seconds));
+  return `${pad2(Math.floor(value / 3600))}:${pad2(Math.floor((value % 3600) / 60))}:${pad2(value % 60)}`;
+}
+
+// 数字按秒偏移处理；"HH:mm:ss"/"mm:ss" 字符串解析为秒
+function clockToSeconds(value: any): number {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.floor(value));
+  const match = String(value || "").match(/(?:(\d+):)?(\d{1,2}):(\d{1,2})/);
+  if (!match) return 0;
+  return Number(match[1] || 0) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+}
+
+function mapAnalysisEvent(item: any, index: number, images: string[], segmentSeconds: number) {
+  const image = images[index % images.length];
+  if (typeof item === "string") {
+    return { name: `分段 ${index + 1}`, time: formatHms(index * segmentSeconds), start: index * segmentSeconds, image, detail: item };
+  }
+  const rawTime = EVENT_TIME_KEYS.map(key => item[key]).find(value => value !== undefined && value !== null && value !== "");
+  const start = clockToSeconds(rawTime);
+  const time = typeof rawTime === "string" && rawTime.trim() ? rawTime.trim() : formatHms(start);
+  const desc = EVENT_DESC_KEYS.map(key => item[key]).find(value => typeof value === "string" && value.trim());
+  const title = EVENT_NAME_KEYS.map(key => item[key]).find(value => typeof value === "string" && value.trim());
+  return { name: title || `事件 ${index + 1}`, time, start, image, detail: desc || title || "该分段无详细描述" };
+}
 
 export default defineComponent({
   name: "ExactSearchPage",
@@ -89,6 +208,7 @@ export default defineComponent({
     setRoute: { from: "setRoute", default: (route: string, options?: any) => {} },
   },
   mounted() {
+    this.loadCameras();
     this.$nextTick(() => this.applySourceFieldHints());
   },
   updated() {
@@ -111,6 +231,8 @@ export default defineComponent({
       },
       onlineSearched: false,
       onlineSources: [],
+      searching: false,
+      analyzing: false,
       sourcePage: 1,
       sourcePageSize: 2,
       onlineStart: "",
@@ -237,6 +359,48 @@ export default defineComponent({
     }
   },
   methods: {
+    // 真实监控点树：按设备 area 顶层分段聚合，失败时保留内置示例点位
+    async loadCameras() {
+      try {
+        const cameras = await api.cameras();
+        const grouped: Record<string, any[]> = {};
+        (cameras || []).forEach((cam: any) => {
+          const areaName = (String(cam.area || "").split("/")[0] || "").trim() || "未分配";
+          if (!grouped[areaName]) grouped[areaName] = [];
+          grouped[areaName].push({
+            name: cam.name,
+            code: cam.id,
+            type: cam.protocol || cam.streamApp || "IPC",
+            status: statusLabel(cam.status),
+            image: (this as any).store.img.car,
+            playbackUrl: cam.playbackUrl,
+            sourceUrl: cam.sourceUrl
+          });
+        });
+        const areas = Object.keys(grouped).map(name => ({ name, count: grouped[name].length, cameras: grouped[name] }));
+        if (!areas.length) return;
+        this.areas = areas as any;
+        const expanded: Record<string, boolean> = {};
+        areas.forEach((area, index) => { expanded[area.name] = index === 0; });
+        this.expandedAreas = expanded;
+      } catch (error) {
+        // 后端不可用时保留内置示例点位
+      }
+    },
+    // 由开始/结束时间估算最大分段数（60 秒一段，clamp 1-20，解析不出取 1）
+    estimateMaxSegments() {
+      const parse = (value: string) => {
+        const text = String(value || "").trim().replace("T", " ");
+        if (!text) return null;
+        const normalized = text.length === 16 ? `${text}:00` : text;
+        const time = new Date(normalized.replace(" ", "T")).getTime();
+        return Number.isNaN(time) ? null : time;
+      };
+      const start = parse(this.onlineStart);
+      const end = parse(this.onlineEnd);
+      if (start === null || end === null || end <= start) return 1;
+      return Math.min(20, Math.max(1, Math.ceil((end - start) / 60000)));
+    },
     applySourceFieldHints() {
       const root = this.$el as any;
       const page = root && typeof root.querySelectorAll === 'function'
@@ -334,31 +498,43 @@ export default defineComponent({
         this.showToast("请先选择区域和监控点位");
         return;
       }
-      this.onlineSearched = true;
-      this.sourcePage = 1;
-      const selectedArea = this.selectedArea as any;
-      const selectedCamera = this.selectedCamera as any;
-      const source = {
-        id: "SRC-" + selectedCamera.code,
-        name: selectedCamera.name + " · 监控回放",
-        camera: selectedCamera.code,
-        cameraName: selectedCamera.name,
-        areaName: selectedArea.name,
-        time: this.onlineStart + " - " + this.onlineEnd,
-        clipTime: this.onlineStart + " - " + this.onlineEnd,
-        duration: "03:20",
-        durationSeconds: 200,
-        image: selectedCamera.image,
-        sourceType: "在线监控"
-      };
-      this.onlineSources = [source];
-      if (this.sourceConfirmed) {
-        this.applyOnlineSource(source);
-        this.showToast("已切换录像回放，下方结果已更新");
-      } else {
-        this.useOnlineSource(source);
-        this.showToast("已找到该监控点回放画面");
+      if (this.searching) return;
+      const analysisUrl = analysisUrlFor(this.selectedCamera);
+      if (!analysisUrl) {
+        this.showToast("该点位暂无可分析的视频文件地址");
+        return;
       }
+      this.searching = true;
+      window.setTimeout(() => {
+        this.searching = false;
+        this.onlineSearched = true;
+        this.sourcePage = 1;
+        const selectedArea = this.selectedArea as any;
+        const selectedCamera = this.selectedCamera as any;
+        const source = {
+          id: "SRC-" + selectedCamera.code,
+          name: selectedCamera.name + " · 监控回放",
+          camera: selectedCamera.code,
+          cameraName: selectedCamera.name,
+          areaName: selectedArea.name,
+          time: this.onlineStart + " - " + this.onlineEnd,
+          clipTime: this.onlineStart + " - " + this.onlineEnd,
+          duration: "03:20",
+          durationSeconds: 200,
+          image: selectedCamera.image,
+          sourceType: "在线监控",
+          analysisUrl,
+          videoUrl: isPlayableFileUrl(analysisUrl) ? analysisUrl : undefined
+        };
+        this.onlineSources = [source];
+        if (this.sourceConfirmed) {
+          this.applyOnlineSource(source);
+          this.showToast("已切换录像回放，下方结果已更新");
+        } else {
+          this.useOnlineSource(source);
+          this.showToast("已找到该监控点回放画面");
+        }
+      }, 600);
     },
     goSourcePage(page) {
       this.sourcePage = Math.min(Math.max(page, 1), this.sourcePageCount);
@@ -486,28 +662,60 @@ export default defineComponent({
       this.currentTime = 0;
       this.query = "查找视频中出现的白色车辆，以及人员进入限制区域的情况";
     },
-    startAnalysis() {
+    async startAnalysis() {
       if (!this.selectedSource) {
         this.showToast("请先确定视频源");
+        return;
+      }
+      const selectedSource = this.selectedSource as any;
+      if (selectedSource.sourceType === "本地上传") {
+        this.showToast("本地视频需先上传至 MinIO 后再分析，请改用在线监控点");
         return;
       }
       if (!this.query.trim()) {
         this.showToast("请输入需要检索的内容");
         return;
       }
+      if (this.analyzing) return;
       const question = this.query.trim();
       this.lastQuery = question;
       this.questionMessages.push({ role: "user", text: question });
-      this.analyzed = true;
-      this.selectedEventIndex = 0;
-      this.currentTime = this.events[0].start;
-      this.seekVideo(this.currentTime);
-      this.questionMessages.push({
-        role: "assistant",
-        text: `已完成视频源文搜。\n\n事件摘要：${this.summary.overview}\n\n已识别 ${this.events.length} 个关键事件，右侧可查看事件摘要、分析结果，并继续对视频提问。`
-      });
-      this.query = "";
-      this.showToast("文搜分析完成，已生成事件结论");
+      this.analyzing = true;
+      this.questionBusy = true;
+      try {
+        const response = await api.analyzeMinioVideo({
+          videoUrl: selectedSource.analysisUrl,
+          prompt: question,
+          fps: 1,
+          segmentSeconds: 60,
+          maxSegments: this.estimateMaxSegments(),
+          height: 480
+        });
+        const overview = findAnalysisText(response) || "分析完成，接口未返回文本结论。";
+        const img = (this as any).store.img;
+        const images = [img.portrait, img.car, img.target];
+        this.events = findAnalysisEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60)) as any;
+        this.summary = { overview, persons: [], vehicles: [] };
+        this.analyzed = true;
+        this.selectedEventIndex = 0;
+        if (this.events.length) {
+          this.currentTime = (this.events[0] as any).start;
+          this.seekVideo(this.currentTime);
+        }
+        this.questionMessages.push({
+          role: "assistant",
+          text: `已完成视频源文搜。\n\n事件摘要：${overview}\n\n已识别 ${this.events.length} 个关键事件，右侧可查看事件摘要、分析结果，并继续对视频提问。`
+        });
+        this.query = "";
+        this.showToast("文搜分析完成，已生成事件结论");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "视频分析失败";
+        this.questionMessages.push({ role: "assistant", text: `分析失败：${message}` });
+        this.showToast(message);
+      } finally {
+        this.analyzing = false;
+        this.questionBusy = false;
+      }
     },
     submitVideoChat() {
       this.activeQuickPrompt = "";
@@ -594,11 +802,19 @@ export default defineComponent({
         const lower = question.toLowerCase();
         let answer = `已结合当前${this.videoViewLabel}进行分析：${this.summary.overview}`;
         if (question.includes("时间") || question.includes("什么时候") || question.includes("几点")) {
-          answer = `事件时间线：${this.events.map(item => `${item.time} ${item.name}`).join("；")}。点击右侧事件卡片可直接定位回放。`;
+          answer = this.events.length
+            ? `事件时间线：${this.events.map(item => `${item.time} ${item.name}`).join("；")}。点击右侧事件卡片可直接定位回放。`
+            : `接口未返回分段事件，分析结论：${this.summary.overview}`;
         } else if (question.includes("车") || lower.includes("plate")) {
-          answer = `车辆分析：${this.summary.vehicles.join(" ")} 当前重点事件为“${this.events[1].name}”，发生时间 ${this.events[1].time}。`;
+          const focusEvent = this.events[1] || this.events[0];
+          const vehicleText = this.summary.vehicles.join(" ");
+          answer = focusEvent
+            ? `车辆分析：${vehicleText} 当前重点事件为“${focusEvent.name}”，发生时间 ${focusEvent.time}。`
+            : `车辆分析：${vehicleText || this.summary.overview}`;
         } else if (question.includes("人") || question.includes("人员") || question.includes("特征")) {
-          answer = `人员分析：${this.summary.persons[0]} 该人员从南门入口进入限制区域，约停留 12 秒后向东侧通道移动。`;
+          answer = this.summary.persons.length
+            ? `人员分析：${this.summary.persons[0]} 该人员从南门入口进入限制区域，约停留 12 秒后向东侧通道移动。`
+            : `人员分析：${this.summary.overview}`;
         } else if (question.includes("布控") || question.includes("布防")) {
           answer = "可以对识别到的白色车辆创建布控任务，系统会带入对应事件的车辆特征和时间，点击分析结果条目后的“快速布防”即可继续。";
         }

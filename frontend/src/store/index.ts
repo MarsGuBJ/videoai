@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { appModules } from "../modules/index.ts";
 
 const img = {
   target: "/prototype/target.jpg",
@@ -37,79 +38,9 @@ export const store = reactive({
         },
         certificates: []
       },
-      navGroups: [
-        { key: "overview", label: "总览", icon: "\uf0e4" },
-        { title: "万物搜", icon: "\uf002", items: [
-          { key: "exact", label: "文搜视频", icon: "\uf03d" },
-          { key: "textImage", label: "文搜图", icon: "\uf1c5" },
-          { key: "imageSearch", label: "图搜图", icon: "\uf1e5" },
-          { key: "track", label: "轨迹还原", icon: "\uf279" }
-        ] },
-        { title: "万物核", icon: "\uf046", items: [
-          { key: "reviewTasks", label: "任务管理", icon: "\uf0ae" },
-          { key: "reviewTypes", label: "复核类型管理", icon: "\uf0ca" }
-        ] },
-        { title: "算法布控", icon: "\uf05b", items: [
-          { key: "algorithms", label: "算法管理", icon: "\uf1b3" },
-          { key: "deployTasks", label: "布控任务", icon: "\uf05b" }
-        ] },
-        { title: "视觉事件", icon: "\uf06a", items: [
-          { key: "events", label: "事件列表", icon: "\uf0f3" },
-          { key: "stats", label: "事件统计", icon: "\uf080" }
-        ] },
-        { title: "基础配置", icon: "\uf013", items: [
-          { title: "视频管理", icon: "\uf03d", items: [
-            { key: "media", label: "设备管理", icon: "\uf1b2" },
-            { key: "mediaAccessConfig", label: "接入配置", icon: "\uf1e6" },
-            { key: "mediaPreview", label: "实时预览", icon: "\uf03d" },
-            { key: "mediaPlayback", label: "录像回放", icon: "\uf017" }
-          ] },
-          { key: "modelConfig", label: "大模型配置", icon: "\uf1c0" },
-          { key: "eventConfig", label: "事件配置", icon: "\uf0ad" },
-          { key: "resource", label: "资源监控", icon: "\uf233" }
-        ] }
-      ],
-      routeNames: {
-        overview: "总览",
-        cameraList: "视频管理",
-        media: "视频管理",
-        mediaDeviceWizard: "新增设备",
-        mediaDeviceDetail: "设备详情",
-        mediaDeviceEdit: "编辑设备",
-        mediaAccessConfig: "接入配置",
-        mediaPreview: "实时预览",
-        mediaPlayback: "录像回放",
-        mediaWall: "电视墙",
-        mediaAlarm: "告警联动",
-        home: "万物搜主页",
-        exact: "文搜视频",
-        localVideo: "视频分析",
-        textImage: "文搜图",
-        imageSearch: "图搜图",
-        quickDeploy: "快速布防",
-        track: "轨迹还原",
-        monitorSearch: "监控搜索",
-        reviewTasks: "任务管理",
-        reviewTypes: "复核类型管理",
-        algorithms: "算法管理",
-        versionManager: "版本号管理",
-        versionDetail: "版本号详情",
-        previewFile: "预览文件",
-        deployTasks: "布控任务",
-        deployTaskDetail: "布控任务详情",
-        events: "事件列表",
-        eventDetail: "事件详情",
-        stats: "事件统计",
-        eventConfig: "事件配置",
-        eventConfigInfo: "事件信息配置",
-        eventConfigIngestion: "事件接入",
-        eventConfigDedup: "事件去重配置",
-        eventConfigSubscriptions: "消息订阅配置",
-        modelConfig: "大模型配置",
-        resource: "资源监控",
-        logs: "日志管理",
-        permissions: "权限中心"
-      },
+      // 菜单与路由名由模块装配结果生成；全量模式（默认）与改造前硬编码逐条一致
+      navGroups: appModules.navGroups,
+      routeNames: appModules.routeNames,
       entryCards: [
         { route: "exact", icon: "⌕", title: "文搜视频", desc: "通过文字描述快速检索视频内容，精准定位目标片段" },
         { route: "textImage", icon: "▧", title: "文搜图", desc: "用文字描述搜索海量图片库，快速找到匹配的图像资源" },
@@ -137,6 +68,19 @@ export const store = reactive({
         { id: "#TM-2845", type: "烟火检测告警", created: "2026-01-15 11:48:36", timeValid: "无效", status: "待处理", location: "仓储区入口", confidence: "medium", executionStatus: "已完成", duration: "5秒", reason: "画面中的亮点更接近反光或灯光，暂未确认烟火事件。", evidence: "关键帧未发现持续烟雾或明火特征，建议人工复核。", image: img.ai },
         { id: "#TM-2844", type: "安全帽佩戴检测", created: "2026-01-15 10:22:21", timeValid: "无效", status: "已完成", location: "生产A区通道", confidence: "high", executionStatus: "已完成", duration: "7秒", reason: "人员已佩戴安全帽，告警属于误报。", evidence: "连续关键帧均可见安全帽轮廓，未发现脱帽状态。", image: img.mountain },
         { id: "#TM-2843", type: "区域入侵检测", created: "2026-01-15 09:15:12", timeValid: "无效", status: "已完成", location: "园区南门入口", confidence: "high", executionStatus: "已完成", duration: "6秒", reason: "目标位于授权通行区域，未形成有效入侵事件。", evidence: "目标从入口正常通行，未越过禁入区域边界。", image: img.map }
+      ],
+      // 事件信息配置条目：事件信息配置页维护，复核类型弹窗“算法名称”下拉复用
+      eventInfoRows: [
+        { name: "家禽检测", code: "FOWL_DETECTION", level: "低", category: "待完成", order: 25, enabled: true },
+        { name: "区域入侵", code: "INTRUSION_DEC", level: "低", category: "安防事件", order: 24, enabled: true },
+        { name: "烟火识别", code: "SMOKE", level: "低", category: "消防事件", order: 23, enabled: true },
+        { name: "RK_周界入侵", code: "RK_INTRUSION_DEC", level: "高", category: "安防事件", order: 22, enabled: true },
+        { name: "污水应急监控", code: "PERSON_WADE", level: "低", category: "环境事件", order: 21, enabled: true },
+        { name: "睡岗", code: "SLEEP", level: "低", category: "行为事件", order: 20, enabled: true },
+        { name: "离岗", code: "LEAVE", level: "低", category: "行为事件", order: 19, enabled: true },
+        { name: "RK_抽烟", code: "RK_SMOKING", level: "中", category: "行为事件", order: 18, enabled: true },
+        { name: "RK_物品占用通道", code: "RK_OCCUPIED_AREA", level: "低", category: "安防事件", order: 17, enabled: true },
+        { name: "非机动车识别", code: "NONVEHICLE", level: "低", category: "交通事件", order: 14, enabled: true }
       ],
       algorithmRows: [
         { id: 1, name: "抽烟", code: "SMOKING", prompt: "你是园区安防监控事件复检助手，请判断画面中是否存在抽烟行为。", remark: "抽烟", fields: "识别对象", updated: "2026-04-27 10:05:40" },
@@ -194,13 +138,6 @@ export const store = reactive({
         { name: "下游业务系统A", url: "business-system-a.com/webhook", types: "区域入侵", frequency: "每10分钟", status: "暂停", lastSync: "2024-01-15 12:00", mode: "主动拉取", owner: "业务系统A" },
         { name: "视频事件平台", url: "video-event.platform.cn/api", types: "跌倒检测、聚集检测", frequency: "实时推送", status: "运行中", lastSync: "2024-01-15 14:31", mode: "被动接收", owner: "视频平台" },
         { name: "第三方告警服务", url: "third-party-alerts.io/v2", types: "设备异常", frequency: "每30分钟", status: "连接失败", lastSync: "2024-01-15 10:00", mode: "主动拉取", owner: "第三方服务" }
-      ],
-      modelConfigRows: [
-        { name: "通义千问-Max", provider: "阿里云百炼", status: "运行良好", checked: "2026-08-07 09:18:43", latency: "124ms", availability: "94.35%", deploy: "云端服务", concurrency: 5, url: "dashscope.aliyuncs.com/api/v1" },
-        { name: "硅基流动-DeepSeek", provider: "SiliconFlow", status: "离线", checked: "2026-08-07 09:18:43", latency: "380ms", availability: "86.21%", deploy: "云端服务", concurrency: 5, url: "api.siliconflow.cn/v1" },
-        { name: "本地私有化模型-Llama3", provider: "私有化集群", status: "运行良好", checked: "2026-08-07 09:18:43", latency: "96ms", availability: "98.72%", deploy: "本地部署", concurrency: 5, url: "10.8.12.21:8080/v1" },
-        { name: "本地私有化模型-Qwen3", provider: "私有化集群", status: "离线", checked: "2026-08-07 09:18:43", latency: "-", availability: "0%", deploy: "本地部署", concurrency: 5, url: "10.8.12.24:8080/v1" },
-        { name: "通义千问-Plus", provider: "阿里云百炼", status: "运行良好", checked: "2026-08-07 09:18:43", latency: "118ms", availability: "96.48%", deploy: "云端服务", concurrency: 5, url: "dashscope.aliyuncs.com/api/v1" }
       ],
       resourceRows: [
         { ip: "192.168.1.100", mn: "MN24010001", status: "在线", updated: "2024-01-18 15:30:45", gpus: [
@@ -322,6 +259,7 @@ export const store = reactive({
       if (key === "overview") return route === "overview";
       if (key === "media") return ["media", "cameraList", "mediaDeviceWizard", "mediaDeviceDetail", "mediaDeviceEdit"].includes(route);
       if (key === "mediaAccessConfig") return route === "mediaAccessConfig";
+      if (key === "mediaCloudConfig") return route === "mediaCloudConfig";
       if (key === "mediaPreview") return route === "mediaPreview";
       if (key === "mediaPlayback") return route === "mediaPlayback";
       if (key === "mediaWall") return route === "mediaWall";
@@ -339,7 +277,7 @@ export const store = reactive({
       if (key === "deployTasks") return ["deployTasks", "deployTaskDetail"].includes(route);
       if (key === "events") return ["events", "eventDetail"].includes(route);
       if (key === "stats") return route === "stats";
-      if (key === "eventConfig") return ["eventConfig", "eventConfigInfo", "eventConfigIngestion", "eventConfigDedup", "eventConfigSubscriptions"].includes(route);
+      if (key === "eventConfig") return ["eventConfig", "eventConfigInfo", "eventConfigDedup", "eventConfigSubscriptions"].includes(route);
       if (key === "modelConfig") return route === "modelConfig";
       if (key === "resource") return route === "resource";
       if (key === "logs") return route === "logs";

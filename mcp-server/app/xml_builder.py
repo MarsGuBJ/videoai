@@ -1,5 +1,6 @@
 """XML response builder for VideoAI MCP server — attribute-based format."""
 
+import xml.dom.minidom
 from datetime import datetime
 from xml.etree.ElementTree import Element, SubElement, tostring
 
@@ -124,13 +125,13 @@ def build_dino_event_list_xml(events: list[dict]) -> str:
 
 def _pretty(element: Element) -> str:
     """Return pretty-printed XML string with indentation (no declaration)."""
-    import xml.dom.minidom
     raw = tostring(element, encoding="unicode")
-    dom = xml.dom.minidom.parseString(raw)
+    # 输入为本地构造的 XML，非外部不可信数据
+    dom = xml.dom.minidom.parseString(raw)  # noqa: S318
     # Remove extra XML declaration from minidom
     result = dom.toprettyxml(indent=" ")
     if result.startswith("<?xml"):
-        result = result[result.index("?>") + 2:].lstrip("\n")
+        result = result[result.index("?>") + 2 :].lstrip("\n")
     return result
 
 

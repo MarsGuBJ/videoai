@@ -3,7 +3,7 @@
     <div class="review-titlebar"><div><h1>录像回放</h1><p>按空间、设备与时间快速检索历史录像，支持时间轴定位、同步回放、分段回放和录像下载</p></div><div class="segmented"><button class="btn" @click="openModal('recordDownload')">录像下载</button><button class="btn primary" @click="setRoute('mediaPreview')">切换实况</button></div></div>
     <div class="media-console-grid playback">
       <aside class="panel media-resource-panel">
-        <div v-if="resourceTab === 'resource'" class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="area in areas" :key="area.name"><button class="exact-tree-area-row" :class="{ active: selectedArea && selectedArea.name === area.name }" @click="toggleArea(area)"><span>{{ expandedAreas[area.name] ? '⌄' : '›' }} {{ area.name }}</span><span>{{ area.count }} 台设备</span></button><div v-if="expandedAreas[area.name]" class="exact-tree-children"><button v-for="camera in area.cameras" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, area)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div></div></div><ul v-else class="media-plan-list"><li><b>异常人员经过</b><span>2K_IPC7240 · 2026-07-06 19:42:11</span></li><li><b>车辆逆行片段</b><span>北门卡口 · 2026-07-06 08:14:32</span></li><li><b>设备调试留存</b><span>A1栋入口 · 2026-07-05 16:20:08</span></li></ul>
+        <div v-if="resourceTab === 'resource'" class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in regions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ expandedRegions[region.fullPath] ? '⌄' : '›' }} {{ region.name }}</span><span>{{ region.count }} 台设备</span></button><div v-if="expandedRegions[region.fullPath]" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!regions.length" style="padding:12px;color:#888;">暂无录像资源，请先在设备管理中添加设备</div></div></div><ul v-else class="media-plan-list"><li><b>异常人员经过</b><span>2K_IPC7240 · 2026-07-06 19:42:11</span></li><li><b>车辆逆行片段</b><span>北门卡口 · 2026-07-06 08:14:32</span></li><li><b>设备调试留存</b><span>A1栋入口 · 2026-07-05 16:20:08</span></li></ul>
         <div class="media-record-query"><div class="media-resource-tabs" style="margin-bottom:0;"></div><label>开始时间<input class="input" type="datetime-local" value="2026-07-05T00:00" /></label><label>结束时间<input class="input" type="datetime-local" value="2026-07-07T23:59" /></label><button class="btn primary" @click="showToast('录像检索已模拟完成')">录像查询</button></div>
       </aside>
       <section class="panel media-stage-panel">
@@ -33,7 +33,16 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api, streamUrl } from "../api";
+import { buildRegionTree, loadCustomRegions, type RegionNode } from "../utils/regions";
 import VideoPlayer from "../components/VideoPlayer.vue";
+
+function statusLabel(status: string): string {
+  const value = (status || "").toUpperCase();
+  if (value === "RUNNING") return "在线";
+  if (value === "STOPPED") return "离线";
+  if (value === "DISABLED") return "停用";
+  return "未成功连接";
+}
 
 export default defineComponent({
   name: "MediaPlaybackPage",
@@ -55,59 +64,12 @@ export default defineComponent({
       playbackTimer: null as number | null,
       playbackGridCount: 1,
       selectedPlaybackTile: 0,
-      selectedArea: null as any,
       selectedCamera: null as any,
+      selectedRegion: null as RegionNode | null,
       playbackStreamUrl: undefined as string | undefined,
-      expandedAreas: {
-        "园区南门": true,
-        "A座停车区": false,
-        "生产通道": false,
-        "仓储区域": false,
-        "外围周界": false
-      } as Record<string, boolean>,
-      areas: [
-        {
-          name: "园区南门",
-          count: 12,
-          cameras: [
-            { name: "南门入口枪机", code: "CAM-001", type: "枪机", status: "在线", image: this.store.img.car },
-            { name: "南门广角球机", code: "CAM-002", type: "球机", status: "在线", image: this.store.img.target },
-            { name: "访客通道半球", code: "CAM-009", type: "半球", status: "在线", image: this.store.img.portrait }
-          ]
-        },
-        {
-          name: "A座停车区",
-          count: 8,
-          cameras: [
-            { name: "A1停车场东侧", code: "CAM-003", type: "枪机", status: "在线", image: this.store.img.car },
-            { name: "A2停车场出口", code: "CAM-008", type: "枪机", status: "在线", image: this.store.img.target }
-          ]
-        },
-        {
-          name: "生产通道",
-          count: 6,
-          cameras: [
-            { name: "生产通道1号门", code: "CAM-004", type: "半球", status: "在线", image: this.store.img.analyst },
-            { name: "生产通道东侧", code: "CAM-010", type: "枪机", status: "在线", image: this.store.img.map }
-          ]
-        },
-        {
-          name: "仓储区域",
-          count: 10,
-          cameras: [
-            { name: "仓储区西门", code: "CAM-005", type: "枪机", status: "连接异常", image: this.store.img.ai },
-            { name: "仓储装卸口", code: "CAM-011", type: "热成像", status: "在线", image: this.store.img.mountain }
-          ]
-        },
-        {
-          name: "外围周界",
-          count: 7,
-          cameras: [
-            { name: "外围周界北侧", code: "CAM-006", type: "热成像", status: "连接异常", image: this.store.img.mountain },
-            { name: "东侧围栏通道", code: "CAM-012", type: "枪机", status: "在线", image: this.store.img.map }
-          ]
-        }
-      ] as any[],
+      regions: [] as RegionNode[],
+      regionCameras: {} as Record<string, any[]>,
+      expandedRegions: {} as Record<string, boolean>,
       playbackFeeds: [
         { name: "南门入口枪机", meta: "4K · smart265 · 中心录像", image: this.store.img.car },
         { name: "真实黄区球机_10.210.2.54_通道_1", meta: "smart264 · 同步", image: this.store.img.target },
@@ -127,38 +89,59 @@ export default defineComponent({
   mounted() {
     this.loadCameras();
   },
+  watch: {
+    // 设备管理页增删改设备或新增区域后，刷新录像资源树
+    "state.camerasVersion"() {
+      this.loadCameras();
+    }
+  },
   methods: {
     async loadCameras() {
       try {
         const cameras = await api.cameras();
-        if (!cameras || cameras.length === 0) return;
-        const groups: Record<string, any[]> = {};
-        for (const cam of cameras) {
-          const areaName = cam.area || "默认区域";
-          if (!groups[areaName]) groups[areaName] = [];
-          groups[areaName].push({
-            id: cam.id,
-            name: cam.name,
-            code: cam.id,
-            type: cam.streamApp || "IPC",
-            status: cam.status === "RUNNING" ? "在线" : "连接异常",
-            streamName: cam.streamName,
-            image: this.store.img.car
-          });
-        }
-        this.areas = Object.keys(groups).map((name) => ({
-          name,
-          count: groups[name].length,
-          cameras: groups[name]
-        }));
-        const expanded: Record<string, boolean> = {};
-        this.areas.forEach((area: any, index: number) => {
-          expanded[area.name] = index === 0;
-        });
-        this.expandedAreas = expanded;
+        this.applyCameras(cameras || []);
       } catch (error) {
-        // 后端不可用时保留原型 mock 区域树
+        // 后端不可用时保留当前树
       }
+    },
+    // 录像资源树与设备管理页共用同一套区域聚合逻辑：
+    // 设备 area 按 "/" 分层 + localStorage 自定义区域（utils/regions.ts）
+    applyCameras(cameras: any[]) {
+      const regionCameras: Record<string, any[]> = {};
+      for (const cam of cameras) {
+        const areaPath = (cam.area || "").trim() || "未分配";
+        if (!regionCameras[areaPath]) regionCameras[areaPath] = [];
+        regionCameras[areaPath].push({
+          id: cam.id,
+          name: cam.name,
+          code: cam.id,
+          type: cam.protocol || cam.streamApp || "IPC",
+          status: statusLabel(cam.status),
+          streamName: cam.streamName,
+          image: this.store.img.car,
+          areaPath
+        });
+      }
+      const regions = buildRegionTree(Object.keys(regionCameras).flatMap((path) => regionCameras[path].map(() => path)), loadCustomRegions());
+      const expanded: Record<string, boolean> = {};
+      regions.forEach((region, index) => {
+        expanded[region.fullPath] = index === 0;
+      });
+      this.regionCameras = regionCameras;
+      this.regions = regions;
+      this.expandedRegions = expanded;
+      this.selectedRegion = null;
+      this.selectedCamera = null;
+    },
+    // 顶层区域展开时显示其全部子孙区域的设备，与 count 口径一致
+    camerasForRegion(region: RegionNode): any[] {
+      const result: any[] = [];
+      for (const path of Object.keys(this.regionCameras)) {
+        if (path === region.fullPath || path.startsWith(region.fullPath + " / ")) {
+          result.push(...this.regionCameras[path]);
+        }
+      }
+      return result;
     },
     formatPlaybackTime(value: any) {
       const seconds = Math.max(0, Math.min(this.playbackDuration, Math.floor(Number(value) || 0)));
@@ -184,15 +167,15 @@ export default defineComponent({
     seekPlayback(delta: number) {
       this.playbackCurrent = Math.max(0, Math.min(this.playbackDuration, this.playbackCurrent + delta));
     },
-    toggleArea(area: any) {
-      if (!this.selectedArea || this.selectedArea.name !== area.name) {
-        this.selectedArea = area;
+    toggleRegion(region: RegionNode) {
+      if (!this.selectedRegion || this.selectedRegion.fullPath !== region.fullPath) {
+        this.selectedRegion = region;
         this.selectedCamera = null;
       }
-      this.expandedAreas[area.name] = !this.expandedAreas[area.name];
+      this.expandedRegions[region.fullPath] = !this.expandedRegions[region.fullPath];
     },
-    selectCamera(camera: any, area: any) {
-      this.selectedArea = area;
+    selectCamera(camera: any, region: RegionNode) {
+      this.selectedRegion = region;
       this.selectedCamera = camera;
       this.playbackStreamUrl = camera.streamName
         ? streamUrl(`/api/streams/live/${encodeURIComponent(camera.streamName)}.m3u8`)

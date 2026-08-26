@@ -7,25 +7,26 @@ from .models import Camera
 
 
 class VideoAiClient:
-    def __init__(self, base_url: str, timeout: float = 15) -> None:
+    def __init__(self, base_url: str, timeout: float = 15, media_base_url: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
+        self.media_base_url = (media_base_url or base_url).rstrip("/")
         self.timeout = timeout
 
     async def list_cameras(self) -> list[Camera]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(f"{self.base_url}/api/cameras")
+            response = await client.get(f"{self.media_base_url}/api/cameras")
             response.raise_for_status()
             return [Camera.model_validate(item) for item in response.json()]
 
     async def get_camera(self, camera_id: str) -> Camera:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(f"{self.base_url}/api/cameras/{camera_id}")
+            response = await client.get(f"{self.media_base_url}/api/cameras/{camera_id}")
             response.raise_for_status()
             return Camera.model_validate(response.json())
 
     async def start_camera(self, camera_id: str) -> Camera:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(f"{self.base_url}/api/cameras/{camera_id}/start")
+            response = await client.post(f"{self.media_base_url}/api/cameras/{camera_id}/start")
             response.raise_for_status()
             return Camera.model_validate(response.json())
 

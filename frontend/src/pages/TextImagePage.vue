@@ -15,18 +15,23 @@
       </div>
       <div class="search-query-row"><input class="input" v-model="query" placeholder="描述你要查找的目标特征，如：戴眼镜、穿深色外套、出现在办公区附近的人员" /><button class="btn primary" :disabled="searching" @click="searchImages">⌕ 搜索图片</button><button class="btn" @click="clearSearch">清除</button></div>
     </div>
-    <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div><button class="btn primary" :disabled="!selectedIndexes.length" @click="openTrack">⌁ 还原目标轨迹</button></div>
+    <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div><div class="result-toolbar-actions"><button class="btn" :disabled="!searched || !allResults.length" @click="toggleSelectAll">{{ isAllSelected ? '取消全选' : '全选' }}</button><button class="btn primary" :disabled="!selectedIndexes.length" @click="openTrack">⌁ 还原目标轨迹</button></div></div>
     <image-results v-if="searched" :items="paginatedResults" :show-score="!searchedReal" :selectable="true" :selected-indexes="selectedIndexes" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" @toggle-selection="toggleSelection"></image-results>
     <div v-if="searched" class="image-search-result-footer">
       <div class="exact-pagination">
         <span>显示 {{ pageStart }}-{{ pageEnd }} 共 {{ allResults.length }} 条</span>
+        <select class="page-size-select" v-model.number="pageSize" @change="handlePageSizeChange" aria-label="每页条数">
+          <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }} 条/页</option>
+        </select>
         <button :disabled="page === 1" @click="goToPage(page - 1)">上一页</button>
         <button v-for="pageNumber in pageCount" :key="pageNumber" :class="{ active: page === pageNumber }" @click="goToPage(pageNumber)">{{ pageNumber }}</button>
         <button :disabled="page === pageCount" @click="goToPage(page + 1)">下一页</button>
+        <span class="page-jump"><input class="page-jump-input" type="number" min="1" :max="pageCount" v-model="jumpPage" placeholder="页码" aria-label="跳转页码" @keyup.enter="jumpToPage" /><button @click="jumpToPage">确定</button></span>
       </div>
     </div>
     <div v-else class="search-empty-state"><strong>还没有开始检索</strong><span>设置筛选条件或输入目标描述后，点击「搜索图片」</span></div>
     <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeResultCrop" @confirm="confirmResultCrop"></image-crop-dialog>
+    <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在检索图片，请稍候...</p></div></div>
   </section>
 </template>
 
@@ -105,6 +110,8 @@ export default defineComponent({
       searched: true,
       page: 1,
       pageSize: 8,
+      pageSizeOptions: [8, 16, 24, 48],
+      jumpPage: "",
       selectedIndexes: [] as number[],
       cropDialogOpen: false,
       cropAction: "",
@@ -136,6 +143,9 @@ export default defineComponent({
     },
     pageEnd(): number {
       return Math.min(this.page * this.pageSize, this.allResults.length);
+    },
+    isAllSelected(): boolean {
+      return this.allResults.length > 0 && this.selectedIndexes.length === this.allResults.length;
     }
   },
   methods: {
@@ -186,6 +196,23 @@ export default defineComponent({
     },
     goToPage(page: number) {
       this.page = Math.min(this.pageCount, Math.max(1, page));
+    },
+    handlePageSizeChange() {
+      this.page = 1;
+      this.jumpPage = "";
+    },
+    jumpToPage() {
+      const target = Number(this.jumpPage);
+      if (this.jumpPage === "" || !Number.isFinite(target)) return;
+      this.goToPage(Math.floor(target));
+      this.jumpPage = "";
+    },
+    toggleSelectAll() {
+      if (this.isAllSelected) {
+        this.selectedIndexes = [];
+      } else {
+        this.selectedIndexes = this.allResults.map((_, index) => index);
+      }
     },
     toggleSelection(index: number) {
       if (this.selectedIndexes.includes(index)) {

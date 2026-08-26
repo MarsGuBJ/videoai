@@ -9,7 +9,7 @@
         <thead><tr><th>事件ID</th><th class="left">事件信息</th><th>事件类型</th><th>等级</th><th class="left">事件来源</th><th>区域/点位</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="row in store.eventRows" :key="row.id">
-            <td>{{ row.id }}</td><td class="left"><div class="event-name-cell"><img class="event-thumb" :src="row.image" :alt="row.name" style="cursor:pointer;" @click="setRoute('imageSearch', { prefill: row.image })" /><div><h4>{{ row.name }}</h4><p>{{ row.time }}</p></div></div></td><td>{{ row.type }}</td><td><span class="level-pill" :class="levelClass(row.level)">{{ row.level }}</span></td><td class="left ellipsis">{{ row.eventSource }}</td><td>{{ row.area }}<br /><span class="hint-text">{{ row.point }}</span></td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td>
+            <td>{{ row.id }}</td><td class="left"><div class="event-name-cell"><div class="event-thumb-wrap"><video v-if="isVideoRow(row)" class="event-thumb" :poster="row.image" :src="eventVideoUrl" autoplay muted loop controls></video><img v-else class="event-thumb" :src="row.image" :alt="row.name" style="cursor:pointer;" @click="setRoute('imageSearch', { prefill: row.image })" /><button class="event-thumb-video-btn" type="button" :title="isVideoRow(row) ? '查看图片' : '查看视频'" @click.stop="toggleEventVideo(row)">{{ isVideoRow(row) ? '图片' : '视频' }}</button></div><div><h4>{{ row.name }}</h4><p>{{ row.time }}</p></div></div></td><td>{{ row.type }}</td><td><span class="level-pill" :class="levelClass(row.level)">{{ row.level }}</span></td><td class="left ellipsis">{{ row.eventSource }}</td><td>{{ row.area }}<br /><span class="hint-text">{{ row.point }}</span></td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td>
             <td><button class="link-blue" @click="openEventDetail(row)">详情</button><button v-if="row.status !== '待复核'" class="link-blue" @click="showToast('事件处置流程已模拟触发')">处理</button></td>
           </tr>
         </tbody>
@@ -43,7 +43,17 @@ export default defineComponent({
     openEventDetail: { from: "openEventDetail", default: (_row: any) => {} },
     showToast: { from: "showToast", default: (_m: string) => {} }
   },
+  data() {
+    return {
+      videoRows: [] as any[]
+    };
+  },
   computed: {
+    eventVideoUrl(): string {
+      // 原型阶段事件没有独立视频地址：优先复用本地上传的视频，无则由 poster 兜底
+      const lastLocalVideo = (this as any).store.lastLocalVideo;
+      return lastLocalVideo && lastLocalVideo.url ? lastLocalVideo.url : "";
+    },
     cards() {
       return [
         { label: "事件总数", value: this.store.eventRows.length },
@@ -54,6 +64,14 @@ export default defineComponent({
     }
   },
   methods: {
+    isVideoRow(row: any): boolean {
+      return this.videoRows.includes(row.id);
+    },
+    toggleEventVideo(row: any) {
+      this.videoRows = this.isVideoRow(row)
+        ? this.videoRows.filter(id => id !== row.id)
+        : this.videoRows.concat(row.id);
+    },
     formatEventTime(value?: string | null): string {
       if (!value) {
         return "—";

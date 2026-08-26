@@ -1,0 +1,35 @@
+# Python 后端工程化基座（阶段 0）
+# 仅对三个 Python 服务生效；前端另有工具链，不在此约束。
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^(backend-lite|mcp-server|worker)/.*\.py$
+      - id: ruff-format
+        files: ^(backend-lite|mcp-server|worker)/.*\.py$
+  # 阶段 4 启用 mypy 门禁。
+  # 不用 mirrors-mypy：其隔离环境不含项目依赖（fastapi/pydantic/cv2 等），
+  # strict 模式下 import 解析必然失败；改用 local system hook，
+  # 直接复用各服务 requirements-dev.txt 锁定的 mypy==1.15.0 与各自 pyproject 豁免配置。
+  - repo: local
+    hooks:
+      - id: mypy-backend-lite
+        name: mypy (backend-lite)
+        entry: bash -c 'cd backend-lite && exec python -m mypy .' --
+        language: system
+        files: ^backend-lite/.*\.py$
+        pass_filenames: false
+      - id: mypy-mcp-server
+        name: mypy (mcp-server)
+        entry: bash -c 'cd mcp-server && exec python -m mypy .' --
+        language: system
+        files: ^mcp-server/.*\.py$
+        pass_filenames: false
+      - id: mypy-worker
+        name: mypy (worker)
+        entry: bash -c 'cd worker && exec python -m mypy .' --
+        language: system
+        files: ^worker/.*\.py$
+        pass_filenames: false

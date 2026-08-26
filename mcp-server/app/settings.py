@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 
 
 def _env(name: str, default: str) -> str:
@@ -32,6 +32,7 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     videoai_base_url: str
+    videoai_media_base_url: str
     person_api_base_url: str
     zlm_http_url: str
     zlm_public_http_url: str
@@ -62,11 +63,18 @@ class Settings:
     mcp_host: str
     mcp_port: int
     mcp_transport: str
+    camera_import_username: str
+    camera_import_password: str
+    camera_import_backend_url: str
 
 
 def load_settings() -> Settings:
+    # 下列 192.168.x.x / 10.x.x.x 默认值为部署内网地址，均可用对应环境变量覆盖
     return Settings(
         videoai_base_url=_env("VIDEOAI_BACKEND_URL", "http://localhost:8081").rstrip("/"),
+        videoai_media_base_url=(
+            _env("VIDEOAI_MEDIA_BACKEND_URL", "") or _env("VIDEOAI_BACKEND_URL", "http://localhost:8081")
+        ).rstrip("/"),
         person_api_base_url=_env("PERSON_API_BASE_URL", "http://192.168.11.192:18890").rstrip("/"),
         zlm_http_url=_env("VIDEOAI_ZLM_HTTP_URL", "http://127.0.0.1:8082").rstrip("/"),
         zlm_public_http_url=_env("VIDEOAI_ZLM_PUBLIC_HTTP_URL", "http://192.168.11.194:9100").rstrip("/"),
@@ -97,7 +105,14 @@ def load_settings() -> Settings:
         playback_ttl_seconds=_env_int("VIDEOAI_MCP_PLAYBACK_TTL_SECONDS", 1800),
         request_timeout_seconds=float(_env("VIDEOAI_MCP_REQUEST_TIMEOUT_SECONDS", "15")),
         recording_fallback_file=_env("VIDEOAI_MCP_RECORDING_FALLBACK_FILE", ""),
-        mcp_host=_env("VIDEOAI_MCP_HOST", "0.0.0.0"),
+        # 容器内需监听所有接口，可用 VIDEOAI_MCP_HOST 覆盖
+        mcp_host=_env("VIDEOAI_MCP_HOST", "0.0.0.0"),  # noqa: S104
         mcp_port=_env_int("VIDEOAI_MCP_PORT", 8097),
         mcp_transport=_env("VIDEOAI_MCP_TRANSPORT", "streamable-http"),
+        camera_import_username=_env("CAMERA_IMPORT_USERNAME", ""),
+        # 口令不做 strip，保持与原 CLI 读取语义一致
+        camera_import_password=os.getenv("CAMERA_IMPORT_PASSWORD", ""),
+        camera_import_backend_url=(
+            _env("VIDEOAI_MEDIA_BACKEND_URL", "") or _env("VIDEOAI_BACKEND_URL", "http://backend:8081")
+        ).rstrip("/"),
     )

@@ -36,6 +36,7 @@ class RecordingMp4Storage:
 
     def _get_client(self):
         if self._client is None:
+            # 保持惰性导入：仅在容器内使用，本地/测试环境不要求安装 minio
             from minio import Minio
 
             self._client = Minio(

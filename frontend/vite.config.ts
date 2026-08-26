@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
-export default defineConfig({
+// 多模式构建：默认（production）输出 dist 全量应用；
+// vite build --mode search|media|control|review 输出 dist-<mode> 子包。
+// dev server 不动：dev 默认全量，vite --mode media 可调试子包。
+export default defineConfig(({ mode }) => ({
   plugins: [vue()],
   server: {
     host: '0.0.0.0',
@@ -13,4 +16,8 @@ export default defineConfig({
       },
     },
   },
-});
+  build: {
+    outDir: mode === 'production' ? 'dist' : `dist-${mode}`,
+    emptyOutDir: true,
+  },
+}));

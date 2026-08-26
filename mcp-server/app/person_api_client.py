@@ -41,7 +41,9 @@ class PersonApiClient:
         return await self._get(f"/vlm-application/search/searchPersonResult/{safe_task_id}")
 
     async def detect_persons_with_id(self, image_url: str) -> dict:
-        return await self._post("/vlm-application/search/detectPersonsWithId", {"image_url": required(image_url, "imageUrl")})
+        return await self._post(
+            "/vlm-application/search/detectPersonsWithId", {"image_url": required(image_url, "imageUrl")}
+        )
 
     async def get_person_bbox(self, person_id: str) -> dict:
         safe_person_id = required(person_id, "personId")

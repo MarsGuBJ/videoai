@@ -94,9 +94,9 @@
           <table class="prototype-table access-certificate-table">
             <thead><tr><th>ID</th><th>设备编码</th><th>认证方式</th><th>更新时间</th><th>创建时间</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="(row, index) in certificates" :key="row.id">
-                <td>{{ row.id }}</td><td>{{ row.deviceCode }}</td><td>{{ row.authMode }}</td><td>{{ row.updatedAt }}</td><td>{{ row.createdAt }}</td>
-                <td><span class="access-cert-actions"><button class="link-blue" type="button" @click="showToast('设备证书状态正常')">查看</button><button class="link-red" type="button" @click="removeCertificate(index)">删除</button></span></td>
+              <tr v-for="row in certificates" :key="row.id">
+                <td>{{ row.id.slice(0, 8) }}</td><td>{{ row.deviceCode }}</td><td>{{ row.authMode }}</td><td>{{ formatCertificateTime(row.updatedAt) }}</td><td>{{ formatCertificateTime(row.createdAt) }}</td>
+                <td><span class="access-cert-actions"><button class="link-blue" type="button" @click="viewCertificate(row)">查看</button><button class="link-red" type="button" @click="removeCertificate(row)">删除</button></span></td>
               </tr>
               <tr v-if="!certificates.length" class="access-certificate-empty">
                 <td colspan="6"><div class="access-empty-state"><span class="access-empty-icon" aria-hidden="true">&#xf01c;</span><span>暂无数据</span></div></td>
@@ -165,22 +165,22 @@
     <div v-if="certificateDialogOpen" class="access-modal-mask" role="presentation" @click.self="closeCertificateDialog" @keydown.esc="closeCertificateDialog" @keydown="trapCertificateFocus">
       <section ref="certificateDialog" class="access-modal" role="dialog" aria-modal="true" aria-labelledby="certificate-dialog-title">
         <header class="access-modal-head">
-          <h3 id="certificate-dialog-title">添加</h3>
+          <h3 id="certificate-dialog-title">{{ certificateDialogMode === 'view' ? '查看' : '添加' }}</h3>
           <button class="access-modal-close" type="button" aria-label="关闭" @click="closeCertificateDialog">×</button>
         </header>
         <form @submit.prevent="addCertificate">
         <div class="access-modal-body">
           <label class="access-field">
             <span class="access-field-label required">设备编码</span>
-            <input ref="certificateCode" v-model.trim="certificateForm.deviceCode" class="input" maxlength="20" placeholder="请输入设备编码..." aria-label="设备编码" :aria-invalid="!!certificateErrors.deviceCode" :aria-describedby="certificateErrors.deviceCode ? 'certificate-code-error' : null" @input="certificateErrors.deviceCode = ''" />
+            <input ref="certificateCode" v-model.trim="certificateForm.deviceCode" class="input" maxlength="20" placeholder="请输入设备编码..." aria-label="设备编码" :disabled="certificateDialogMode === 'view'" :aria-invalid="!!certificateErrors.deviceCode" :aria-describedby="certificateErrors.deviceCode ? 'certificate-code-error' : null" @input="certificateErrors.deviceCode = ''" />
             <span v-if="certificateErrors.deviceCode" id="certificate-code-error" class="access-field-error" role="alert">{{ certificateErrors.deviceCode }}</span>
           </label>
           <label class="access-field">
             <span class="access-field-label required">设备证书</span>
-            <textarea ref="certificateText" v-model="certificateForm.certificate" placeholder="请输入设备证书或上传证书..." aria-label="设备证书" :aria-invalid="!!certificateErrors.certificate" :aria-describedby="certificateErrors.certificate ? 'certificate-text-error' : null" @input="certificateErrors.certificate = ''"></textarea>
+            <textarea ref="certificateText" v-model="certificateForm.certificate" placeholder="请输入设备证书或上传证书..." aria-label="设备证书" :disabled="certificateDialogMode === 'view'" :aria-invalid="!!certificateErrors.certificate" :aria-describedby="certificateErrors.certificate ? 'certificate-text-error' : null" @input="certificateErrors.certificate = ''"></textarea>
             <span v-if="certificateErrors.certificate" id="certificate-text-error" class="access-field-error" role="alert">{{ certificateErrors.certificate }}</span>
           </label>
-          <div class="access-upload-actions">
+          <div v-if="certificateDialogMode !== 'view'" class="access-upload-actions">
             <input ref="certificateFile" class="access-upload-input" type="file" accept=".cer,.crt,.pem,.txt" @change="selectCertificateFile" />
             <button class="btn" type="button" @click="($refs.certificateFile as HTMLInputElement).click()">⇧ 上传设备证书</button>
             <span v-if="certificateForm.fileName" class="access-upload-name">{{ certificateForm.fileName }}</span>
@@ -188,14 +188,19 @@
           <div class="access-field">
             <span class="access-field-label">认证方式</span>
             <span class="access-choice-group" role="group" aria-label="认证方式">
-              <button class="access-choice" :class="{ active: certificateForm.authMode === '双向', enabled: certificateForm.authMode === '双向' }" type="button" :aria-pressed="certificateForm.authMode === '双向'" @click="certificateForm.authMode = '双向'">双向</button>
-              <button class="access-choice" :class="{ active: certificateForm.authMode === '单向' }" type="button" :aria-pressed="certificateForm.authMode === '单向'" @click="certificateForm.authMode = '单向'">单向</button>
+              <button class="access-choice" :class="{ active: certificateForm.authMode === '双向', enabled: certificateForm.authMode === '双向' }" type="button" :disabled="certificateDialogMode === 'view'" :aria-pressed="certificateForm.authMode === '双向'" @click="certificateForm.authMode = '双向'">双向</button>
+              <button class="access-choice" :class="{ active: certificateForm.authMode === '单向' }" type="button" :disabled="certificateDialogMode === 'view'" :aria-pressed="certificateForm.authMode === '单向'" @click="certificateForm.authMode = '单向'">单向</button>
             </span>
           </div>
         </div>
         <footer class="access-modal-footer">
-          <button class="btn" type="button" @click="closeCertificateDialog">取消</button>
-          <button class="btn primary" type="submit">确定</button>
+          <template v-if="certificateDialogMode === 'view'">
+            <button class="btn" type="button" @click="closeCertificateDialog">关闭</button>
+          </template>
+          <template v-else>
+            <button class="btn" type="button" @click="closeCertificateDialog">取消</button>
+            <button class="btn primary" type="submit">确定</button>
+          </template>
         </footer>
         </form>
       </section>
@@ -205,6 +210,7 @@
 
 <script lang="ts">
 import { defineComponent } from "vue";
+import { api } from "../api";
 
 export default defineComponent({
   name: "MediaAccessConfigPage",
@@ -226,6 +232,7 @@ export default defineComponent({
       certificates: persisted.certificates.map((row: any) => ({ ...row })),
       protocolErrors: { gb28181: {} as any, ga1400: {} as any },
       certificateDialogOpen: false,
+      certificateDialogMode: "add" as "add" | "view",
       certificateForm: {
         deviceCode: "",
         certificate: "",
@@ -234,6 +241,28 @@ export default defineComponent({
       },
       certificateErrors: {} as any
     };
+  },
+  async mounted() {
+    const [configResult, certificatesResult] = await Promise.allSettled([api.accessConfig(), api.accessCertificates()]);
+    if (configResult.status === "fulfilled") {
+      const config = configResult.value;
+      if (config && config.gb28181) {
+        this.gb28181 = { ...config.gb28181 };
+        Object.assign((this as any).store.accessConfig.gb28181, this.gb28181);
+      }
+      if (config && config.ga1400) {
+        this.ga1400 = { ...config.ga1400 };
+        Object.assign((this as any).store.accessConfig.ga1400, this.ga1400);
+      }
+    } else {
+      this.showToast("接入配置加载失败，已使用默认配置");
+    }
+    if (certificatesResult.status === "fulfilled") {
+      this.certificates = (certificatesResult.value || []).map((row: any) => ({ ...row }));
+      this.syncCertificatesToStore();
+    } else {
+      this.showToast("设备证书列表加载失败");
+    }
   },
   methods: {
     selectProtocol(protocol: any) {
@@ -285,13 +314,32 @@ export default defineComponent({
       (this.protocolErrors as any)[protocol] = errors;
       return Object.keys(errors).length === 0;
     },
-    setNetworkIp(protocol: any) {
+    syncCertificatesToStore() {
+      (this as any).store.accessConfig.certificates = this.certificates.map(item => ({ ...item }));
+    },
+    formatCertificateTime(value: any) {
+      const date = new Date(value);
+      if (isNaN(date.getTime())) return value == null ? "" : String(value);
+      const pad = (v: number) => String(v).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    },
+    async setNetworkIp(protocol: any) {
       const field = protocol === "gb28181" ? "sipIp" : "platformIp";
       const target: any = protocol === "gb28181" ? this.gb28181 : this.ga1400;
-      target[field] = "192.168.11.195";
-      this.showToast("已选择本机网卡地址 192.168.11.195");
+      try {
+        const result = await api.accessHostIps();
+        const ip = result && result.ips && result.ips.length ? result.ips[0] : "";
+        if (!ip) {
+          this.showToast("未获取到本机网卡地址");
+          return;
+        }
+        target[field] = ip;
+        this.showToast(`已选择本机网卡地址 ${ip}`);
+      } catch (error: any) {
+        this.showToast(`获取本机网卡地址失败：${error && error.message ? error.message : "未知错误"}`);
+      }
     },
-    detectPort(protocol: any) {
+    async detectPort(protocol: any) {
       const errorKey = protocol === "gb28181" ? "sipPort" : "port";
       const port = protocol === "gb28181" ? this.gb28181.sipPort : this.ga1400.port;
       if (!this.isValidPort(port)) {
@@ -300,16 +348,32 @@ export default defineComponent({
         return;
       }
       this.clearProtocolError(protocol, errorKey);
-      this.showToast(`端口 ${port} 检测通过，可以正常监听`);
+      try {
+        const result = await api.checkAccessPort(Number(port));
+        this.showToast(result && result.available ? `端口 ${port} 检测通过，可以正常监听` : `端口 ${port} 已被占用，请更换端口`);
+      } catch (error: any) {
+        this.showToast(`端口检测失败：${error && error.message ? error.message : "未知错误"}`);
+      }
     },
-    saveProtocol(protocol: any) {
+    async saveProtocol(protocol: any) {
       if (!this.validateProtocol(protocol)) {
         this.showToast("配置存在错误，请检查标记字段");
         return;
       }
       const label = protocol === "gb28181" ? "国标GB28181" : "公安GA1400";
-      Object.assign((this as any).store.accessConfig[protocol], protocol === "gb28181" ? this.gb28181 : this.ga1400);
-      this.showToast(`${label} 配置已保存`);
+      const payload = protocol === "gb28181" ? { ...this.gb28181 } : { ...this.ga1400 };
+      try {
+        const saved = protocol === "gb28181" ? await api.saveGb28181Config(payload as any) : await api.saveGa1400Config(payload as any);
+        if (protocol === "gb28181") {
+          this.gb28181 = { ...(saved as any) };
+        } else {
+          this.ga1400 = { ...(saved as any) };
+        }
+        Object.assign((this as any).store.accessConfig[protocol], protocol === "gb28181" ? this.gb28181 : this.ga1400);
+        this.showToast(`${label} 配置已保存`);
+      } catch (error: any) {
+        this.showToast(error && error.message ? error.message : `${label} 配置保存失败`);
+      }
     },
     checkGb28181() {
       this.showToast(this.validateProtocol("gb28181") ? "GB28181 配置检查通过" : "GB28181 配置存在错误，请检查标记字段");
@@ -366,8 +430,20 @@ export default defineComponent({
     openCertificateDialog() {
       this.certificateForm = { deviceCode: "", certificate: "", authMode: "双向", fileName: "" };
       this.certificateErrors = {};
+      this.certificateDialogMode = "add";
       this.certificateDialogOpen = true;
       this.$nextTick(() => (this.$refs.certificateCode as any) && (this.$refs.certificateCode as any).focus());
+    },
+    viewCertificate(row: any) {
+      this.certificateForm = {
+        deviceCode: row.deviceCode || "",
+        certificate: row.certificate || "",
+        authMode: row.authMode || "双向",
+        fileName: ""
+      };
+      this.certificateErrors = {};
+      this.certificateDialogMode = "view";
+      this.certificateDialogOpen = true;
     },
     closeCertificateDialog() {
       this.certificateDialogOpen = false;
@@ -401,7 +477,8 @@ export default defineComponent({
       }
       event.target.value = "";
     },
-    addCertificate() {
+    async addCertificate() {
+      if (this.certificateDialogMode === "view") return;
       const errors: any = {};
       if (!/^\d{20}$/.test(this.certificateForm.deviceCode.trim())) errors.deviceCode = "请输入20位设备编码";
       if (!this.certificateForm.certificate.trim()) errors.certificate = "请输入或上传设备证书";
@@ -414,27 +491,30 @@ export default defineComponent({
         return;
       }
 
-      const now = new Date();
-      const pad = (value: any) => String(value).padStart(2, "0");
-      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-      const row = {
-        id: String(Date.now()).slice(-8),
-        deviceCode: this.certificateForm.deviceCode.trim(),
-        authMode: this.certificateForm.authMode,
-        updatedAt: stamp,
-        createdAt: stamp
-      };
-      this.certificates.unshift(row);
-      (this as any).store.accessConfig.certificates = this.certificates.map(item => ({ ...item }));
       const code = this.certificateForm.deviceCode.trim();
-      this.closeCertificateDialog();
-      this.showToast(`设备证书已添加：${code}`);
+      try {
+        const created = await api.createAccessCertificate({
+          deviceCode: code,
+          certificate: this.certificateForm.certificate,
+          authMode: this.certificateForm.authMode
+        });
+        this.certificates.unshift({ ...created });
+        this.syncCertificatesToStore();
+        this.closeCertificateDialog();
+        this.showToast(`设备证书已添加：${code}`);
+      } catch (error: any) {
+        this.showToast(`设备证书添加失败：${error && error.message ? error.message : "未知错误"}`);
+      }
     },
-    removeCertificate(index: any) {
-      const row = this.certificates[index];
-      this.certificates.splice(index, 1);
-      (this as any).store.accessConfig.certificates = this.certificates.map(item => ({ ...item }));
-      this.showToast(`设备证书已删除：${row.deviceCode}`);
+    async removeCertificate(row: any) {
+      try {
+        await api.deleteAccessCertificate(row.id);
+        this.certificates = this.certificates.filter(item => item.id !== row.id);
+        this.syncCertificatesToStore();
+        this.showToast(`设备证书已删除：${row.deviceCode}`);
+      } catch (error: any) {
+        this.showToast(`设备证书删除失败：${error && error.message ? error.message : "未知错误"}`);
+      }
     },
     signCertificate() {
       this.showToast(this.certificates.length ? "已提交设备证书签发任务" : "请先添加设备证书");
