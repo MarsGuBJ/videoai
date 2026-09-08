@@ -184,7 +184,8 @@ def test_search_segments_maps_matches_to_sdk_playback_segments(monkeypatch):
     assert segment.cameraName == "园区东门"
     assert segment.trackId == "101"
     assert segment.source == "hikvision_hcnetsdk_playback"
-    assert segment.startTime == datetime(2026, 9, 1, 1, 0, tzinfo=timezone.utc)
+    # 海康返回设备本地墙钟时间（Z 后缀不代表 UTC），按北京时间解释
+    assert segment.startTime == datetime(2026, 9, 1, 1, 0, tzinfo=BJT)
     assert segment.metadata["deviceHost"] == "10.10.8.10"
     assert segment.metadata["devicePort"] == 8000
     assert segment.metadata["channel"] == 1

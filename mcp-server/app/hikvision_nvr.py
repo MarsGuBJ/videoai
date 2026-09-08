@@ -1,4 +1,5 @@
 import hashlib
+import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlparse, urlunparse
 from uuid import uuid4
@@ -172,19 +173,24 @@ def text_at(element: ElementTree.Element, tag: str) -> str | None:
 
 
 def format_hik_time(value: datetime) -> str:
+    """检索时间格式化为北京时间墙钟。海康 ISAPI 把 Z 后缀时间按设备本地时钟解释，
+    不能换算成 UTC，否则检索窗口差 8 小时。"""
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        value = value.replace(tzinfo=BEIJING_TZ)
+    return value.astimezone(BEIJING_TZ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_hik_time(value: str | None) -> datetime | None:
+    """解析 ISAPI 返回的时间。海康返回的是设备本地墙钟时间（即使带 Z 后缀），
+    一律按北京时间解释，否则展示/回放时间差 8 小时。"""
     if not value:
         return None
-    normalized = value.strip().replace("Z", "+00:00")
+    normalized = re.sub(r"(Z|[+-]\d{2}:?\d{2})$", "", value.strip())
     try:
-        return datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(normalized)
     except ValueError:
         return None
+    return parsed.replace(tzinfo=BEIJING_TZ)
 
 
 def stable_recording_id(camera_id: str, track_id: str, start: datetime, end: datetime, playback_uri: str) -> str:

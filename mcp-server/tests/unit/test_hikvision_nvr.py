@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from app.hikvision_nvr import (
+    BEIJING_TZ,
     HikvisionNvrClient,
     _build_rtsp_fallback,
     build_rtsp_direct_recording,
@@ -11,7 +12,8 @@ from app.hikvision_nvr import (
 from app.models import Camera
 
 
-def test_build_search_body_contains_track_and_utc_range():
+def test_build_search_body_contains_track_and_beijing_range():
+    # 海康把 Z 后缀时间按设备本地时钟解释：检索窗口必须按北京时间墙钟发送
     body = build_search_body(
         "101",
         datetime(2026, 6, 22, 1, 2, 3, tzinfo=timezone.utc),
@@ -21,7 +23,7 @@ def test_build_search_body_contains_track_and_utc_range():
 
     assert '<CMSearchDescription version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">' in body
     assert "<trackID>101</trackID>" in body
-    assert "<startTime>2026-06-22T01:02:03Z</startTime>" in body
+    assert "<startTime>2026-06-22T09:02:03Z</startTime>" in body
     assert "<maxResults>200</maxResults>" in body
 
 
@@ -164,3 +166,20 @@ def test_search_by_track_builds_direct_rtsp_without_nvr_search():
         "rtsp://admin:cisdi%40123%26@192.168.11.251:554"
         "/Streaming/tracks/601?starttime=20250826T160000Z&endtime=20250826T170000Z"
     )
+
+
+def test_parse_hik_time_treats_z_suffix_as_beijing_local():
+    # 海康 ISAPI 返回设备本地墙钟时间，Z 后缀不代表 UTC
+    from app.hikvision_nvr import parse_hik_time
+
+    parsed = parse_hik_time("2026-09-08T11:48:48Z")
+
+    assert parsed == datetime(2026, 9, 8, 11, 48, 48, tzinfo=BEIJING_TZ)
+
+
+def test_parse_hik_time_treats_offset_suffix_as_beijing_local():
+    from app.hikvision_nvr import parse_hik_time
+
+    parsed = parse_hik_time("2026-09-08T11:48:48+08:00")
+
+    assert parsed == datetime(2026, 9, 8, 11, 48, 48, tzinfo=BEIJING_TZ)
