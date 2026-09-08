@@ -16,6 +16,7 @@ DeployType = Literal["cloud", "local"]
 class LlmConfigCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     baseUrl: str = Field(min_length=1, max_length=500)
+    model: str = Field(default="", max_length=200)
     apiKey: str = ""
     deployType: DeployType = "cloud"
     timeout: int = Field(default=DEFAULT_TIMEOUT_SECONDS, ge=10, le=120)
@@ -29,6 +30,7 @@ class LlmConfigUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     baseUrl: str | None = Field(default=None, min_length=1, max_length=500)
+    model: str | None = Field(default=None, max_length=200)
     apiKey: str | None = None
     deployType: DeployType | None = None
     timeout: int | None = Field(default=None, ge=10, le=120)
@@ -43,6 +45,7 @@ class LlmConfigOut(BaseModel):
     id: str
     name: str
     baseUrl: str
+    model: str
     apiKey: str
     apiKeyConfigured: bool
     deployType: DeployType

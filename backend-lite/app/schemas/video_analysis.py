@@ -10,3 +10,9 @@ class VideoAnalysisRequest(BaseModel):
     segmentSeconds: int = 60
     maxSegments: int = 1
     height: int = 480
+
+
+class RecordingFileRequest(BaseModel):
+    cameraId: str
+    startTime: str
+    endTime: str

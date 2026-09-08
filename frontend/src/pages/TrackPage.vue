@@ -7,13 +7,8 @@
         <input ref="trackTargetInput" class="hidden-file-input" type="file" accept="image/*" @change="handleTargetUpload" />
         <div class="track-query-grid">
           <div class="track-query-block">
-            <div class="field-label">目标参考图</div>
-            <button class="upload-card track-target-upload" @click="triggerTargetUpload"><img :src="targetPreview" alt="目标参考图" /><span v-if="targetCrop" class="transferred-crop-box" :style="targetCropStyle"></span><span class="upload-image-hint">更换目标图片</span></button>
-            <span v-if="targetFileName" class="hint-text">{{ targetFileName }}</span>
-          </div>
-          <div class="track-query-block">
             <div class="field-label">时间范围</div>
-            <input class="input" type="datetime-local" v-model="trackStart" style="margin-bottom:8px;" /><input class="input" type="datetime-local" v-model="trackEnd" />
+            <date-time-range-picker v-model:start="trackStart" v-model:end="trackEnd" />
           </div>
           <div class="track-query-block" @click.stop>
             <div class="field-label">检索区域</div>
@@ -26,12 +21,19 @@
                     <button v-for="camera in area.cameras" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" type="button" @click="selectCamera(camera, area)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button>
                   </div>
                 </div>
+                <div v-if="!areas.length" class="hint-text" style="padding:8px 12px;">暂无监控点数据</div>
               </div>
             </div>
           </div>
           <div class="track-query-block">
             <div class="field-label">相似度阈值</div>
             <div class="track-threshold-control"><input type="range" min="0" max="100" v-model.number="trackThreshold" /><strong>{{ trackThreshold }}%</strong></div>
+          </div>
+          <div class="track-query-block track-target-block">
+            <div class="field-label">目标参考图</div>
+            <button class="upload-card track-target-upload" type="button" :title="targetPreview ? '点击图片放大并框选目标区域' : '点击上传目标图片'" @click="handleTargetCardClick"><img v-if="targetPreview" :src="targetPreview" alt="目标参考图" /><span v-if="targetPreview && targetCrop" class="transferred-crop-box" :style="targetCropStyle"></span><span class="upload-image-hint">{{ targetPreview ? '点击放大框选' : '点击上传目标图片' }}</span></button>
+            <span v-if="targetFileName" class="hint-text">{{ targetFileName }}</span>
+            <button v-if="targetPreview" class="btn track-target-reupload" type="button" @click="triggerTargetUpload">更换图片</button>
           </div>
         </div>
         <div class="track-query-actions">
@@ -44,12 +46,12 @@
             <div><h3>轨迹图</h3></div>
           </div>
           <div v-if="trackGenerated" class="track-result-content">
-            <div class="metric-row"><span class="metric">总时长：<b>40min</b></span><span class="metric">经过点位：<b>{{ selectedItems.length }}</b></span><span class="metric">轨迹置信：<b>92%</b></span></div>
+            <div class="metric-row"><span class="metric">总时长：<b>{{ trackDuration }}</b></span><span class="metric">经过点位：<b>{{ trackPointCount }}</b></span><span class="metric">轨迹置信：<b>{{ trackConfidence }}%</b></span></div>
             <div class="timeline">
-              <article class="timeline-card" v-for="item in selectedItems" :key="item.title">
+              <article class="timeline-card" v-for="item in trackItems" :key="item.title">
                 <div><h4>{{ item.title }}</h4><p>{{ item.desc }}</p><div class="tags"><span class="tag blue">{{ item.location }}</span><span class="tag">相似度 {{ item.score }}%</span></div></div>
                 <div class="timeline-card-controls"><span class="hint-text timeline-card-date">{{ item.date.slice(11, 19) }}</span><button class="timeline-delete-btn" @click="removeTrackItem(item)">删除</button></div>
-                <button class="timeline-image-button" type="button" title="查看图片详情" @click="openResult(store.results.indexOf(item))"><img :src="item.image" :alt="item.title" /></button>
+                <button class="timeline-image-button" type="button" title="查看图片详情" @click="openResult(-1, item)"><img :src="item.image" :alt="item.title" /></button>
               </article>
             </div>
           </div>
@@ -58,11 +60,80 @@
       </div>
       <div v-if="searching" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索候选图片，请稍候...</p></div></div>
     </div>
+    <image-crop-dialog :open="cropDialogOpen" :item="cropDialogItem" action="track" :item-index="-1" @close="cropDialogOpen = false" @confirm="handleCropConfirm"></image-crop-dialog>
   </section>
 </template>
 
 <script lang="ts">
 import { defineComponent } from "vue";
+import { api, assetUrl } from "../api";
+import type { PersonSearchBboxPoint, PersonSearchResultResponse, SimilarPersonResult } from "../api";
+import ImageCropDialog from "../components/ImageCropDialog.vue";
+import DateTimeRangePicker from "../components/DateTimeRangePicker.vue";
+import { cropImageToFile, cropToPixelBbox } from "../utils/person-search";
+import type { ImageCropSelection } from "../utils/person-search";
+
+const POLL_INTERVAL_MS = 1500;
+const POLL_MAX_ATTEMPTS = 60;
+
+function delay(ms: number) {
+  return new Promise(resolve => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+// "2026-07-12T08:30" -> "2026-07-12 08:30:00" (person-search API format)
+function toPersonApiDateTime(value: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const [date, rawTime = "00:00"] = value.split("T");
+  const time = rawTime.length === 5 ? `${rawTime}:00` : rawTime;
+  return `${date} ${time}`;
+}
+
+function personSearchResultPayload(response: PersonSearchResultResponse | null) {
+  const payload = response?.data?.data;
+  return payload?.result ?? payload ?? null;
+}
+
+function pad2(n: number) {
+  return n.toString().padStart(2, "0");
+}
+
+// create_time (epoch seconds/ms or string) -> "YYYY-MM-DD HH:mm:ss"
+function formatCreateTime(value?: number | string): string {
+  let d: Date | null = null;
+  if (value !== undefined && value !== null && value !== "") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      d = new Date(numeric > 10_000_000_000 ? numeric : numeric * 1000);
+    } else {
+      const parsed = new Date(String(value));
+      if (!Number.isNaN(parsed.getTime())) {
+        d = parsed;
+      }
+    }
+  }
+  if (!d || Number.isNaN(d.getTime())) {
+    return value ? String(value) : "未知时间";
+  }
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+// Map a backend similar_persons entry to the timeline item shape.
+function mapSimilarPerson(result: SimilarPersonResult, index: number) {
+  const raw = result.similarity_score;
+  const score = raw === undefined || Number.isNaN(Number(raw)) ? 0 : Math.round(Number(raw) <= 1 ? Number(raw) * 100 : Number(raw));
+  return {
+    title: `相似人员 ${index + 1}`,
+    image: assetUrl(result.image_url),
+    location: result.camera_locate || result.camera_id || "未知摄像头",
+    date: formatCreateTime(result.create_time),
+    score,
+    desc: result.es_doc_id || ""
+  };
+}
 
 // The prototype accesses the injected openResult directly in the template;
 // vue-tsc does not infer inject keys onto the template `this`, so merge it
@@ -70,68 +141,46 @@ import { defineComponent } from "vue";
 // below stays exactly as the prototype).
 declare module "vue" {
   interface ComponentCustomProperties {
-    openResult: (index: number) => void;
+    openResult: (index: number, item?: any) => void;
   }
 }
 
 export default defineComponent({
   name: "TrackPage",
+  components: { ImageCropDialog, DateTimeRangePicker },
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
   inject: {
     showToast: { from: "showToast", default: (m: string) => {} },
-    openResult: { from: "openResult", default: (index: number) => {} },
+    openResult: { from: "openResult", default: (index: number, item?: any) => {} },
   },
   data() {
-    const initialSelectedIndexes = [...(this.state.selectedResultIndexes || [])];
     return {
-      searched: initialSelectedIndexes.length > 0,
+      searched: false,
       searching: false,
-      selectedIndexes: initialSelectedIndexes,
-      trackGenerated: initialSelectedIndexes.length > 0,
-      trackStart: "2026-07-12T08:00",
-      trackEnd: "2026-07-12T10:30",
+      trackGenerated: false,
+      trackStart: "",
+      trackEnd: "",
       selectedArea: null as any,
       selectedCamera: null as any,
       pointDropdownOpen: false,
-      expandedAreas: {
-        "园区南门": true,
-        "A座停车区": false,
-        "生产通道": false,
-        "仓储区域": false,
-        "外围周界": false
-      } as Record<string, boolean>,
-      areas: [
-        { name: "园区南门", count: 12, cameras: [
-          { name: "南门入口枪机", code: "CAM-001", type: "枪机", status: "在线", image: this.store.img.car },
-          { name: "南门广角球机", code: "CAM-002", type: "球机", status: "在线", image: this.store.img.target },
-          { name: "访客通道半球", code: "CAM-009", type: "半球", status: "在线", image: this.store.img.portrait }
-        ] },
-        { name: "A座停车区", count: 8, cameras: [
-          { name: "A1停车场东侧", code: "CAM-003", type: "枪机", status: "在线", image: this.store.img.car },
-          { name: "A2停车场出口", code: "CAM-008", type: "枪机", status: "在线", image: this.store.img.target }
-        ] },
-        { name: "生产通道", count: 6, cameras: [
-          { name: "生产通道1号门", code: "CAM-004", type: "半球", status: "在线", image: this.store.img.analyst },
-          { name: "生产通道东侧", code: "CAM-010", type: "枪机", status: "在线", image: this.store.img.map }
-        ] },
-        { name: "仓储区域", count: 10, cameras: [
-          { name: "仓储区西门", code: "CAM-005", type: "枪机", status: "连接异常", image: this.store.img.ai },
-          { name: "仓储装卸口", code: "CAM-011", type: "热成像", status: "在线", image: this.store.img.mountain }
-        ] },
-        { name: "外围周界", count: 7, cameras: [
-          { name: "外围周界北侧", code: "CAM-006", type: "热成像", status: "连接异常", image: this.store.img.mountain },
-          { name: "东侧围栏通道", code: "CAM-012", type: "枪机", status: "在线", image: this.store.img.map }
-        ] }
-      ],
+      expandedAreas: {} as Record<string, boolean>,
+      areas: [] as any[],
       trackThreshold: 82,
-      targetPreview: this.state.prefill || this.store.img.car,
+      targetPreview: this.state.prefill || "",
       targetCrop: this.state.imageCrop as any,
-      targetFileName: ""
+      targetFileName: "",
+      selectedFile: null as File | null,
+      cropDialogOpen: false,
+      // Raw similar_persons from the backend and the mapped timeline items.
+      rawPersons: [] as SimilarPersonResult[],
+      trackItems: [] as any[],
+      pollRunId: 0
     };
   },
   computed: {
-    selectedItems(): any[] {
-      return this.selectedIndexes.map(index => this.store.results[index]).filter(Boolean);
+    cropDialogItem(): any {
+      if (!this.targetPreview) return null;
+      return { image: this.targetPreview, title: this.targetFileName || "目标参考图" };
     },
     selectedPointLabel(): string {
       if (this.selectedArea && this.selectedCamera) return `${this.selectedArea.name} / ${this.selectedCamera.name}`;
@@ -146,9 +195,63 @@ export default defineComponent({
         width: `${crop.width}%`,
         height: `${crop.height}%`
       };
+    },
+    trackDuration(): string {
+      if (this.trackItems.length < 2) return "0min";
+      const parse = (value: string) => new Date(value.replace(" ", "T")).getTime();
+      const first = parse(this.trackItems[0].date);
+      const last = parse(this.trackItems[this.trackItems.length - 1].date);
+      if (Number.isNaN(first) || Number.isNaN(last) || last < first) return "-";
+      const minutes = Math.round((last - first) / 60000);
+      const hours = Math.floor(minutes / 60);
+      return hours > 0 ? `${hours}h ${minutes % 60}min` : `${minutes}min`;
+    },
+    trackPointCount(): number {
+      return new Set(this.trackItems.map(item => item.location)).size;
+    },
+    trackConfidence(): number {
+      if (!this.trackItems.length) return 0;
+      const total = this.trackItems.reduce((sum, item) => sum + (Number(item.score) || 0), 0);
+      return Math.round(total / this.trackItems.length);
     }
   },
+  mounted() {
+    this.loadCameras();
+    // Navigated from 图搜图 with a reference image: run the search directly.
+    if (this.state.prefill) {
+      this.runCandidateSearch();
+    }
+  },
+  beforeUnmount() {
+    this.pollRunId += 1;
+    if (this.targetPreview && this.targetPreview.startsWith("blob:")) URL.revokeObjectURL(this.targetPreview);
+  },
   methods: {
+    async loadCameras() {
+      try {
+        const cameras = await api.cameras();
+        const groups = new Map<string, any[]>();
+        for (const camera of cameras || []) {
+          const areaName = camera.area || "未分区";
+          if (!groups.has(areaName)) groups.set(areaName, []);
+          groups.get(areaName)!.push({
+            name: camera.name,
+            code: camera.id,
+            status: camera.status || "未知"
+          });
+        }
+        this.areas = [...groups.entries()].map(([name, cams]) => ({
+          name,
+          count: cams.length,
+          cameras: cams
+        }));
+        if (this.areas.length) {
+          this.expandedAreas = { [this.areas[0].name]: true };
+        }
+      } catch (error) {
+        this.showToast("监控点列表加载失败");
+      }
+    },
     togglePointDropdown() {
       this.pointDropdownOpen = !this.pointDropdownOpen;
     },
@@ -163,26 +266,151 @@ export default defineComponent({
       this.selectedArea = area;
       this.selectedCamera = camera;
       this.pointDropdownOpen = false;
+      // Re-apply the camera filter on existing results without re-searching.
+      if (this.rawPersons.length) {
+        this.applyTrackResults();
+      }
     },
-    runCandidateSearch() {
+    applyTrackResults() {
+      let persons = this.rawPersons;
+      if (this.selectedCamera) {
+        const { code, name } = this.selectedCamera;
+        persons = persons.filter(person =>
+          person.camera_id === code || person.camera_id === name ||
+          person.camera_locate === name || person.camera_locate === code
+        );
+      }
+      this.trackItems = persons
+        .map(mapSimilarPerson)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      this.trackGenerated = this.trackItems.length > 0;
+    },
+    async runCandidateSearch() {
+      if (!this.selectedFile && !this.targetPreview) {
+        this.showToast("请先上传目标参考图");
+        return;
+      }
       if (this.searching) return;
+      this.searched = true;
+      const runId = ++this.pollRunId;
       this.searching = true;
-      window.setTimeout(() => {
-        this.searching = false;
-        this.searched = true;
-        this.selectedIndexes = this.store.results.slice(0, 6).map((_: any, index: number) => index);
-        this.trackGenerated = true;
-        this.showToast("已根据搜索结果生成轨迹图");
-      }, 600);
+      try {
+        // 1. Upload the query image (skip when it came from a prefill URL).
+        let imageUrl = "";
+        if (this.selectedFile) {
+          const uploaded = await api.uploadPersonSearchImage(this.selectedFile);
+          imageUrl = uploaded.imageUrl;
+        } else {
+          imageUrl = this.targetPreview;
+        }
+        if (runId !== this.pollRunId) return;
+        // 2. Resolve the target bbox: prefer the user-selected crop region
+        //    (converted from percentage to pixel coordinates); fall back to
+        //    detecting persons and taking the first detection.
+        let bbox: PersonSearchBboxPoint[] | undefined;
+        if (this.targetCrop) {
+          bbox = (await cropToPixelBbox(imageUrl, this.targetCrop)) || undefined;
+          if (runId !== this.pollRunId) return;
+        }
+        if (!bbox) {
+          const detectResponse = await api.detectPersons(imageUrl);
+          if (runId !== this.pollRunId) return;
+          const detected = detectResponse.data?.detected_persons ?? [];
+          if (detectResponse.data?.status !== "success" || detected.length === 0) {
+            throw new Error(detectResponse.data?.message || "未检测到人，请重新上传");
+          }
+          bbox = detected[0]?.bbox;
+        }
+        // 3. Submit the search task for the selected/detected target.
+        const submitResponse = await api.searchPersonByBbox({
+          imageUrl,
+          bbox,
+          searchMethod: "reid",
+          startTime: toPersonApiDateTime(this.trackStart),
+          endTime: toPersonApiDateTime(this.trackEnd),
+          similarityThreshold: this.trackThreshold / 100,
+          topK: 50
+        });
+        if (runId !== this.pollRunId) return;
+        const taskId = submitResponse.data?.task_id ?? submitResponse.data?.data?.task_id;
+        if (!taskId) {
+          throw new Error(submitResponse.data?.message || "搜索任务提交失败");
+        }
+        // 4. Poll until the task finishes.
+        await this.pollPersonSearchResult(taskId, runId);
+      } catch (error) {
+        if (runId !== this.pollRunId) return;
+        this.trackGenerated = false;
+        this.showToast(error instanceof Error ? error.message : "轨迹搜索任务失败");
+      } finally {
+        if (runId === this.pollRunId) {
+          this.searching = false;
+        }
+      }
+    },
+    async pollPersonSearchResult(taskId: string, runId: number) {
+      for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt += 1) {
+        if (runId !== this.pollRunId) return;
+        const response = await api.personSearchResult(taskId);
+        if (runId !== this.pollRunId) return;
+        const taskStatus = response.data?.status;
+        if (taskStatus === "success") {
+          const payload = personSearchResultPayload(response);
+          this.rawPersons = payload?.similar_persons ?? [];
+          this.applyTrackResults();
+          this.showToast(payload?.message || `找到 ${this.trackItems.length} 个候选目标，已生成轨迹`);
+          return;
+        }
+        if (taskStatus === "error") {
+          throw new Error(response.data?.message || "搜索任务失败");
+        }
+        await delay(POLL_INTERVAL_MS);
+      }
+      throw new Error("搜索任务超时，请稍后重试");
     },
     removeTrackItem(item: any) {
-      const resultIndex = this.store.results.indexOf(item);
-      if (resultIndex < 0) return;
-      this.selectedIndexes = this.selectedIndexes.filter(index => index !== resultIndex);
-      this.trackGenerated = this.selectedIndexes.length > 0;
+      const index = this.trackItems.indexOf(item);
+      if (index < 0) return;
+      this.trackItems.splice(index, 1);
+      this.trackGenerated = this.trackItems.length > 0;
     },
     triggerTargetUpload() {
       (this.$refs.trackTargetInput as HTMLInputElement).click();
+    },
+    // 已上传图片时点击图片打开放大框选弹窗，未上传时打开文件选择
+    handleTargetCardClick() {
+      if (this.targetPreview) {
+        this.cropDialogOpen = true;
+      } else {
+        this.triggerTargetUpload();
+      }
+    },
+    // 框选确认：本地裁剪图片并替换目标参考图（无法裁剪时退回 bbox 检索模式）
+    async handleCropConfirm(payload: any) {
+      this.cropDialogOpen = false;
+      const crop = payload?.crop as ImageCropSelection | undefined;
+      if (!crop) return;
+      if (this.selectedFile) {
+        try {
+          const croppedFile = await cropImageToFile(
+            this.targetPreview,
+            crop,
+            this.targetFileName || "target.jpg",
+            this.selectedFile.type
+          );
+          if (this.targetPreview.startsWith("blob:")) URL.revokeObjectURL(this.targetPreview);
+          this.targetPreview = URL.createObjectURL(croppedFile);
+          this.selectedFile = croppedFile;
+          this.targetFileName = croppedFile.name;
+          this.targetCrop = null;
+          this.showToast("已用框选区域替换目标图片");
+          return;
+        } catch {
+          // 裁剪失败（如图片损坏）时退回 bbox 检索模式
+        }
+      }
+      this.targetCrop = crop;
+      this.showToast("已记录框选区域，搜索将按该区域检索");
     },
     handleTargetUpload(event: Event) {
       const input = event.target as HTMLInputElement;
@@ -196,8 +424,10 @@ export default defineComponent({
       this.targetPreview = URL.createObjectURL(file);
       this.targetCrop = null;
       this.targetFileName = file.name;
+      this.selectedFile = file;
       this.searched = false;
-      this.selectedIndexes = [];
+      this.rawPersons = [];
+      this.trackItems = [];
       this.trackGenerated = false;
       this.showToast("目标图片已载入");
     }

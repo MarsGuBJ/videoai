@@ -5,10 +5,8 @@ import type { RouteRecordRaw } from "vue-router";
 export const routes: RouteRecordRaw[] = [
   { path: "/home", name: "home", component: () => import("../../pages/HomePage.vue") },
   { path: "/exact", name: "exact", component: () => import("../../pages/ExactSearchPage.vue") },
-  { path: "/localVideo", name: "localVideo", component: () => import("../../pages/LocalVideoPage.vue") },
   { path: "/textImage", name: "textImage", component: () => import("../../pages/TextImagePage.vue") },
   { path: "/imageSearch", name: "imageSearch", component: () => import("../../pages/ImageSearchPage.vue") },
   { path: "/quickDeploy", name: "quickDeploy", component: () => import("../../pages/QuickDeployPage.vue") },
-  { path: "/track", name: "track", component: () => import("../../pages/TrackPage.vue") },
-  { path: "/monitorSearch", name: "monitorSearch", component: () => import("../../pages/MonitorSearchPage.vue") }
+  { path: "/track", name: "track", component: () => import("../../pages/TrackPage.vue") }
 ];

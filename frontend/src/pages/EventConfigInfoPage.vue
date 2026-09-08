@@ -10,6 +10,7 @@
       <section class="event-config-modal wide" role="dialog" aria-modal="true" :aria-label="editing ? '修改配置信息' : '新增配置信息'">
         <div class="event-config-modal-head"><h3>{{ editing ? "修改配置信息" : "新增配置信息" }}</h3><button class="event-config-modal-close" aria-label="关闭" @click="closeForm">×</button></div>
         <div class="event-config-form-grid cols-3">
+          <div class="event-config-field"><span>事件来源</span><input v-model="form.source" class="input" list="event-source-options" placeholder="请选择或输入事件来源" /><datalist id="event-source-options"><option value="中心推理平台"></option><option value="云边协同平台"></option></datalist></div>
           <label class="event-config-field"><span>* 事件名称</span><input v-model="form.name" class="input" placeholder="请输入内容" /></label>
           <label class="event-config-field"><span>* 事件编码</span><input v-model="form.code" class="input" placeholder="请输入内容" /></label>
           <label class="event-config-field"><span>事件等级</span><select v-model="form.level" class="select"><option>低</option><option>中</option><option>高</option></select></label>
@@ -17,9 +18,6 @@
           <label class="event-config-field"><span>标注方式</span><select v-model="form.mark" class="select"><option>多边形</option><option>关键点</option></select></label>
           <div class="event-config-field"><span>是否启用</span><div><button class="event-config-switch" :class="{ active: form.enabled }" type="button" :aria-label="form.enabled ? '已启用' : '已停用'" @click="form.enabled = !form.enabled"></button></div></div>
           <div class="event-config-field"><span>事件图标</span><label class="event-config-upload-tile" :class="{ 'has-file': form.iconName }"><input type="file" accept="image/*" hidden @change="pickIcon" /><span class="event-config-upload-icon">&#xf03e;</span><span>{{ form.iconName || "上传" }}</span></label></div>
-          <div class="event-config-field"><span>事件来源</span><input v-model="form.source" class="input" placeholder="请输入事件来源" /></div>
-          <div class="event-config-field"><span>事件源</span><input v-model="form.eventSource" class="input" placeholder="请输入事件源" /></div>
-          <div class="event-config-field"><span>算法编码</span><select v-model="form.algorithmCode" class="select"><option value="">请选择算法编码</option><option v-for="row in store.algorithmManageRows" :key="row.id">{{ row.code }}</option></select></div>
           <div class="event-config-field wide">
             <div class="event-config-attr-editor"><span>事件属性</span><div class="event-config-attr-rows"><div v-for="(attr, index) in form.attrs" :key="index" class="event-config-attr-row"><input v-model="attr.key" class="input" :placeholder="index === 1 ? 'type' : 'confidence'" /><em>:</em><input v-model="attr.value" class="input" :placeholder="index === 1 ? '类型' : '置信度'" /><button class="btn" type="button" aria-label="删除属性" :disabled="form.attrs.length <= 1" @click="removeAttr(index)">⊖</button></div><button class="btn" type="button" @click="addAttr">＋ 添加属性</button></div></div>
           </div>
@@ -52,7 +50,7 @@ export default defineComponent({
       saving: false,
       modalOpen: false,
       editing: null as EventInfo | null,
-      form: { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "", eventSource: "", algorithmCode: "", attrs: [] as { key: string; value: string }[] }
+      form: { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "中心推理平台", eventSource: "", algorithmCode: "", attrs: [] as { key: string; value: string }[] }
     };
   },
   computed: {
@@ -85,7 +83,7 @@ export default defineComponent({
       }
     },
     blankForm() {
-      return { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "", eventSource: "", algorithmCode: "", attrs: [{ key: "", value: "" }, { key: "", value: "" }] };
+      return { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "中心推理平台", eventSource: "", algorithmCode: "", attrs: [{ key: "", value: "" }, { key: "", value: "" }] };
     },
     openCreate() { this.editing = null; this.form = this.blankForm(); this.modalOpen = true; },
     openEdit(row: EventInfo) {

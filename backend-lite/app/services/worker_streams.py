@@ -63,9 +63,58 @@ def active_face_targets_for_camera(camera: CameraResponse) -> list[dict]:
     return targets
 
 
+def active_algorithm_task_for_camera(camera: CameraResponse) -> DeploymentTaskResponse | None:
+    """找到命中该摄像头且绑定了算法的运行中布控任务（取第一个）。
+
+    Args:
+        camera: 摄像头对象。
+
+    Returns:
+        绑定算法的布控任务；无则 None。
+    """
+    camera_id = str(camera.id)
+    for task in state.deployment_tasks_store.values():
+        if not task.enabled or task.taskStatus.lower() != "running" or task.algorithmId is None:
+            continue
+        if camera_id in set(task.cameraIds or []):
+            return task
+    return None
+
+
+def algorithm_payload_for_camera(camera: CameraResponse) -> dict | None:
+    """组装 worker 启动 payload 的 algorithm 字段（仅当任务绑定算法且版本存在）。
+
+    Args:
+        camera: 摄像头对象。
+
+    Returns:
+        algorithm payload 字典；无绑定时 None。installPath 为 worker 视角路径
+        （backend 与 worker 挂载同一目录，直接按 storage_algorithm_dir/<code>/<version> 拼接）。
+    """
+    task = active_algorithm_task_for_camera(camera)
+    if task is None or task.algorithmId is None:
+        return None
+    record = state.algorithms_store.get(task.algorithmId)
+    if record is None or record.currentVersion is None:
+        return None
+    install_path = get_settings().storage_algorithm_dir / record.code / record.currentVersion
+    return {
+        "algorithmId": str(record.id),
+        "engineType": record.engineType,
+        "version": record.currentVersion,
+        "installPath": str(install_path),
+        "recognitionPerMinute": max(1, int(task.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE)),
+        "deploymentTaskId": str(task.id),
+    }
+
+
 def should_worker_stream(camera: CameraResponse) -> bool:
-    """判断该摄像头是否需要 worker 拉流（DINO 或存在人脸布控目标）。"""
-    return is_dino_camera(camera) or bool(active_face_targets_for_camera(camera))
+    """判断该摄像头是否需要 worker 拉流（DINO、人脸布控目标或绑定算法的任务）。"""
+    return (
+        is_dino_camera(camera)
+        or bool(active_face_targets_for_camera(camera))
+        or active_algorithm_task_for_camera(camera) is not None
+    )
 
 
 def sync_worker_streams_for_task(task: DeploymentTaskResponse) -> None:
@@ -121,6 +170,7 @@ def start_worker_stream(camera: CameraResponse) -> None:
         "faceTargets": face_targets,
         "faceDetectionEnabled": bool(face_targets),
         "objectDetectionEnabled": object_detection_enabled,
+        "algorithm": algorithm_payload_for_camera(camera),
     }
     worker_request("/v1/streams/start", payload)
 

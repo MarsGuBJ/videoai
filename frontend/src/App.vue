@@ -2,6 +2,7 @@
 import { defineComponent } from "vue";
 import { store } from "./store";
 import { api } from "./api";
+import type { DeploymentTaskCreate } from "./types";
 import { APP_DEFAULT_ROUTE } from "./router";
 import AppSidebar from "./components/AppSidebar.vue";
 import AppTopbar from "./components/AppTopbar.vue";
@@ -140,7 +141,7 @@ export default defineComponent({
       }
       this.state.route = route;
       if (previousRoute === route) this.state.routeVersion += 1;
-      this.$router.push({ name: route }).catch(() => {});
+      this.$router.push({ name: route, query: options.query }).catch(() => {});
       this.$nextTick(() => {
         const workspace = document.getElementById("workspace");
         if (workspace) workspace.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
@@ -204,43 +205,35 @@ export default defineComponent({
     openModal(type: string, item: any = null) {
       const config = ({
         reviewTask: { title: "事件判断", narrow: false },
+        reviewTaskDetail: { title: "复核结果详情", narrow: false },
         eventDetail: { title: "事件详情", narrow: false },
-        reviewType: { title: "新增复核类型", narrow: true },
-        algorithm: { title: "新增算法", narrow: false },
-        deployTask: { title: "新建布控任务", narrow: false },
+        algorithm: { title: item && item.id ? "编辑算法" : "新增算法", narrow: false },
+        deployTask: { title: item && item.id ? "编辑布控任务" : "新建布控任务", narrow: false },
         version: { title: "新增版本号", narrow: false },
         eventSource: { title: "新增数据源", narrow: false },
         permissionRole: { title: "新建角色", narrow: false },
         mediaImport: { title: "批量导入设备", wide: true },
-        mediaSmartDiscover: { title: "智能发现", wide: true },
         mediaExport: { title: "导出设备", narrow: true },
         mediaMove: { title: "批量设备移动", narrow: true },
         mediaCapability: { title: "批量配置设备能力", narrow: true },
         mediaCloud: { title: "从云平台同步设备", wide: true },
         mediaDelete: { title: "删除设备", narrow: true },
-        mediaRegion: { title: "新增区域", narrow: true },
         videoConfig: { title: "视频参数配置", wide: true },
         customLayout: { title: "自定义分屏布局", wide: true },
         quickReplay: { title: "即时回放", narrow: true },
-        patrolPlan: { title: "新建轮巡计划", wide: true },
-        segmentPlayback: { title: "分段回放设置", narrow: true },
-        recordDownload: { title: "下载录像", narrow: true },
-        shortcutHelp: { title: "回放控制快捷键", narrow: true },
-        tvWall: { title: "添加电视墙", wide: true },
-        spliceWall: { title: "添加拼控墙", wide: true },
-        alarmPlan: { title: "编辑报警上墙预案", wide: true },
-        keyboardAccess: { title: "网络键盘接入与控制", narrow: false },
-        wallPreview: { title: "电视墙预览配置", narrow: true },
-        detector: { title: "探测器配置", wide: true },
-        linkageRule: { title: "联动规则配置", wide: true },
-        alarmEventDetail: { title: "报警事件详情", wide: true }
+        recordDownload: { title: "下载录像", narrow: true }
       } as any)[type] || { title: "新增", narrow: false };
       this.modal = { open: true, type, title: config.title, narrow: !!config.narrow, wide: !!config.wide, item };
     },
     closeModal() {
+      // 关闭新建布控任务弹窗时，清掉快速布防带入的目标图，避免下次新建残留
+      if (this.modal.type === "deployTask" && !(this.modal.item && this.modal.item.id)) {
+        this.state.prefill = "";
+        this.state.imageCrop = null;
+      }
       this.modal.open = false;
     },
-    submitModal(type: string) {
+    async submitModal(type: string, payload?: any) {
       if (type === "mediaDelete") {
         this.submitMediaDelete();
         return;
@@ -249,41 +242,133 @@ export default defineComponent({
         this.submitMediaMove();
         return;
       }
+      if (type === "algorithm") {
+        await this.submitAlgorithm(payload || {});
+        return;
+      }
+      if (type === "deployTask") {
+        await this.submitDeployTask(payload || {});
+        return;
+      }
+      if (type === "reviewTask") {
+        await this.submitReviewTask(payload || {});
+        return;
+      }
       const messages: Record<string, string> = {
-        reviewTask: "复核任务已提交，已进入任务管理列表",
-        reviewType: "复核类型配置已保存",
-        algorithm: "算法已保存，已停留在算法管理列表",
-        deployTask: "布控任务已保存，已停留在布控任务列表",
         version: "版本号已保存，已停留在版本号管理页面",
         eventSource: "数据源已保存，已停留在事件配置页面",
         permissionRole: "角色已保存，已停留在权限中心页面",
         mediaImport: "导入文件校验已通过，设备已加入导入队列",
         mediaExport: "设备列表已按当前范围导出",
         mediaCapability: "设备能力配置已批量保存",
-        mediaCloud: "云平台设备同步已开始",
         videoConfig: "视频参数配置已保存",
         customLayout: "自定义分屏布局已保存",
         quickReplay: "已返回实时预览画面",
-        patrolPlan: "轮巡计划已保存",
-        segmentPlayback: "分段回放已开始",
-        recordDownload: "录像下载任务已创建",
-        tvWall: "电视墙配置已保存",
-        spliceWall: "拼控墙配置已保存",
-        alarmPlan: "报警上墙预案已保存",
-        keyboardAccess: "网络键盘已保存并接入",
-        wallPreview: "上墙预览配置已保存",
-        detector: "探测器配置已保存",
-        linkageRule: "联动规则已保存",
-        alarmEventDetail: "告警已确认处理"
+        recordDownload: "录像下载任务已创建"
       };
       this.closeModal();
       this.showToast(messages[type] || "配置已保存");
-      if (type === "reviewTask") this.setRoute("reviewTasks");
-      if (type === "algorithm") this.setRoute("algorithms");
-      if (type === "deployTask") this.setRoute("deployTasks");
       if (type === "version") this.setRoute("versionManager");
       if (type === "eventSource") this.setRoute("eventConfig");
       if (type === "permissionRole") this.setRoute("permissions");
+    },
+    async submitReviewTask(payload: any) {
+      if (!payload.reviewTypeId || !payload.llmConfigId || !payload.image) {
+        this.showToast("请选择事件编码、大模型并上传图片");
+        return;
+      }
+      const form = new FormData();
+      form.append("reviewTypeId", payload.reviewTypeId);
+      form.append("llmConfigId", payload.llmConfigId);
+      form.append("image", payload.image);
+      try {
+        await api.createReviewTask(form);
+        this.closeModal();
+        this.showToast("复核任务已提交，大模型研判中");
+        store.reviewTasksVersion += 1;
+        this.setRoute("reviewTasks");
+      } catch (error) {
+        // 提交失败时保留弹窗，便于用户修正后重试
+        this.showToast(error instanceof Error ? error.message : "复核任务提交失败");
+      }
+    },
+    async submitAlgorithm(payload: any) {
+      try {
+        if (payload.id) {
+          await api.updateAlgorithm(payload.id, {
+            name: payload.name || undefined,
+            scene: payload.scene || undefined,
+            owner: payload.owner || undefined,
+            description: payload.description || undefined
+          });
+          this.showToast("算法已更新");
+        } else {
+          if (!payload.name || !payload.code || !payload.engineType || !payload.version) {
+            this.showToast("请填写算法名称、编号、引擎和初始版本");
+            return;
+          }
+          if (!payload.file) {
+            this.showToast("请上传算法包 zip 文件");
+            return;
+          }
+          const form = new FormData();
+          form.append("name", payload.name);
+          form.append("code", payload.code);
+          form.append("engineType", payload.engineType);
+          form.append("version", payload.version);
+          if (payload.scene) form.append("scene", payload.scene);
+          if (payload.owner) form.append("owner", payload.owner);
+          if (payload.description) form.append("description", payload.description);
+          if (payload.versionName) form.append("versionName", payload.versionName);
+          if (payload.notes) form.append("notes", payload.notes);
+          form.append("file", payload.file);
+          await api.createAlgorithm(form);
+          this.showToast("算法已创建");
+        }
+        this.closeModal();
+        // 同路由跳转触发 routeVersion 自增，页面重挂载刷新列表
+        this.setRoute("algorithms");
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "算法保存失败");
+      }
+    },
+    async submitDeployTask(payload: any) {
+      if (!payload.name) {
+        this.showToast("请输入任务名称");
+        return;
+      }
+      if (!payload.cameraIds || !payload.cameraIds.length) {
+        this.showToast("请选择布控点位");
+        return;
+      }
+      const body: DeploymentTaskCreate = {
+        name: payload.name,
+        pipeline: payload.algorithmName || "",
+        algorithmId: payload.algorithmId,
+        algorithmName: payload.algorithmName,
+        algorithmCode: payload.algorithmCode,
+        engineType: payload.engineType,
+        cameraIds: payload.cameraIds,
+        faceProfileId: payload.faceProfileId,
+        faceProfilePhotoUrl: payload.faceProfilePhotoUrl || null,
+        recognitionPerMinute: payload.recognitionPerMinute,
+        desc: payload.desc,
+        area: payload.area || null,
+        areaCount: payload.areaCount
+      };
+      try {
+        if (payload.id) {
+          await api.updateDeploymentTask(payload.id, body);
+          this.showToast("布控任务已更新");
+        } else {
+          await api.createDeploymentTask(body);
+          this.showToast("布控任务已创建");
+        }
+        this.closeModal();
+        this.setRoute("deployTasks");
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "布控任务保存失败");
+      }
     },
     async submitMediaDelete() {
       const rows = (this.modal.item && this.modal.item.rows) || [];
@@ -327,7 +412,7 @@ export default defineComponent({
     },
     openVersionManager(row: any) {
       this.selectedAlgorithm = row;
-      this.setRoute("versionManager");
+      this.setRoute("versionManager", row && row.id ? { query: { algorithmId: row.id } } : {});
     },
     openVersionDetail(row: any) {
       this.selectedVersion = row || this.store.versionRows[0];

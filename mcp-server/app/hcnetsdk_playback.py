@@ -31,7 +31,7 @@ from ctypes import (
     string_at,
 )
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -271,25 +271,105 @@ class HcNetSdkPlaybackProxy:
         self.timeout = timeout
         self._semaphore = asyncio.Semaphore(1)
         self._sessions: dict[str, PlaybackSession] = {}
-        self._max_live_sessions_before_reset = 2
+        self._max_live_sessions = 2
 
-    def build_recording(self, start_time: datetime, end_time: datetime) -> RecordingSegment:
-        """Build a playback recording descriptor bound to this proxy's device."""
-        return build_hcnetsdk_recording(self.host, self.port, self.channel, start_time, end_time)
+    def build_recording(
+        self, start_time: datetime, end_time: datetime, channel: int | None = None
+    ) -> RecordingSegment:
+        """Build a playback recording descriptor bound to this proxy's device.
 
-    def build_download_recording(self, start_time: datetime, end_time: datetime) -> RecordingSegment:
-        """Build a download recording descriptor bound to this proxy's device."""
-        return build_hcnetsdk_download_recording(self.host, self.port, self.channel, start_time, end_time)
+        Args:
+            channel: 覆盖默认通道（未传时用配置的 ``self.channel``）。
+        """
+        return build_hcnetsdk_recording(self.host, self.port, channel or self.channel, start_time, end_time)
 
-    async def start_playback(self, recording: RecordingSegment) -> str:
-        """Start an SDK playback session for the recording and return its public FLV URL."""
+    def build_download_recording(
+        self, start_time: datetime, end_time: datetime, channel: int | None = None
+    ) -> RecordingSegment:
+        """Build a download recording descriptor bound to this proxy's device.
+
+        Args:
+            channel: 覆盖默认通道（未传时用配置的 ``self.channel``）。
+        """
+        return build_hcnetsdk_download_recording(self.host, self.port, channel or self.channel, start_time, end_time)
+
+    async def measure_clock_skew(self) -> float:
+        """Measure the device clock offset in seconds (device time minus server time); 0 on failure.
+
+        NVR 的 SDK 下载/回放时间按设备本地时钟解释；现场设备若为手动对时可能与真实时间存在偏差。
+        """
+        try:
+            async with httpx.AsyncClient(
+                auth=httpx.DigestAuth(self.username, self.password),
+                timeout=min(self.timeout, 10),
+            ) as client:
+                response = await client.get(f"http://{self.host}/ISAPI/System/time")
+                response.raise_for_status()
+            from xml.etree import ElementTree
+
+            local_time = ElementTree.fromstring(response.text).findtext(".//{*}localTime")  # noqa: S314  # XML 来自内网受信设备
+            if not local_time:
+                return 0.0
+            nvr_now = datetime.fromisoformat(local_time.strip())
+            return nvr_now.astimezone(timezone.utc).timestamp() - datetime.now(timezone.utc).timestamp()
+        except Exception:  # noqa: BLE001  # 测偏差失败时按 0 处理，不阻断下载
+            logger.warning("failed to measure NVR clock skew for %s; assuming 0", self.host, exc_info=True)
+            return 0.0
+
+    async def start_playback(self, recording: RecordingSegment, speed: float = 1.0) -> str:
+        """Start (or reuse) an SDK playback session for the recording and return its public FLV URL."""
+        return await self.ensure_playback(recording, speed)
+
+    async def ensure_playback(self, recording: RecordingSegment, speed: float = 1.0) -> str:
+        """Reuse the live session for the recording, or start one with oldest-first eviction.
+
+        NVR 回放并发数有限：达到上限或新建失败（会话数/带宽限制）时逐出最早建立的会话，
+        保证新请求总能拿到流。同一段录像倍速变化时先停掉旧会话再以新倍速起流。
+        """
         async with self._semaphore:
             await self._cleanup_expired_locked()
-            if len(self._sessions) >= self._max_live_sessions_before_reset:
-                await self._stop_all_locked()
-            session = await asyncio.to_thread(self._start_session, recording)
-            self._sessions[session.stream_name] = session
-            return session.playback_url
+            existing = self._find_live_session_locked(recording.recordingId, speed)
+            if existing is not None:
+                return existing.playback_url
+            for stream_name, session in list(self._sessions.items()):
+                if session.recording_id == recording.recordingId:
+                    self._sessions.pop(stream_name)
+                    await asyncio.to_thread(self._stop_session, session)
+            last_error: Exception | None = None
+            attempts = len(self._sessions) + 1
+            for _ in range(attempts):
+                while len(self._sessions) >= self._max_live_sessions:
+                    await self._stop_oldest_locked()
+                try:
+                    session = await asyncio.to_thread(self._start_session, recording, speed)
+                except (HcNetSdkError, TimeoutError) as exc:
+                    last_error = exc
+                    if not self._sessions:
+                        break
+                    await self._stop_oldest_locked()
+                    continue
+                self._sessions[session.stream_name] = session
+                return session.playback_url
+            raise last_error or HcNetSdkError("HCNetSDK playback failed")
+
+    def _find_live_session_locked(self, recording_id: str, speed: float = 1.0) -> PlaybackSession | None:
+        for session in self._sessions.values():
+            if (
+                session.recording_id == recording_id
+                and session.speed == speed
+                and not session.failed
+                and session.ffmpeg is not None
+                and session.ffmpeg.poll() is None
+            ):
+                return session
+        return None
+
+    async def _stop_oldest_locked(self) -> None:
+        if not self._sessions:
+            return
+        stream_name = next(iter(self._sessions))
+        session = self._sessions.pop(stream_name)
+        await asyncio.to_thread(self._stop_session, session)
 
     async def stop_playback(self) -> None:
         """Stop all live playback sessions held by this proxy."""
@@ -315,7 +395,7 @@ class HcNetSdkPlaybackProxy:
             session = self._sessions.pop(stream_name)
             await asyncio.to_thread(self._stop_session, session)
 
-    def _start_session(self, recording: RecordingSegment) -> PlaybackSession:
+    def _start_session(self, recording: RecordingSegment, speed: float = 1.0) -> PlaybackSession:
         stream_name = f"hcn-{recording.recordingId[:12]}-{uuid4().hex[:8]}"
         playback_url = f"{self.zlm_public_http_url}/live/{stream_name}.live.flv"
         self._close_zlm_stream(stream_name)
@@ -326,13 +406,16 @@ class HcNetSdkPlaybackProxy:
             port=self.port,
             username=self.username,
             password=self.password,
-            channel=self.channel,
+            # 通道以录像段 metadata 为准（多摄像头同 NVR 时每路摄像头通道不同），缺省回落配置通道
+            channel=int(recording.metadata.get("channel") or self.channel),
             start_time=recording.startTime,
             end_time=recording.endTime,
             rtmp_url=f"{self.zlm_rtmp_push_base}/{stream_name}",
             playback_url=playback_url,
             timeout=self.timeout,
             expires_at=time.monotonic() + max(self.ttl_seconds, 1),
+            recording_id=recording.recordingId,
+            speed=speed,
         )
         try:
             session.start()
@@ -354,6 +437,7 @@ class HcNetSdkPlaybackProxy:
         work_dir = Path(tempfile.mkdtemp(prefix="hcnetsdk-download-"))
         ps_file = work_dir / f"{recording.recordingId}.ps"
         mp4_file = work_dir / f"{recording.recordingId}.mp4"
+        channel = int(recording.metadata.get("channel") or self.channel)
         sdk = None
         user_id = -1
         download_handle = -1
@@ -365,7 +449,7 @@ class HcNetSdkPlaybackProxy:
             download_handle = int(
                 sdk.sdk.NET_DVR_GetFileByTime(
                     user_id,
-                    self.channel,
+                    channel,
                     byref(to_sdk_time(recording.startTime)),
                     byref(to_sdk_time(recording.endTime)),
                     str(ps_file).encode(),
@@ -633,6 +717,9 @@ class PlaybackSession:
     playback_url: str
     timeout: float
     expires_at: float
+    recording_id: str = ""
+    # 回放倍速：1 为等速；SDK 点播回调为不限速取流，倍速靠 ffmpeg 限速读取 + 时间戳压缩实现
+    speed: float = 1.0
 
     def __post_init__(self) -> None:
         self.user_id = -1
@@ -643,27 +730,50 @@ class PlaybackSession:
         self.writer: threading.Thread | None = None
         self.failed = ""
 
+    def _ffmpeg_args(self) -> list[str]:
+        # ffmpeg 可执行文件由部署环境 PATH 提供，参数均为内部构造
+        args = [
+            "ffmpeg",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-fflags",
+            "nobuffer",
+        ]
+        if self.speed != 1.0:
+            # 高倍速只解码关键帧，避免解码/编码负载随倍速线性增长
+            if self.speed >= 16:
+                args += ["-skip_frame", "nokey"]
+            # SDK 点播回调为不限速取流（现场实测约 35 倍速供流），按倍速限速读取
+            args += ["-readrate", f"{self.speed:g}"]
+        else:
+            args += ["-re"]
+        args += ["-i", "pipe:0", "-an"]
+        if self.speed != 1.0:
+            # 压缩/拉伸时间戳让播放器按倍速渲染；fps=25 固定输出帧率
+            args += ["-vf", f"setpts=PTS/{self.speed:g},fps=25"]
+        args += [
+            # 浏览器 MSE 不支持 NVR 的 HEVC（现场 NVR 多为 smart265），必须转码 H.264
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "50",
+            "-f",
+            "flv",
+            self.rtmp_url,
+        ]
+        return args
+
     def start(self) -> None:
         """Spawn the ffmpeg push process and start SDK playback with data callback."""
-        # ffmpeg 可执行文件由部署环境 PATH 提供，参数均为内部构造
         self.ffmpeg = subprocess.Popen(  # noqa: S603
-            [  # noqa: S607
-                "ffmpeg",
-                "-nostdin",
-                "-loglevel",
-                "error",
-                "-fflags",
-                "nobuffer",
-                "-re",
-                "-i",
-                "pipe:0",
-                "-an",
-                "-c:v",
-                "copy",
-                "-f",
-                "flv",
-                self.rtmp_url,
-            ],
+            self._ffmpeg_args(),  # noqa: S607
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,

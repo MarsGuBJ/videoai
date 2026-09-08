@@ -14,6 +14,18 @@ class FaceTarget(BaseModel):
     recognitionPerMinute: int = Field(default=60, ge=1)
 
 
+class AlgorithmSpec(BaseModel):
+    """算法引擎描述：backend-lite 安装到共享算法目录后下发给 worker。"""
+
+    algorithmId: UUID
+    engineType: str
+    version: str
+    installPath: str
+    recognitionPerMinute: int = Field(default=60, ge=1)
+    # 算法事件归属的布控任务；缺省时回退到 StreamStartRequest.deploymentTaskId
+    deploymentTaskId: UUID | None = None
+
+
 class StreamStartRequest(BaseModel):
     cameraId: UUID
     cameraName: str
@@ -23,6 +35,7 @@ class StreamStartRequest(BaseModel):
     faceTargets: list[FaceTarget] = Field(default_factory=list)
     faceDetectionEnabled: bool = True
     objectDetectionEnabled: bool = False
+    algorithm: AlgorithmSpec | None = None
 
 
 class StreamStopRequest(BaseModel):
@@ -79,6 +92,8 @@ class ObjectEventIngestRequest(BaseModel):
     videoTime: datetime
     frameWidth: int = 0
     frameHeight: int = 0
+    eventType: str | None = None
+    deploymentTaskId: UUID | None = None
 
 
 def utc_now() -> datetime:

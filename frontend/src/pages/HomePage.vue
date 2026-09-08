@@ -80,8 +80,8 @@ export default defineComponent({
     },
     submitHomeSearch() {
       if (this.homeVideoName) {
-        this.showToast("已进入视频分析");
-        this.setRoute("localVideo");
+        this.showToast("已进入文搜视频");
+        this.setRoute("exact");
         return;
       }
       if (this.homeImageName) {

@@ -16,6 +16,15 @@ def post(path: str, json: dict) -> httpx.Response:
     return asyncio.run(run_request())
 
 
+def get(path: str) -> httpx.Response:
+    async def run_request():
+        transport = httpx.ASGITransport(app=server.mcp.streamable_http_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.get(path)
+
+    return asyncio.run(run_request())
+
+
 def make_camera(**overrides) -> Camera:
     now = datetime(2026, 7, 8, tzinfo=timezone.utc)
     data = {
@@ -109,7 +118,7 @@ def test_get_recording_stream_http_route_remains_available(monkeypatch):
         source=server.NET_DVR_PLAYBACK_BY_TIME,
     )
 
-    async def fake_start_playback(cached_recording):
+    async def fake_start_playback(cached_recording, speed=1.0):
         assert cached_recording.recordingId == recording.recordingId
         return "http://zlm/live/rec-http-compat.live.flv"
 
@@ -133,10 +142,13 @@ def test_download_recording_http_route(monkeypatch, tmp_path):
     class FakeDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time):
+        def build_download_recording(self, start_time, end_time, channel=None):
             from app.hcnetsdk_playback import build_hcnetsdk_download_recording
 
-            return build_hcnetsdk_download_recording("10.10.7.252", 8000, self.channel, start_time, end_time)
+            return build_hcnetsdk_download_recording("10.10.7.252", 8000, channel or self.channel, start_time, end_time)
+
+        async def measure_clock_skew(self):
+            return 0.0
 
         async def download_mp4(self, recording):
             return temp_mp4
@@ -190,11 +202,12 @@ def test_download_recording_http_rejects_unknown_nvr():
     assert response.json()["error"]["message"] == "nvr must be one of: 10.10.7.252, 10.10.7.253"
 
 
-def test_download_recording_mcp_schema_requires_nvr():
+def test_download_recording_mcp_schema_nvr_optional():
     tools = asyncio.run(server.mcp.list_tools())
     download_tool = next(tool for tool in tools if tool.name == "download_recording")
 
-    assert "nvr" in download_tool.inputSchema["required"]
+    # nvr 与 cameraId 二选一，schema 层面均不必填；两者都空时由 resolve_download_nvr 报错
+    assert "nvr" not in download_tool.inputSchema.get("required", [])
 
 
 def test_upload_face_image_http_uses_image_url(monkeypatch):
@@ -363,3 +376,94 @@ def test_http_route_rejects_invalid_boolean():
 
     assert response.status_code == 400
     assert response.json()["error"]["message"] == "autoProxy must be a boolean"
+
+
+def test_recording_live_redirects_to_on_demand_stream(monkeypatch):
+    """GET /recording-live 按链接参数临时建流并 302 到真实 FLV 地址。"""
+    calls = []
+
+    async def fake_ensure_playback(recording):
+        calls.append((recording.startTime, recording.endTime))
+        return "http://zlm/live/hcn-ondemand.live.flv"
+
+    monkeypatch.setattr(server.hcnetsdk_playback, "ensure_playback", fake_ensure_playback)
+
+    response = get("/recording-live?startTime=2026-07-08T00:00:00&endTime=2026-07-08T00:05:00")
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "http://zlm/live/hcn-ondemand.live.flv"
+    assert calls[0][0].utcoffset().total_seconds() == 8 * 60 * 60
+
+
+def test_recording_live_with_camera_id_routes_to_camera_nvr(monkeypatch):
+    """GET /recording-live?cameraId=... 按摄像头绑定 NVR 建流：时钟偏差补偿后 302 到 FLV。"""
+    camera = make_camera(
+        sourceUrl="rtsp://admin:p%40ss@10.10.8.10:554/Streaming/Channels/101",
+        nvrId="10.10.8.10",
+        nvrChannel="2",
+        nvrTrackId="201",
+    )
+    calls = {}
+
+    async def fake_get_camera(camera_id):
+        assert camera_id == "cam-1"
+        return camera
+
+    class FakeProxy:
+        async def measure_clock_skew(self):
+            return 60.0
+
+        def build_recording(self, start_time, end_time, channel=None):
+            calls["start"] = start_time
+            calls["channel"] = channel
+            return RecordingSegment(
+                recordingId="rec-camera-live",
+                cameraId=camera.id,
+                cameraName=camera.name,
+                trackId="201",
+                startTime=start_time,
+                endTime=end_time,
+                playbackUri="hcnetsdk://10.10.8.10:8000/channels/2",
+                source="hikvision_hcnetsdk_playback",
+            )
+
+        async def ensure_playback(self, recording):
+            calls["recording"] = recording
+            return "http://zlm/live/hcn-camera.live.flv"
+
+    class FakeRegistry:
+        def proxy_for(self, cam):
+            calls["camera"] = cam
+            return FakeProxy()
+
+    monkeypatch.setattr(server.videoai, "get_camera", fake_get_camera)
+    monkeypatch.setattr("app.routes.nvr_devices", FakeRegistry())
+
+    async def fail_ensure_playback(recording):
+        raise AssertionError("cameraId path must not use the singleton playback proxy")
+
+    monkeypatch.setattr(server.hcnetsdk_playback, "ensure_playback", fail_ensure_playback)
+
+    response = get("/recording-live?cameraId=cam-1&startTime=2026-07-08T00:00:00&endTime=2026-07-08T00:05:00")
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "http://zlm/live/hcn-camera.live.flv"
+    assert calls["camera"] is camera
+    assert calls["channel"] == 2
+    # 时钟偏差 +60s 叠加到 SDK 回放开始时间
+    assert calls["start"].utcoffset().total_seconds() == 8 * 60 * 60
+    assert calls["start"].minute == 1
+
+
+def test_recording_live_rejects_inverted_range():
+    response = get("/recording-live?startTime=2026-07-08T00:05:00&endTime=2026-07-08T00:00:00")
+
+    assert response.status_code == 400
+    assert "endTime" in response.json()["error"]["message"]
+
+
+def test_recording_live_requires_time_params():
+    response = get("/recording-live")
+
+    assert response.status_code == 400
+    assert "startTime" in response.json()["error"]["message"]

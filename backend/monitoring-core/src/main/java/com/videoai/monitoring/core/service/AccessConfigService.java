@@ -3,10 +3,14 @@ package com.videoai.monitoring.core.service;
 import com.videoai.monitoring.common.dto.CertificateCreateRequest;
 import com.videoai.monitoring.common.dto.CheckPortRequest;
 import com.videoai.monitoring.common.dto.Ga1400Config;
+import com.videoai.monitoring.common.dto.Ga1400EntryRequest;
 import com.videoai.monitoring.common.dto.Gb28181Config;
+import com.videoai.monitoring.common.dto.Gb28181EntryRequest;
 import com.videoai.monitoring.common.vo.AccessConfigResponse;
 import com.videoai.monitoring.common.vo.CertificateResponse;
 import com.videoai.monitoring.common.vo.CheckPortResponse;
+import com.videoai.monitoring.common.vo.Ga1400EntryResponse;
+import com.videoai.monitoring.common.vo.Gb28181EntryResponse;
 import com.videoai.monitoring.common.vo.HostIpsResponse;
 
 import java.util.List;
@@ -23,6 +27,22 @@ public interface AccessConfigService {
 
     Ga1400Config saveGa1400(Ga1400Config config);
 
+    List<Ga1400EntryResponse> listGa1400Entries();
+
+    Ga1400EntryResponse createGa1400Entry(Ga1400EntryRequest request);
+
+    Ga1400EntryResponse updateGa1400Entry(UUID id, Ga1400EntryRequest request);
+
+    void deleteGa1400Entry(UUID id);
+
+    List<Gb28181EntryResponse> listGb28181Entries();
+
+    Gb28181EntryResponse createGb28181Entry(Gb28181EntryRequest request);
+
+    Gb28181EntryResponse updateGb28181Entry(UUID id, Gb28181EntryRequest request);
+
+    void deleteGb28181Entry(UUID id);
+
     List<CertificateResponse> listCertificates();
 
     CertificateResponse createCertificate(CertificateCreateRequest request);
@@ -37,11 +57,25 @@ public interface AccessConfigService {
         if (config == null) {
             throw new IllegalArgumentException("配置不能为空");
         }
-        requireDigits(config.sipId(), 20, "sipId");
-        requireDigits(config.sipDomain(), 10, "sipDomain");
-        parsePort(config.sipPort(), "sipPort");
-        int start = parsePort(config.receivePortStart(), "receivePortStart");
-        int end = parsePort(config.receivePortEnd(), "receivePortEnd");
+        validateGb28181Fields(config.sipId(), config.sipDomain(), config.sipPort(),
+                config.receivePortStart(), config.receivePortEnd());
+    }
+
+    static void validateGb28181Entry(Gb28181EntryRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求不能为空");
+        }
+        validateGb28181Fields(request.sipId(), request.sipDomain(), request.sipPort(),
+                request.receivePortStart(), request.receivePortEnd());
+    }
+
+    private static void validateGb28181Fields(String sipId, String sipDomain, String sipPort,
+                                              String receivePortStart, String receivePortEnd) {
+        requireDigits(sipId, 20, "sipId");
+        requireDigits(sipDomain, 10, "sipDomain");
+        parsePort(sipPort, "sipPort");
+        int start = parsePort(receivePortStart, "receivePortStart");
+        int end = parsePort(receivePortEnd, "receivePortEnd");
         if (start > end) {
             throw new IllegalArgumentException("receivePortStart 不能大于 receivePortEnd");
         }
@@ -51,8 +85,19 @@ public interface AccessConfigService {
         if (config == null) {
             throw new IllegalArgumentException("配置不能为空");
         }
-        requireDigits(config.platformId(), 20, "platformId");
-        parsePort(config.port(), "port");
+        validateGa1400Fields(config.platformId(), config.port());
+    }
+
+    static void validateGa1400Entry(Ga1400EntryRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求不能为空");
+        }
+        validateGa1400Fields(request.platformId(), request.port());
+    }
+
+    private static void validateGa1400Fields(String platformId, String port) {
+        requireDigits(platformId, 20, "platformId");
+        parsePort(port, "port");
     }
 
     static void validateCertificate(CertificateCreateRequest request) {

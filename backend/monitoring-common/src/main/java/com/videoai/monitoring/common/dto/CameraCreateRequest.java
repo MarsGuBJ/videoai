@@ -18,6 +18,12 @@ public record CameraCreateRequest(
         String username,
         String password,
         String deviceCode,
-        String serialNumber
+        String serialNumber,
+        Boolean videoPreviewEnabled,
+        Boolean audioEnabled,
+        Boolean talkbackEnabled,
+        Boolean ptzEnabled,
+        Boolean smartAnalysisEnabled,
+        Boolean alarmIoEnabled
 ) {
 }

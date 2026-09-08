@@ -39,4 +39,10 @@ public class CameraEntity {
     private String password;
     private String deviceCode;
     private String serialNumber;
+    private Boolean videoPreviewEnabled;
+    private Boolean audioEnabled;
+    private Boolean talkbackEnabled;
+    private Boolean ptzEnabled;
+    private Boolean smartAnalysisEnabled;
+    private Boolean alarmIoEnabled;
 }

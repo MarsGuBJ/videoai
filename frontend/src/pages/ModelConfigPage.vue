@@ -19,6 +19,10 @@
           <input v-model="form.baseUrl" class="input" placeholder="请输入接口地址" />
         </div>
         <div class="modal-form-row">
+          <label>模型标识：</label>
+          <input v-model="form.model" class="input" placeholder="请输入模型标识，如 qwen-vl-max" />
+        </div>
+        <div class="modal-form-row">
           <label><span class="required">*</span>API Key：</label>
           <div class="model-api-field">
             <input v-model="form.apiKey" class="input" :type="showApiKey ? 'text' : 'password'" :placeholder="editing && editing.apiKeyConfigured ? '已配置，留空则不修改' : '请输入API Key'" />
@@ -92,6 +96,7 @@ export default defineComponent({
       form: {
         name: "",
         baseUrl: "",
+        model: "",
         apiKey: "",
         deployType: "cloud" as "cloud" | "local",
         timeout: 30,
@@ -138,7 +143,7 @@ export default defineComponent({
       }
     },
     blankForm() {
-      return { name: "", baseUrl: "", apiKey: "", deployType: "cloud" as "cloud" | "local", timeout: 30, temperature: 0.7, maxTokens: 2048, fps: 1 };
+      return { name: "", baseUrl: "", model: "", apiKey: "", deployType: "cloud" as "cloud" | "local", timeout: 30, temperature: 0.7, maxTokens: 2048, fps: 1 };
     },
     openCreate() { this.editing = null; this.form = this.blankForm(); this.showApiKey = false; this.modalOpen = true; },
     openEdit(row: LlmConfig) {
@@ -146,6 +151,7 @@ export default defineComponent({
       this.form = {
         name: row.name,
         baseUrl: row.baseUrl,
+        model: row.model,
         apiKey: "",
         deployType: row.deployType,
         timeout: row.timeout,
@@ -161,6 +167,7 @@ export default defineComponent({
       const payload: LlmConfigPayload = {
         name: this.form.name.trim(),
         baseUrl: this.form.baseUrl.trim(),
+        model: this.form.model.trim(),
         deployType: this.form.deployType,
         timeout: this.form.timeout,
         temperature: this.form.temperature,

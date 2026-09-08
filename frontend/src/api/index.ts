@@ -1,15 +1,23 @@
-import type { AccessCertificate, AccessConfig, AccessGa1400Config, AccessGb28181Config, Camera, CloudPlatform, DedupRule, DedupRulePayload, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceMatchEvent, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, WindowsCameraStatus } from '../types';
+import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, WindowsCameraStatus, WorkerNode } from '../types';
 
 export type {
   AccessCertificate,
   AccessConfig,
   AccessGa1400Config,
+  AccessGa1400Entry,
   AccessGb28181Config,
+  AccessGb28181Entry,
+  Algorithm,
+  AlgorithmEngine,
+  AlgorithmVersion,
   Camera,
+  DeploymentEvent,
+  DeploymentEventPage,
+  DeploymentEventStats,
+  DeploymentEventSummary,
   DeploymentTask,
   DeploymentTaskCreate,
   FaceEvent,
-  FaceMatchEvent,
   FaceProfile,
   ModelGpuConfig,
   ModelInfo,
@@ -20,7 +28,7 @@ export type {
 } from '../types';
 
 export const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
-export const MEDIA_API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_MEDIA_API_BASE_URL, '8082');
+export const MEDIA_API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_MEDIA_API_BASE_URL);
 
 const MEDIA_API_PATH_PREFIXES = ['/api/cameras', '/api/live', '/api/streams', '/api/access-config', '/api/cloud-platforms'];
 
@@ -49,6 +57,12 @@ type CameraPayload = {
   password?: string;
   deviceCode?: string;
   serialNumber?: string;
+  videoPreviewEnabled?: boolean;
+  audioEnabled?: boolean;
+  talkbackEnabled?: boolean;
+  ptzEnabled?: boolean;
+  smartAnalysisEnabled?: boolean;
+  alarmIoEnabled?: boolean;
 };
 
 type CloudPlatformPayload = {
@@ -58,6 +72,23 @@ type CloudPlatformPayload = {
   secret?: string;
   ip?: string;
   port?: string;
+};
+
+type ReviewTypePayload = {
+  name?: string;
+  code?: string;
+  prompt?: string;
+  injectEvent?: string;
+  remark?: string;
+  llmConfigId?: string | null;
+};
+
+type ReviewSchedulePayload = {
+  name?: string;
+  reviewTypeId?: string;
+  cron?: string;
+  enabled?: boolean;
+  batchSize?: number;
 };
 
 export type PersonSearchBboxPoint = {
@@ -173,6 +204,65 @@ export type VideoAnalysisResponse = {
   [key: string]: unknown;
 };
 
+// NVR 录像导出为 MP4 文件后的响应（backend-lite 透传 MCP export_recording 的 data）。
+export type RecordingFileResponse = {
+  videoUrl: string;
+  durationSeconds?: number;
+  trackId?: string;
+  startTime?: string;
+  endTime?: string;
+};
+
+// NVR 录像回放接口（backend-lite /api/recordings/*）：时间段均为北京时间 ISO 字符串。
+export type RecordingSegment = {
+  recordingId?: string;
+  cameraId: string;
+  cameraName?: string;
+  trackId?: string;
+  startTime: string;
+  endTime: string;
+  url?: string;
+  format?: string;
+};
+
+export type RecordingSearchResponse = {
+  data: RecordingSegment[];
+};
+
+export type RecordingStreamResult = {
+  url: string;
+  format: string;
+  expiresAt?: string;
+};
+
+export type RecordingDownloadResult = {
+  url: string;
+  format: string;
+};
+
+export type RecordingTimeRangePayload = {
+  cameraId: string;
+  startTime: string;
+  endTime: string;
+  /** 回放倍速（仅 stream 接口使用），现场海康 NVR 实测支持 0.25/0.5/1/2/4/8/16/32 */
+  speed?: number;
+};
+
+function extractErrorMessage(text: string, response: Response): string {
+  if (!text) return `${response.status} ${response.statusText}`;
+  try {
+    const body = JSON.parse(text);
+    const detail = body && body.detail;
+    if (typeof detail === 'string') return detail;
+    if (detail && typeof detail.message === 'string') return detail.message;
+    if (detail && detail.error && typeof detail.error.message === 'string') return detail.error.message;
+    if (body && typeof body.message === 'string') return body.message;
+  } catch {
+    // 非 JSON 错误体，原样返回
+  }
+  return text;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${baseUrlForPath(path)}${path}`, {
     ...options,
@@ -183,7 +273,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `${response.status} ${response.statusText}`);
+    throw new Error(extractErrorMessage(text, response));
   }
   if (response.status === 204) {
     return undefined as T;
@@ -192,16 +282,54 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
+// 摄像头列表 30 秒短缓存：各页面区域/监控点树共用，避免每次挂载重复拉取全量列表；
+// 增删改/启停摄像头后立即失效，失败响应不留缓存
+const CAMERAS_CACHE_TTL_MS = 30_000;
+let camerasCache: { at: number; promise: Promise<Camera[]> } | null = null;
+
+function invalidateCamerasCache() {
+  camerasCache = null;
+}
+
+function fetchCamerasCached(): Promise<Camera[]> {
+  const now = Date.now();
+  if (camerasCache && now - camerasCache.at < CAMERAS_CACHE_TTL_MS) return camerasCache.promise;
+  const promise = request<Camera[]>('/api/cameras').catch((error) => {
+    if (camerasCache?.promise === promise) camerasCache = null;
+    throw error;
+  });
+  camerasCache = { at: now, promise };
+  return promise;
+}
+
 export const api = {
-  cameras: () => request<Camera[]>('/api/cameras'),
+  cameras: () => fetchCamerasCached(),
   camera: (id: string) => request<Camera>(`/api/cameras/${id}`),
   createCamera: (payload: CameraPayload) =>
-    request<Camera>('/api/cameras', { method: 'POST', body: JSON.stringify(payload) }),
+    request<Camera>('/api/cameras', { method: 'POST', body: JSON.stringify(payload) }).then((cam) => {
+      invalidateCamerasCache();
+      return cam;
+    }),
   updateCamera: (id: string, payload: CameraPayload) =>
-    request<Camera>(`/api/cameras/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  deleteCamera: (id: string) => request<void>(`/api/cameras/${id}`, { method: 'DELETE' }),
-  startCamera: (id: string) => request<Camera>(`/api/cameras/${id}/start`, { method: 'POST' }),
-  stopCamera: (id: string) => request<Camera>(`/api/cameras/${id}/stop`, { method: 'POST' }),
+    request<Camera>(`/api/cameras/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }).then((cam) => {
+      invalidateCamerasCache();
+      return cam;
+    }),
+  deleteCamera: (id: string) =>
+    request<void>(`/api/cameras/${id}`, { method: 'DELETE' }).then((result) => {
+      invalidateCamerasCache();
+      return result;
+    }),
+  startCamera: (id: string) =>
+    request<Camera>(`/api/cameras/${id}/start`, { method: 'POST' }).then((cam) => {
+      invalidateCamerasCache();
+      return cam;
+    }),
+  stopCamera: (id: string) =>
+    request<Camera>(`/api/cameras/${id}/stop`, { method: 'POST' }).then((cam) => {
+      invalidateCamerasCache();
+      return cam;
+    }),
   ptzControl: (id: string, payload: PtzCommandRequest) =>
     request<PtzCommandResponse>(`/api/cameras/${id}/ptz`, { method: 'POST', body: JSON.stringify(payload) }),
 
@@ -211,7 +339,30 @@ export const api = {
   deleteFace: (id: string) => request<void>(`/api/faces/${id}`, { method: 'DELETE' }),
 
   events: () => request<FaceEvent[]>('/api/events?limit=100'),
-  faceMatchEvents: (limit = 100) => request<FaceMatchEvent[]>(`/api/face-match-events?limit=${limit}`),
+  deploymentEvents: (params: DeploymentEventQuery = {}) => {
+    const search = new URLSearchParams();
+    search.set('page', String(params.page ?? 1));
+    search.set('size', String(params.size ?? 20));
+    if (params.taskId) search.set('taskId', params.taskId);
+    if (params.cameraId) search.set('cameraId', params.cameraId);
+    if (params.eventType) search.set('eventType', params.eventType);
+    if (params.keyword) search.set('keyword', params.keyword);
+    if (params.startTime) search.set('startTime', params.startTime);
+    if (params.endTime) search.set('endTime', params.endTime);
+    return request<DeploymentEventPage>(`/api/deployment-events?${search.toString()}`);
+  },
+  deploymentEventSummary: () => request<DeploymentEventSummary>('/api/deployment-events/summary'),
+  deploymentEventStats: (params: DeploymentEventStatsQuery = {}) => {
+    const search = new URLSearchParams();
+    if (params.startTime) search.set('startTime', params.startTime);
+    if (params.endTime) search.set('endTime', params.endTime);
+    if (params.area) search.set('area', params.area);
+    const query = search.toString();
+    return request<DeploymentEventStats>(`/api/deployment-events/stats${query ? `?${query}` : ''}`);
+  },
+
+  searchKeywordStats: (limit = 10) =>
+    request<SearchKeywordStatItem[]>(`/api/search-keywords/stats?limit=${limit}`),
 
   models: () => request<ModelInfo[]>('/api/models'),
   registerModel: (payload: { name: string; displayName: string; repositoryPath?: string; modelType: string; description?: string }) =>
@@ -235,6 +386,17 @@ export const api = {
     request<DeploymentTask>(`/api/deployment-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteDeploymentTask: (id: string) =>
     request<{ deleted: string }>(`/api/deployment-tasks/${id}`, { method: 'DELETE' }),
+
+  algorithmEngines: () => request<AlgorithmEngine[]>('/api/algorithm-engines'),
+  algorithms: () => request<Algorithm[]>('/api/algorithms'),
+  createAlgorithm: (form: FormData) => request<Algorithm>('/api/algorithms', { method: 'POST', body: form }),
+  updateAlgorithm: (id: string, payload: { name?: string; scene?: string; owner?: string; description?: string; status?: 'RUNNING' | 'DISABLED' }) =>
+    request<Algorithm>(`/api/algorithms/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  algorithmVersions: (id: string) => request<AlgorithmVersion[]>(`/api/algorithms/${encodeURIComponent(id)}/versions`),
+  createAlgorithmVersion: (id: string, form: FormData) =>
+    request<AlgorithmVersion>(`/api/algorithms/${encodeURIComponent(id)}/versions`, { method: 'POST', body: form }),
+  activateAlgorithmVersion: (id: string, versionId: string) =>
+    request<AlgorithmVersion>(`/api/algorithms/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/activate`, { method: 'POST' }),
 
   uploadPersonSearchImage: (image: File) => {
     const form = new FormData();
@@ -288,11 +450,48 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  getRecordingFileUrl: (payload: { cameraId: string; startTime: string; endTime: string }) =>
+    request<RecordingFileResponse>('/api/video-analysis/recording-file', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  searchRecordings: (payload: RecordingTimeRangePayload) =>
+    request<RecordingSearchResponse>('/api/recordings/search', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  startRecordingStream: (payload: RecordingTimeRangePayload) =>
+    request<RecordingStreamResult>('/api/recordings/stream', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  downloadRecording: (payload: RecordingTimeRangePayload) =>
+    request<RecordingDownloadResult>('/api/recordings/download', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  uploadAnalysisVideo: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ videoUrl: string }>('/api/video-analysis/upload-video', { method: 'POST', body: form });
+  },
+
   accessConfig: () => request<AccessConfig>('/api/access-config'),
-  saveGb28181Config: (payload: AccessGb28181Config) =>
-    request<AccessGb28181Config>('/api/access-config/gb28181', { method: 'PUT', body: JSON.stringify(payload) }),
-  saveGa1400Config: (payload: AccessGa1400Config) =>
-    request<AccessGa1400Config>('/api/access-config/ga1400', { method: 'PUT', body: JSON.stringify(payload) }),
+  gb28181Entries: () => request<AccessGb28181Entry[]>('/api/access-config/gb28181/entries'),
+  createGb28181Entry: (payload: { enabled: boolean; sipId: string; sipDomain: string; sipIp: string; sipPort: string; password: string; parentPort: string; receivePortStart: string; receivePortEnd: string }) =>
+    request<AccessGb28181Entry>('/api/access-config/gb28181/entries', { method: 'POST', body: JSON.stringify(payload) }),
+  updateGb28181Entry: (id: string, payload: { enabled: boolean; sipId: string; sipDomain: string; sipIp: string; sipPort: string; password: string; parentPort: string; receivePortStart: string; receivePortEnd: string }) =>
+    request<AccessGb28181Entry>(`/api/access-config/gb28181/entries/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteGb28181Entry: (id: string) =>
+    request<void>(`/api/access-config/gb28181/entries/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  ga1400Entries: () => request<AccessGa1400Entry[]>('/api/access-config/ga1400/entries'),
+  createGa1400Entry: (payload: { enabled: boolean; platformId: string; platformIp: string; port: string; password: string; resourcePath: string; autoRegister: boolean }) =>
+    request<AccessGa1400Entry>('/api/access-config/ga1400/entries', { method: 'POST', body: JSON.stringify(payload) }),
+  updateGa1400Entry: (id: string, payload: { enabled: boolean; platformId: string; platformIp: string; port: string; password: string; resourcePath: string; autoRegister: boolean }) =>
+    request<AccessGa1400Entry>(`/api/access-config/ga1400/entries/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteGa1400Entry: (id: string) =>
+    request<void>(`/api/access-config/ga1400/entries/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   accessCertificates: () => request<AccessCertificate[]>('/api/access-config/certificates'),
   createAccessCertificate: (payload: { deviceCode: string; certificate: string; authMode: string }) =>
     request<AccessCertificate>('/api/access-config/certificates', { method: 'POST', body: JSON.stringify(payload) }),
@@ -309,6 +508,10 @@ export const api = {
     request<CloudPlatform>(`/api/cloud-platforms/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteCloudPlatform: (id: string) =>
     request<void>(`/api/cloud-platforms/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  cloudPlatformPrecheck: (id: string) =>
+    request<CloudSyncPrecheck>(`/api/cloud-platforms/${encodeURIComponent(id)}/precheck`, { method: 'POST' }),
+  cloudPlatformSync: (id: string, payload: { items: CloudDeviceItem[]; targetArea: string; overwrite: boolean }) =>
+    request<CloudSyncResult>(`/api/cloud-platforms/${encodeURIComponent(id)}/sync`, { method: 'POST', body: JSON.stringify(payload) }),
 
   llmConfigs: () => request<LlmConfig[]>('/api/llm-configs'),
   createLlmConfig: (payload: LlmConfigPayload) =>
@@ -319,6 +522,29 @@ export const api = {
     request<void>(`/api/llm-configs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   testLlmConfig: (id: string) =>
     request<LlmTestResult>(`/api/llm-configs/${encodeURIComponent(id)}/test`, { method: 'POST' }),
+
+  reviewTypes: () => request<ReviewType[]>('/api/review-types'),
+  createReviewType: (payload: ReviewTypePayload) =>
+    request<ReviewType>('/api/review-types', { method: 'POST', body: JSON.stringify(payload) }),
+  updateReviewType: (id: string, payload: ReviewTypePayload) =>
+    request<ReviewType>(`/api/review-types/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteReviewType: (id: string) =>
+    request<void>(`/api/review-types/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  reviewSchedules: () => request<ReviewSchedule[]>('/api/review-schedules'),
+  createReviewSchedule: (payload: ReviewSchedulePayload) =>
+    request<ReviewSchedule>('/api/review-schedules', { method: 'POST', body: JSON.stringify(payload) }),
+  updateReviewSchedule: (id: string, payload: ReviewSchedulePayload) =>
+    request<ReviewSchedule>(`/api/review-schedules/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteReviewSchedule: (id: string) =>
+    request<{ deleted: string }>(`/api/review-schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  runReviewSchedule: (id: string) =>
+    request<{ started: string }>(`/api/review-schedules/${encodeURIComponent(id)}/run`, { method: 'POST' }),
+
+  reviewTasks: () => request<ReviewTask[]>('/api/review-tasks'),
+  createReviewTask: (form: FormData) => request<ReviewTask>('/api/review-tasks', { method: 'POST', body: form }),
+  deleteReviewTask: (id: string) =>
+    request<{ deleted: string }>(`/api/review-tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   eventInfos: () => request<EventInfo[]>('/api/event-infos'),
   createEventInfo: (payload: EventInfoPayload) =>
@@ -343,6 +569,8 @@ export const api = {
     request<PushTask>(`/api/event-push-tasks/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteEventPushTask: (id: string) =>
     request<void>(`/api/event-push-tasks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  workerNodes: () => request<WorkerNode[]>('/api/worker-nodes'),
 };
 
 export function assetUrl(path?: string | null): string {
@@ -353,6 +581,15 @@ export function assetUrl(path?: string | null): string {
     return path;
   }
   return `${baseUrlForPath(path)}${path}`;
+}
+
+// 文搜视频分析结果的真实截图：后端按时间点从视频文件截帧
+export function videoAnalysisFrameUrl(videoUrl?: string | null, seconds = 0): string {
+  if (!videoUrl) {
+    return '';
+  }
+  const offset = Math.max(0, Math.floor(Number(seconds) || 0));
+  return `${baseUrlForPath('/api/video-analysis/frame')}/api/video-analysis/frame?videoUrl=${encodeURIComponent(videoUrl)}&seconds=${offset}`;
 }
 
 export function streamUrl(path?: string | null): string | undefined {
@@ -382,16 +619,8 @@ export function cameraStreamUrl(camera?: Camera | null): string | undefined {
   return streamUrl(camera.playbackUrl);
 }
 
-function resolveApiBaseUrl(configured?: string, defaultPort = '8081') {
-  if (typeof window === 'undefined') {
-    return configured ?? '';
-  }
-  if (configured) {
-    return configured;
-  }
-  const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
-  if (localHosts.has(window.location.hostname)) {
-    return `${window.location.protocol}//${window.location.hostname}:${defaultPort}`;
-  }
-  return '';
+function resolveApiBaseUrl(configured?: string) {
+  // 未显式配置时一律同源相对路径，由前端 nginx 反代到对应后端；
+  // 禁止退回「浏览器本机:端口」——客户端直连后端端口在现网链路上可能被限速
+  return configured ?? '';
 }

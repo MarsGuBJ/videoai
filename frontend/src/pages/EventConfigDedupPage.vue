@@ -21,8 +21,8 @@
         <h4 class="event-config-section-title">执行策略</h4>
         <div class="event-config-tabs"><button v-for="tab in tabs" :key="tab" type="button" :class="{ active: form.tab === tab }" @click="form.tab = tab">{{ tab }}</button></div>
         <div class="event-config-form-grid">
-          <label class="event-config-field"><span>* 时间长度</span><span class="event-config-input-group"><input v-model="form.duration" class="input" /><em class="event-config-input-addon">分钟</em></span></label>
-          <label class="event-config-field"><span>* 相似度</span><input v-model="form.similarity" class="input" /></label>
+          <label class="event-config-field"><span>* 时间长度</span><span class="event-config-input-group"><input v-model="form.duration" class="input" :disabled="form.tab === '实时重叠图像去重'" /><em class="event-config-input-addon">分钟</em></span></label>
+          <label class="event-config-field"><span>* 相似度</span><input v-model="form.similarity" class="input" :disabled="form.tab === '时间维度去重'" /></label>
         </div>
       </div>
       <div class="event-config-page-board" style="min-height:0;">
@@ -42,7 +42,7 @@
     <div v-if="modal === 'detail'" class="event-config-modal-mask" @click.self="modal = null">
       <section class="event-config-modal" role="dialog" aria-modal="true" aria-label="事件规则详情">
         <div class="event-config-modal-head"><h3><button class="link-blue" style="padding:0;" aria-label="返回规则日志" @click="modal = 'logs'">←</button> 事件规则详情</h3><button class="event-config-modal-close" aria-label="关闭" @click="modal = null">×</button></div>
-        <div class="event-config-detail-grid"><span><b>规则名称：</b>{{ selectedRule ? selectedRule.name : "--" }}</span><span><b>规则状态：</b>{{ selectedRule && selectedRule.enabled ? "已生效" : "未生效" }}</span><span><b>关联算法：</b>{{ selectedRule ? selectedRule.algorithm : "--" }}</span><span><b>过滤类型：</b>{{ selectedRule ? selectedRule.strategy : "--" }}</span><span><b>{{ selectedRule && selectedRule.strategy === "时间维度去重" ? "过滤时长：" : "相似度：" }}</b>{{ selectedRule ? detailParam(selectedRule) : "--" }}</span><span><b>设备名称：</b>{{ selectedRule ? detailCameras(selectedRule) : "--" }}</span></div>
+        <div class="event-config-detail-grid"><span><b>规则名称：</b>{{ selectedRule ? selectedRule.name : "--" }}</span><span><b>规则状态：</b>{{ selectedRule && selectedRule.enabled ? "已生效" : "未生效" }}</span><span><b>关联算法：</b>{{ selectedRule ? selectedRule.algorithm : "--" }}</span><span><b>过滤类型：</b>{{ selectedRule ? selectedRule.strategy : "--" }}</span><span><b>过滤参数：</b>{{ selectedRule ? detailParam(selectedRule) : "--" }}</span><span><b>设备名称：</b>{{ selectedRule ? detailCameras(selectedRule) : "--" }}</span></div>
         <h4 class="event-config-section-title">过滤详情</h4>
         <div class="event-config-filter-preview"><em>已保留</em><b><span>相似度</span><span>95</span></b><strong>2024-09-27 13:33:46</strong></div>
       </section>
@@ -117,10 +117,14 @@ export default defineComponent({
       }
     },
     cardParams(rule: DedupRule): string {
-      return rule.strategy === "时间维度去重" ? `过滤时长 ${rule.durationMinutes ?? 0}m` : `相似度 ${rule.similarity ?? "-"}`;
+      if (rule.strategy === "时间维度去重") return `过滤时长 ${rule.durationMinutes ?? 0}m`;
+      if (rule.strategy === "区间重叠图像去重") return `过滤时长 ${rule.durationMinutes ?? 0}m / 相似度 ${rule.similarity ?? "-"}`;
+      return `相似度 ${rule.similarity ?? "-"}`;
     },
     detailParam(rule: DedupRule): string {
-      return rule.strategy === "时间维度去重" ? `${rule.durationMinutes ?? "--"} 分钟` : `${rule.similarity ?? "--"}`;
+      if (rule.strategy === "时间维度去重") return `过滤时长：${rule.durationMinutes ?? "--"} 分钟`;
+      if (rule.strategy === "区间重叠图像去重") return `过滤时长：${rule.durationMinutes ?? "--"} 分钟，相似度：${rule.similarity ?? "--"}`;
+      return `相似度：${rule.similarity ?? "--"}`;
     },
     detailCameras(rule: DedupRule): string {
       return rule.allCameras ? "全部摄像头" : (rule.cameras || []).join("、") || "--";
@@ -152,13 +156,15 @@ export default defineComponent({
     },
     resetForm() { const editingId = this.editingId; this.form = this.blankForm(); this.editingId = editingId; },
     buildPayload(enabled: boolean): DedupRulePayload {
-      const timed = this.form.tab === "时间维度去重";
+      // 时间维度只送时长，实时图像只送相似度，区间图像两者都需要
+      const needsDuration = this.form.tab !== "实时重叠图像去重";
+      const needsSimilarity = this.form.tab !== "时间维度去重";
       return {
         name: this.form.name.trim(),
         algorithm: this.form.algorithm,
         strategy: this.form.tab,
-        durationMinutes: timed && this.form.duration !== "" ? Number(this.form.duration) : null,
-        similarity: !timed && this.form.similarity !== "" ? Number(this.form.similarity) : null,
+        durationMinutes: needsDuration && this.form.duration !== "" ? Number(this.form.duration) : null,
+        similarity: needsSimilarity && this.form.similarity !== "" ? Number(this.form.similarity) : null,
         allCameras: this.form.allCameras,
         cameras: this.form.allCameras ? [] : [...this.form.cameras],
         remark: this.form.remark.trim(),

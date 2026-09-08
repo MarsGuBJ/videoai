@@ -3,7 +3,10 @@ package com.videoai.monitoring.core.controller;
 import com.videoai.monitoring.api.CloudPlatformApi;
 import com.videoai.monitoring.common.dto.CloudPlatformCreateRequest;
 import com.videoai.monitoring.common.dto.CloudPlatformUpdateRequest;
+import com.videoai.monitoring.common.dto.CloudSyncRequest;
 import com.videoai.monitoring.common.vo.CloudPlatformResponse;
+import com.videoai.monitoring.common.vo.CloudSyncPrecheckResponse;
+import com.videoai.monitoring.common.vo.CloudSyncResultResponse;
 import com.videoai.monitoring.core.service.CloudPlatformService;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -41,5 +44,15 @@ public class CloudPlatformController implements CloudPlatformApi {
     @Override
     public void delete(UUID id) {
         cloudPlatformService.delete(id);
+    }
+
+    @Override
+    public CloudSyncPrecheckResponse precheck(UUID id) {
+        return cloudPlatformService.precheck(id);
+    }
+
+    @Override
+    public CloudSyncResultResponse sync(UUID id, CloudSyncRequest request) {
+        return cloudPlatformService.sync(id, request);
     }
 }

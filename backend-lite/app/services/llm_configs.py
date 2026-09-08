@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import requests
 from fastapi import HTTPException
-from sqlalchemy import Table
+from sqlalchemy import Table, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import state
@@ -64,6 +64,7 @@ def llm_config_out(record: dict[str, Any]) -> LlmConfigOut:
         id=str(record["id"]),
         name=str(record["name"]),
         baseUrl=str(record["base_url"]),
+        model=str(record.get("model") or ""),
         apiKey=mask_api_key(api_key),
         apiKeyConfigured=bool(api_key),
         deployType=str(record["deploy_type"]),  # type: ignore[arg-type]
@@ -77,10 +78,13 @@ def llm_config_out(record: dict[str, Any]) -> LlmConfigOut:
 
 
 def ensure_llm_config_schema() -> None:
-    """轻量迁移：确保 llm_configs 表存在（幂等，容错不阻断启动）。"""
+    """轻量迁移：确保 llm_configs 表存在并补列（幂等，容错不阻断启动）。"""
     try:
         with engine.begin() as conn:
             cast(Table, LlmConfigORM.__table__).create(conn, checkfirst=True)
+            conn.execute(
+                text("ALTER TABLE llm_configs ADD COLUMN IF NOT EXISTS model VARCHAR(200)")
+            )
     except SQLAlchemyError as exc:  # 数据库不可达时跳过迁移，不阻断启动
         logger.error("llm config schema ensure failed: %s", exc)
 
@@ -96,6 +100,7 @@ def load_llm_configs_from_db() -> None:
                     "id": str(row.id),
                     "name": row.name,
                     "base_url": row.base_url,
+                    "model": row.model or "",
                     "api_key": row.api_key or "",
                     "deploy_type": row.deploy_type,
                     "timeout": int(row.timeout or 30),
@@ -123,6 +128,7 @@ def persist_llm_config(record: dict[str, Any]) -> None:
                 pgdb.add(row)
             row.name = str(record["name"])
             row.base_url = str(record["base_url"])
+            row.model = str(record.get("model") or "")
             row.api_key = str(record.get("api_key") or "")
             row.deploy_type = str(record["deploy_type"])
             row.timeout = int(record["timeout"])

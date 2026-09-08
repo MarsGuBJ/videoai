@@ -12,6 +12,7 @@ from app.schemas.deployment_task import (
     DeploymentTaskResponse,
     DeploymentTaskUpdateRequest,
 )
+from app.services.algorithms import require_bindable_algorithm
 from app.services.deployment_tasks import (
     clean_optional,
     delete_deployment_task_from_db,
@@ -34,6 +35,7 @@ def create_deployment_task(request: DeploymentTaskCreateRequest) -> DeploymentTa
     """创建布控任务：入内存、落库并同步 worker 流。"""
     task_id = uuid4()
     now = datetime.now(timezone.utc)
+    algorithm = require_bindable_algorithm(request.algorithmId) if request.algorithmId is not None else None
     task = DeploymentTaskResponse(
         id=task_id,
         name=request.name,
@@ -48,6 +50,10 @@ def create_deployment_task(request: DeploymentTaskCreateRequest) -> DeploymentTa
         faceProfilePhotoUrl=clean_optional(request.faceProfilePhotoUrl),
         cameraIds=list(request.cameraIds or []),
         recognitionPerMinute=max(1, int(request.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE)),
+        algorithmId=algorithm.id if algorithm else None,
+        algorithmName=algorithm.name if algorithm else None,
+        engineType=algorithm.engineType if algorithm else None,
+        algorithmCode=clean_optional(request.algorithmCode),
         createdAt=now,
         updatedAt=now,
     )
@@ -96,6 +102,17 @@ def update_deployment_task(task_id: UUID, request: DeploymentTaskUpdateRequest) 
         update_payload["cameraIds"] = list(request.cameraIds)
     if request.recognitionPerMinute is not None:
         update_payload["recognitionPerMinute"] = max(1, int(request.recognitionPerMinute))
+    if request.algorithmId is not None:
+        algorithm = require_bindable_algorithm(request.algorithmId)
+        update_payload["algorithmId"] = algorithm.id
+        update_payload["algorithmName"] = algorithm.name
+        update_payload["engineType"] = algorithm.engineType
+    elif "algorithmId" in request.model_fields_set:
+        update_payload["algorithmId"] = None
+        update_payload["algorithmName"] = None
+        update_payload["engineType"] = None
+    if request.algorithmCode is not None or "algorithmCode" in request.model_fields_set:
+        update_payload["algorithmCode"] = clean_optional(request.algorithmCode)
     updated = old.model_copy(update=update_payload)
     state.deployment_tasks_store[task_id] = updated
     persist_deployment_task(updated)

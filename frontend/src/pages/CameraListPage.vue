@@ -2,14 +2,6 @@
   <section class="content review-wide video-management-page">
     <div class="review-titlebar"><div><h1>视频管理</h1><p>统一管理 IPC、NVR 等编码设备，支持主流厂商与协议接入</p></div></div>
     <div class="video-device-layout">
-      <aside class="panel video-region-panel">
-        <div class="video-region-head"><span>组织区域</span></div>
-        <input class="input video-region-search" placeholder="请输入组织名称" aria-label="搜索组织区域" v-model.trim="regionQuery" />
-        <ul class="video-region-tree">
-          <li><button class="video-region-node" :class="{ active: activeArea === '' }" @click="activeArea = ''"><span>▾ 全部</span><em>{{ cameras.length }}</em></button></li>
-          <li v-for="region in regions" :key="region.fullPath"><button class="video-region-node" :class="{ child: region.child, active: activeArea === region.fullPath }" @click="activeArea = region.fullPath"><span>{{ region.child ? '└ ' : '▾ ' }}{{ region.name }}</span><em>{{ region.count }}</em></button></li>
-        </ul>
-      </aside>
       <div class="video-device-main">
         <div class="review-board video-device-board">
           <div class="video-device-filter">
@@ -17,17 +9,18 @@
             <label>接入协议<select class="select" v-model="protocolFilter"><option>全部协议</option><option>海康 SDK</option><option>大华 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></label>
             <label>在线状态<select class="select" v-model="statusFilter"><option>全部状态</option><option>在线</option><option>离线</option><option>未成功连接</option><option>停用</option></select></label>
             <label>厂商<select class="select" v-model="vendorFilter"><option>全部厂商</option><option>海康威视</option><option>大华</option><option>宇视</option><option>华为</option><option>其他</option></select></label>
+            <label>所在区域<select class="select" v-model="areaFilter"><option>全部区域</option><option v-for="area in areaOptions" :key="area">{{ area }}</option></select></label>
             <button class="btn primary" @click="loadCameras">查询</button>
             <button class="btn" @click="resetFilters">重置</button>
           </div>
           <div class="video-device-toolbar">
-            <div class="video-device-toolbar-actions"><button class="btn primary" @click="setRoute('mediaDeviceWizard')">＋ 新增</button><button class="btn" @click="openModal('mediaCloud')">云平台同步</button><button class="btn" @click="openModal('mediaImport')">⇧ 批量导入</button><button class="btn" @click="openModal('mediaSmartDiscover')">✦ 智能发现</button><button class="btn" @click="exportDevices">⇩ 导出</button><button class="btn" @click="moveSelected">⇄ 批量设备移动</button><button class="btn" @click="openModal('mediaCapability')">⚙ 能力配置</button><button class="btn danger" @click="deleteSelected">删除</button></div>
+            <div class="video-device-toolbar-actions"><button class="btn primary" @click="setRoute('mediaDeviceWizard')">＋ 新增</button><button class="btn" @click="openModal('mediaCloud')">云平台同步</button><button class="btn" @click="openModal('mediaImport')">⇧ 批量导入</button><button class="btn" @click="exportDevices">⇩ 导出</button><button class="btn" @click="moveSelected">⇄ 批量设备移动</button><button class="btn" @click="openCapability">⚙ 能力配置</button><button class="btn danger" @click="deleteSelected">删除</button></div>
             <label class="video-device-include"><input type="checkbox" v-model="includeChildren" />包含下级区域设备</label>
           </div>
           <div class="video-device-tabs"><button v-for="tab in quickTabs" :key="tab.key" class="video-device-tab" :class="{ active: activeQuickTab === tab.key }" @click="activeQuickTab = tab.key">{{ tab.label }} {{ tab.count }}</button></div>
           <div class="video-device-table-wrap">
             <table class="prototype-table video-device-table">
-              <colgroup><col style="width:42px;" /><col style="width:180px;" /><col style="width:125px;" /><col style="width:130px;" /><col style="width:165px;" /><col style="width:190px;" /><col style="width:180px;" /><col style="width:145px;" /><col style="width:86px;" /><col style="width:105px;" /><col style="width:130px;" /></colgroup>
+              <colgroup><col style="width:42px;" /><col style="width:180px;" /><col style="width:125px;" /><col style="width:130px;" /><col style="width:165px;" /><col style="width:190px;" /><col style="width:180px;" /><col style="width:145px;" /><col style="width:86px;" /><col style="width:105px;" /><col style="width:190px;" /></colgroup>
               <thead><tr><th><input type="checkbox" aria-label="全选设备" :checked="allPageSelected" @change="toggleSelectAll" /></th><th class="left">设备名称</th><th>所在区域</th><th>接入协议</th><th>IP地址及端口</th><th>设备编号</th><th>设备序列号</th><th class="left">描述</th><th>密码强度</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="row in pagedCameras" :key="row.id">
@@ -90,14 +83,13 @@ export default defineComponent({
   },
   data() {
     return {
-      activeArea: "",
       activeQuickTab: "all",
       includeChildren: true,
       nameQuery: "",
       protocolFilter: "全部协议",
       statusFilter: "全部状态",
       vendorFilter: "全部厂商",
-      regionQuery: "",
+      areaFilter: "全部区域",
       selectedIds: [] as string[],
       page: 1,
       pageSize: 10,
@@ -111,10 +103,9 @@ export default defineComponent({
       const areas = this.cameras.map((row: any) => row.area).filter((area: string) => area && area !== "未分配");
       return buildRegionTree(areas, this.customRegions);
     },
-    regions(): RegionNode[] {
-      if (!this.regionQuery) return this.regionNodes;
-      const query = this.regionQuery.toLowerCase();
-      return this.regionNodes.filter((node) => node.name.toLowerCase().includes(query));
+    // “所在区域”筛选下拉选项：设备区域 + 自定义区域的完整路径
+    areaOptions(): string[] {
+      return this.regionNodes.map((node) => node.fullPath);
     },
     regionPaths(): string[] {
       return this.regionNodes.map((node) => node.fullPath);
@@ -136,10 +127,10 @@ export default defineComponent({
         const matchesProtocol = this.protocolFilter === "全部协议" || row.protocol === this.protocolFilter;
         const matchesStatus = this.statusFilter === "全部状态" || row.status === this.statusFilter;
         const matchesVendor = this.vendorFilter === "全部厂商" || row.vendor === this.vendorFilter;
-        const matchesArea = !this.activeArea
+        const matchesArea = this.areaFilter === "全部区域"
           || (this.includeChildren
-            ? row.area === this.activeArea || String(row.area).startsWith(this.activeArea + " / ")
-            : row.area === this.activeArea);
+            ? row.area === this.areaFilter || String(row.area).startsWith(this.areaFilter + " / ")
+            : row.area === this.areaFilter);
         const matchesQuick = this.activeQuickTab === "all"
           || (this.activeQuickTab === "online" && row.status === "在线")
           || (this.activeQuickTab === "offline" && row.status === "离线")
@@ -240,6 +231,7 @@ export default defineComponent({
       this.protocolFilter = "全部协议";
       this.statusFilter = "全部状态";
       this.vendorFilter = "全部厂商";
+      this.areaFilter = "全部区域";
       this.activeQuickTab = "all";
     },
     toggleSelectAll(event: any) {
@@ -278,6 +270,13 @@ export default defineComponent({
         return;
       }
       this.openModal("mediaMove", { rows: this.selectedRows, areas: this.regionPaths });
+    },
+    openCapability() {
+      if (!this.selectedRows.length) {
+        this.showToast("请先选择设备");
+        return;
+      }
+      this.openModal("mediaCapability", { rows: this.selectedRows });
     },
     exportDevices() {
       this.openModal("mediaExport", {

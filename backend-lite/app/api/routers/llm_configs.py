@@ -34,6 +34,7 @@ def create_llm_config(request: LlmConfigCreate) -> LlmConfigOut:
         "id": config_id,
         "name": request.name,
         "base_url": request.baseUrl,
+        "model": request.model or "",
         "api_key": request.apiKey or "",
         "deploy_type": request.deployType,
         "timeout": request.timeout,
@@ -56,6 +57,8 @@ def update_llm_config(config_id: str, request: LlmConfigUpdate) -> LlmConfigOut:
         record["name"] = request.name
     if request.baseUrl is not None:
         record["base_url"] = request.baseUrl
+    if request.model is not None:
+        record["model"] = request.model
     if request.apiKey:
         record["api_key"] = request.apiKey
     if request.deployType is not None:

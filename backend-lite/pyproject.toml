@@ -50,6 +50,11 @@ module = [
 ]
 ignore_errors = true
 
+# minio 无官方类型 stubs，仅豁免该第三方包本身的缺失导入
+[[tool.mypy.overrides]]
+module = ["minio", "minio.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

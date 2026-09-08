@@ -12,5 +12,7 @@ export const routeNames = {
   versionDetail: "版本号详情",
   previewFile: "预览文件",
   deployTasks: "布控任务",
-  deployTaskDetail: "布控任务详情"
+  deployTaskDetail: "布控任务详情",
+  events: "事件列表",
+  eventDetail: "事件详情"
 };

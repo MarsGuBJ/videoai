@@ -28,6 +28,12 @@ public record CameraResponse(
         String password,
         String deviceCode,
         String serialNumber,
-        boolean objectDetectionEnabled
+        boolean objectDetectionEnabled,
+        boolean videoPreviewEnabled,
+        boolean audioEnabled,
+        boolean talkbackEnabled,
+        boolean ptzEnabled,
+        boolean smartAnalysisEnabled,
+        boolean alarmIoEnabled
 ) {
 }

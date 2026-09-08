@@ -9,7 +9,7 @@ export type RegionNode = {
   count: number;
 };
 
-function normalizePath(path: string): string {
+export function normalizePath(path: string): string {
   return String(path || "")
     .split("/")
     .map((segment) => segment.trim())
@@ -26,16 +26,6 @@ export function loadCustomRegions(): string[] {
   } catch {
     return [];
   }
-}
-
-export function addCustomRegion(path: string): string[] {
-  const value = normalizePath(path);
-  const list = loadCustomRegions();
-  if (value && !list.includes(value)) {
-    list.push(value);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-  }
-  return list;
 }
 
 // 由设备 area 列表 + 自定义区域聚合成扁平节点数组：

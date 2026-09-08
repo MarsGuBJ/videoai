@@ -15,6 +15,7 @@ const img = {
 export const store = reactive({
       img,
       lastLocalVideo: null,
+      reviewTasksVersion: 0,
       accessConfig: {
         gb28181: {
           enabled: true,
@@ -36,7 +37,9 @@ export const store = reactive({
           resourcePath: "./data",
           autoRegister: true
         },
-        certificates: []
+        certificates: [],
+        gb28181Entries: [],
+        ga1400Entries: []
       },
       // 菜单与路由名由模块装配结果生成；全量模式（默认）与改造前硬编码逐条一致
       navGroups: appModules.navGroups,
@@ -44,8 +47,7 @@ export const store = reactive({
       entryCards: [
         { route: "exact", icon: "⌕", title: "文搜视频", desc: "通过文字描述快速检索视频内容，精准定位目标片段" },
         { route: "textImage", icon: "▧", title: "文搜图", desc: "用文字描述搜索海量图片库，快速找到匹配的图像资源" },
-        { route: "imageSearch", icon: "▣", title: "图搜图", desc: "以上传图片为参考，在数据库中查找相似图像内容" },
-        { route: "localVideo", icon: "▤", title: "视频分析", desc: "上传本地视频文件，自动提取关键帧、目标、事件与时间线" }
+        { route: "imageSearch", icon: "▣", title: "图搜图", desc: "以上传图片为参考，在数据库中查找相似图像内容" }
       ],
       results: [
         { title: "南门入口-目标出现", date: "2026-07-12 08:30:12", location: "园区南门入口", score: 98, type: "视频片段", image: img.car, desc: "检测到疑似目标车辆进入园区，方向由南向北。" },
@@ -68,27 +70,6 @@ export const store = reactive({
         { id: "#TM-2845", type: "烟火检测告警", created: "2026-01-15 11:48:36", timeValid: "无效", status: "待处理", location: "仓储区入口", confidence: "medium", executionStatus: "已完成", duration: "5秒", reason: "画面中的亮点更接近反光或灯光，暂未确认烟火事件。", evidence: "关键帧未发现持续烟雾或明火特征，建议人工复核。", image: img.ai },
         { id: "#TM-2844", type: "安全帽佩戴检测", created: "2026-01-15 10:22:21", timeValid: "无效", status: "已完成", location: "生产A区通道", confidence: "high", executionStatus: "已完成", duration: "7秒", reason: "人员已佩戴安全帽，告警属于误报。", evidence: "连续关键帧均可见安全帽轮廓，未发现脱帽状态。", image: img.mountain },
         { id: "#TM-2843", type: "区域入侵检测", created: "2026-01-15 09:15:12", timeValid: "无效", status: "已完成", location: "园区南门入口", confidence: "high", executionStatus: "已完成", duration: "6秒", reason: "目标位于授权通行区域，未形成有效入侵事件。", evidence: "目标从入口正常通行，未越过禁入区域边界。", image: img.map }
-      ],
-      // 事件信息配置条目：事件信息配置页维护，复核类型弹窗“算法名称”下拉复用
-      eventInfoRows: [
-        { name: "家禽检测", code: "FOWL_DETECTION", level: "低", category: "待完成", order: 25, enabled: true },
-        { name: "区域入侵", code: "INTRUSION_DEC", level: "低", category: "安防事件", order: 24, enabled: true },
-        { name: "烟火识别", code: "SMOKE", level: "低", category: "消防事件", order: 23, enabled: true },
-        { name: "RK_周界入侵", code: "RK_INTRUSION_DEC", level: "高", category: "安防事件", order: 22, enabled: true },
-        { name: "污水应急监控", code: "PERSON_WADE", level: "低", category: "环境事件", order: 21, enabled: true },
-        { name: "睡岗", code: "SLEEP", level: "低", category: "行为事件", order: 20, enabled: true },
-        { name: "离岗", code: "LEAVE", level: "低", category: "行为事件", order: 19, enabled: true },
-        { name: "RK_抽烟", code: "RK_SMOKING", level: "中", category: "行为事件", order: 18, enabled: true },
-        { name: "RK_物品占用通道", code: "RK_OCCUPIED_AREA", level: "低", category: "安防事件", order: 17, enabled: true },
-        { name: "非机动车识别", code: "NONVEHICLE", level: "低", category: "交通事件", order: 14, enabled: true }
-      ],
-      algorithmRows: [
-        { id: 1, name: "抽烟", code: "SMOKING", prompt: "你是园区安防监控事件复检助手，请判断画面中是否存在抽烟行为。", remark: "抽烟", fields: "识别对象", updated: "2026-04-27 10:05:40" },
-        { id: 2, name: "垃圾识别", code: "RUBBISH", prompt: "你是园区安防监控事件复检助手，请识别画面中是否存在垃圾堆放。", remark: "-", fields: "-", updated: "2026-04-13 16:21:10" },
-        { id: 3, name: "车辆违停", code: "PARKING", prompt: "你是园区安防监控事件复检助手，请判断车辆是否违规停放。", remark: "-", fields: "-", updated: "2026-04-10 14:31:29" },
-        { id: 4, name: "人员入侵", code: "PERSON_INTRUSION", prompt: "你是园区安防监控事件复检助手，请判断是否有人员进入禁入区域。", remark: "过滤保安、保洁、施工", fields: "识别对象", updated: "2026-04-24 17:06:32" },
-        { id: 7, name: "电动车识别", code: "EBIKE_DETECTION", prompt: "你是园区安防监控事件复检助手，请识别画面中的电动车目标。", remark: "-", fields: "-", updated: "2026-04-10 16:32:45" },
-        { id: 9, name: "烟火监测", code: "SMOKE_FIRE_DETECTION", prompt: "你是园区安防监控事件复检助手，请判断是否出现烟雾或明火。", remark: "-", fields: "识别对象", updated: "2026-04-27 16:08:33" }
       ],
       algorithmManageRows: [
         { id: "ALG-001", name: "人员入侵检测", code: "PERSON_INTRUSION", scene: "园区周界", version: "v2.3.1", status: "运行中", owner: "算法组", updated: "2026-04-24 17:06:32", versions: 3 },
@@ -138,24 +119,6 @@ export const store = reactive({
         { name: "下游业务系统A", url: "business-system-a.com/webhook", types: "区域入侵", frequency: "每10分钟", status: "暂停", lastSync: "2024-01-15 12:00", mode: "主动拉取", owner: "业务系统A" },
         { name: "视频事件平台", url: "video-event.platform.cn/api", types: "跌倒检测、聚集检测", frequency: "实时推送", status: "运行中", lastSync: "2024-01-15 14:31", mode: "被动接收", owner: "视频平台" },
         { name: "第三方告警服务", url: "third-party-alerts.io/v2", types: "设备异常", frequency: "每30分钟", status: "连接失败", lastSync: "2024-01-15 10:00", mode: "主动拉取", owner: "第三方服务" }
-      ],
-      resourceRows: [
-        { ip: "192.168.1.100", mn: "MN24010001", status: "在线", updated: "2024-01-18 15:30:45", gpus: [
-          { name: "NVIDIA A100 GPU-0", status: "繁忙", compute: 75, memory: 50, memoryText: "40GB/80GB", temperature: "65°C", power: "57.4w" },
-          { name: "NVIDIA A100 GPU-1", status: "空闲", compute: 45, memory: 44, memoryText: "35GB/80GB", temperature: "62°C", power: "57.3w" }
-        ] },
-        { ip: "192.168.1.101", mn: "MN24010002", status: "在线", updated: "2024-01-18 15:29:18", gpus: [
-          { name: "NVIDIA A100 GPU-0", status: "繁忙", compute: 82, memory: 63, memoryText: "50GB/80GB", temperature: "69°C", power: "61.8w" },
-          { name: "NVIDIA A100 GPU-1", status: "繁忙", compute: 78, memory: 58, memoryText: "46GB/80GB", temperature: "67°C", power: "59.1w" }
-        ] },
-        { ip: "192.168.1.102", mn: "MN24010003", status: "在线", updated: "2024-01-18 15:28:52", gpus: [
-          { name: "NVIDIA A40 GPU-0", status: "繁忙", compute: 68, memory: 52, memoryText: "25GB/48GB", temperature: "59°C", power: "46.8w" },
-          { name: "NVIDIA A40 GPU-1", status: "空闲", compute: 18, memory: 27, memoryText: "13GB/48GB", temperature: "49°C", power: "38.2w" }
-        ] },
-        { ip: "192.168.1.103", mn: "MN24010004", status: "离线", updated: "2024-01-18 12:10:03", gpus: [
-          { name: "NVIDIA T4 GPU-0", status: "离线", compute: 0, memory: 0, memoryText: "0GB/16GB", temperature: "-", power: "-" },
-          { name: "NVIDIA T4 GPU-1", status: "离线", compute: 0, memory: 0, memoryText: "0GB/16GB", temperature: "-", power: "-" }
-        ] }
       ],
       logRows: [
         { time: "2026-07-17 09:42:18", user: "管理员", module: "算法管理", action: "新增算法", target: "人员入侵检测", result: "成功", ip: "10.8.12.45" },
@@ -259,14 +222,10 @@ export const store = reactive({
       if (key === "overview") return route === "overview";
       if (key === "media") return ["media", "cameraList", "mediaDeviceWizard", "mediaDeviceDetail", "mediaDeviceEdit"].includes(route);
       if (key === "mediaAccessConfig") return route === "mediaAccessConfig";
-      if (key === "mediaCloudConfig") return route === "mediaCloudConfig";
       if (key === "mediaPreview") return route === "mediaPreview";
       if (key === "mediaPlayback") return route === "mediaPlayback";
-      if (key === "mediaWall") return route === "mediaWall";
-      if (key === "mediaAlarm") return route === "mediaAlarm";
       if (key === "home") return route === "home";
       if (key === "exact") return route === "exact";
-      if (key === "localVideo") return route === "localVideo";
       if (key === "textImage") return route === "textImage";
       if (key === "imageSearch") return route === "imageSearch";
       if (key === "track") return route === "track";

@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routers import (
+    algorithms,
     deployment_tasks,
     event_dedup_rules,
     event_infos,
@@ -19,8 +20,14 @@ from app.api.routers import (
     llm_configs,
     models,
     person_search,
+    recordings,
+    review_schedules,
+    review_tasks,
+    review_types,
+    search_keywords,
     video_analysis,
     windows_camera,
+    worker_nodes,
 )
 from app.core.config import PROJECT_ROOT
 from app.core.exceptions import AppError
@@ -34,18 +41,25 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 _ROUTERS = (
     health.router,
+    algorithms.router,
     deployment_tasks.router,
     faces.router,
     person_search.router,
     video_analysis.router,
+    recordings.router,
     events.router,
     internal.router,
     models.router,
     windows_camera.router,
     llm_configs.router,
+    review_tasks.router,
+    review_schedules.router,
+    review_types.router,
+    search_keywords.router,
     event_infos.router,
     event_dedup_rules.router,
     event_push_tasks.router,
+    worker_nodes.router,
 )
 
 async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:

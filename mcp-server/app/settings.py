@@ -34,6 +34,10 @@ class Settings:
     videoai_base_url: str
     videoai_media_base_url: str
     person_api_base_url: str
+    retrieve_api_base_url: str
+    retrieve_api_timeout_seconds: float
+    video_analysis_api_base_url: str
+    video_analysis_timeout_seconds: float
     zlm_http_url: str
     zlm_public_http_url: str
     zlm_secret: str
@@ -63,6 +67,7 @@ class Settings:
     mcp_host: str
     mcp_port: int
     mcp_transport: str
+    mcp_public_base_url: str
     camera_import_username: str
     camera_import_password: str
     camera_import_backend_url: str
@@ -76,6 +81,10 @@ def load_settings() -> Settings:
             _env("VIDEOAI_MEDIA_BACKEND_URL", "") or _env("VIDEOAI_BACKEND_URL", "http://localhost:8081")
         ).rstrip("/"),
         person_api_base_url=_env("PERSON_API_BASE_URL", "http://192.168.11.192:18890").rstrip("/"),
+        retrieve_api_base_url=_env("RETRIEVE_API_BASE_URL", "http://192.168.11.194:15011").rstrip("/"),
+        retrieve_api_timeout_seconds=float(_env("RETRIEVE_API_TIMEOUT_SECONDS", "120")),
+        video_analysis_api_base_url=_env("VIDEO_ANALYSIS_API_BASE_URL", "http://192.168.11.192:8775").rstrip("/"),
+        video_analysis_timeout_seconds=float(_env("VIDEO_ANALYSIS_TIMEOUT_SECONDS", "600")),
         zlm_http_url=_env("VIDEOAI_ZLM_HTTP_URL", "http://127.0.0.1:8082").rstrip("/"),
         zlm_public_http_url=_env("VIDEOAI_ZLM_PUBLIC_HTTP_URL", "http://192.168.11.194:9100").rstrip("/"),
         zlm_secret=_env("VIDEOAI_ZLM_SECRET", "TFtkiHhkoFJzgamQXuYY1zACl2XYSnUR"),
@@ -109,6 +118,8 @@ def load_settings() -> Settings:
         mcp_host=_env("VIDEOAI_MCP_HOST", "0.0.0.0"),  # noqa: S104
         mcp_port=_env_int("VIDEOAI_MCP_PORT", 8097),
         mcp_transport=_env("VIDEOAI_MCP_TRANSPORT", "streamable-http"),
+        # 录像动态链接（/recording-live）对外暴露的 MCP 访问基址
+        mcp_public_base_url=_env("VIDEOAI_MCP_PUBLIC_BASE_URL", "http://192.168.11.194:8097").rstrip("/"),
         camera_import_username=_env("CAMERA_IMPORT_USERNAME", ""),
         # 口令不做 strip，保持与原 CLI 读取语义一致
         camera_import_password=os.getenv("CAMERA_IMPORT_PASSWORD", ""),

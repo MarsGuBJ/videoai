@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -77,6 +78,12 @@ public class CameraServiceImpl implements CameraService {
         entity.setSourceUrl(request.sourceUrl());
         entity.setStreamApp("live");
         entity.setStreamName(streamName);
+        // 新建设备默认未开播：cameras.status 为非空列
+        entity.setStatus("STOPPED");
+        // created_at/updated_at 非空；MP 默认策略会跳过 null 字段，必须显式赋值
+        OffsetDateTime now = OffsetDateTime.now();
+        entity.setCreatedAt(now);
+        entity.setUpdatedAt(now);
         entity.setDescription(request.description());
         entity.setArea(area != null ? area : "办公楼");
         entity.setNvrId(clean(request.nvrId()));
@@ -91,6 +98,12 @@ public class CameraServiceImpl implements CameraService {
         entity.setPassword(clean(request.password()));
         entity.setDeviceCode(clean(request.deviceCode()));
         entity.setSerialNumber(clean(request.serialNumber()));
+        entity.setVideoPreviewEnabled(request.videoPreviewEnabled() != null ? request.videoPreviewEnabled() : Boolean.TRUE);
+        entity.setAudioEnabled(request.audioEnabled() != null ? request.audioEnabled() : Boolean.FALSE);
+        entity.setTalkbackEnabled(request.talkbackEnabled() != null ? request.talkbackEnabled() : Boolean.FALSE);
+        entity.setPtzEnabled(request.ptzEnabled() != null ? request.ptzEnabled() : Boolean.FALSE);
+        entity.setSmartAnalysisEnabled(request.smartAnalysisEnabled() != null ? request.smartAnalysisEnabled() : Boolean.FALSE);
+        entity.setAlarmIoEnabled(request.alarmIoEnabled() != null ? request.alarmIoEnabled() : Boolean.FALSE);
         cameraDao.insert(entity);
         return get(id);
     }
@@ -126,6 +139,12 @@ public class CameraServiceImpl implements CameraService {
         entity.setPassword(request.password() != null ? clean(request.password()) : old.password());
         entity.setDeviceCode(request.deviceCode() != null ? clean(request.deviceCode()) : old.deviceCode());
         entity.setSerialNumber(request.serialNumber() != null ? clean(request.serialNumber()) : old.serialNumber());
+        entity.setVideoPreviewEnabled(request.videoPreviewEnabled() != null ? request.videoPreviewEnabled() : old.videoPreviewEnabled());
+        entity.setAudioEnabled(request.audioEnabled() != null ? request.audioEnabled() : old.audioEnabled());
+        entity.setTalkbackEnabled(request.talkbackEnabled() != null ? request.talkbackEnabled() : old.talkbackEnabled());
+        entity.setPtzEnabled(request.ptzEnabled() != null ? request.ptzEnabled() : old.ptzEnabled());
+        entity.setSmartAnalysisEnabled(request.smartAnalysisEnabled() != null ? request.smartAnalysisEnabled() : old.smartAnalysisEnabled());
+        entity.setAlarmIoEnabled(request.alarmIoEnabled() != null ? request.alarmIoEnabled() : old.alarmIoEnabled());
         cameraDao.updateCamera(entity);
         if (!newSourceUrl.equals(old.sourceUrl()) || !streamName.equals(old.streamName())) {
             previewRelayManager.stopStream(old.streamName());
@@ -218,7 +237,13 @@ public class CameraServiceImpl implements CameraService {
                 entity.getPassword(),
                 entity.getDeviceCode(),
                 entity.getSerialNumber(),
-                isDinoCamera(sourceUrl)
+                isDinoCamera(sourceUrl),
+                Boolean.TRUE.equals(entity.getVideoPreviewEnabled()),
+                Boolean.TRUE.equals(entity.getAudioEnabled()),
+                Boolean.TRUE.equals(entity.getTalkbackEnabled()),
+                Boolean.TRUE.equals(entity.getPtzEnabled()),
+                Boolean.TRUE.equals(entity.getSmartAnalysisEnabled()),
+                Boolean.TRUE.equals(entity.getAlarmIoEnabled())
         );
     }
 

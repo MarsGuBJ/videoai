@@ -52,11 +52,27 @@ class Settings(BaseSettings):
         default=PROJECT_ROOT / "storage" / "query-images",
         validation_alias="VIDEOAI_STORAGE_QUERY_IMAGE_DIR",
     )
+    review_image_storage_dir: Path = Field(
+        default=PROJECT_ROOT / "storage" / "review-images",
+        validation_alias="VIDEOAI_STORAGE_REVIEW_IMAGE_DIR",
+    )
+    storage_algorithm_dir: Path = Field(
+        default=PROJECT_ROOT / "storage" / "algorithms",
+        validation_alias="VIDEOAI_STORAGE_ALGORITHM_DIR",
+    )
 
     # 外部检索服务（内网默认值为历史约定，见 .env.example）
     person_api_base_url: str = "http://192.168.11.192:18890"
     retrieve_api_base_url: str = "http://192.168.11.194:15011"
     video_analysis_api_base_url: str = "http://192.168.11.192:8775"
+    mcp_server_base_url: str = "http://192.168.11.194:8097"
+    # MinIO（文搜视频：本地视频上传后供分析服务拉取；默认值与 mcp-server 侧一致）
+    minio_endpoint: str = Field(default="192.168.11.194", validation_alias="MINIO_ENDPOINT")
+    minio_port: int = Field(default=9000, validation_alias="MINIO_PORT")
+    minio_use_ssl: bool = Field(default=False, validation_alias="MINIO_USE_SSL")
+    minio_access_key: str = Field(default="minio", validation_alias="MINIO_ACCESS_KEY")
+    minio_secret_key: str = Field(default="Klg4dM9F3H", validation_alias="MINIO_SECRET_KEY")  # noqa: S105  # 与 mcp-server 侧默认值一致，生产经 env 覆盖
+    minio_bucket: str = Field(default="public", validation_alias="MINIO_BUCKET")
     backend_public_url: str = Field(
         default="",
         validation_alias=AliasChoices("VIDEOAI_BACKEND_PUBLIC_URL", "BACKEND_PUBLIC_URL"),
@@ -69,6 +85,9 @@ class Settings(BaseSettings):
     face_scan_timeout_seconds: int = 15
     face_match_threshold: float = 0.45
     face_event_cooldown_seconds: int = 60
+
+    # Worker 节点监控：超过该秒数未收到心跳视为离线
+    worker_node_offline_seconds: int = 30
 
     # Triton 模型服务
     triton_http_url: str = "http://localhost:8000"
@@ -114,6 +133,7 @@ class Settings(BaseSettings):
         "person_api_base_url",
         "retrieve_api_base_url",
         "video_analysis_api_base_url",
+        "mcp_server_base_url",
         "backend_public_url",
     )
     @classmethod

@@ -2,13 +2,22 @@
 
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     # 内网地址等默认值与原有 os.getenv 缺省一致，均可用同名大写环境变量覆盖
     backend_internal_url: str = "http://localhost:8081"
+    # 本 worker HTTP 服务端口（见 Dockerfile CMD/EXPOSE 8090），心跳上报用
+    worker_port: int = 8090
+    # GPU 监控心跳周期（秒）
+    monitor_interval_seconds: int = 10
+    # 监控节点标识与上报 IP：默认空 = 用 socket 主机名/自动探测。
+    # 容器重建后主机名（容器 ID）会变，监控页会出现多个同 IP 的离线节点；
+    # 生产环境用 WORKER_NODE_NAME / WORKER_NODE_IP 固定
+    worker_node_name: str = ""
+    worker_node_ip: str = ""
     triton_http_url: str = "http://localhost:8000"
     face_detector: str = "scrfd"
     scrfd_model_name: str = "scrfd_10g"
@@ -128,6 +137,8 @@ class Settings(BaseSettings):
     dino_mean: list[float] = [0.485, 0.456, 0.406]
     dino_std: list[float] = [0.229, 0.224, 0.225]
     object_detection_enabled: bool = True
+    # backend-lite 解压安装算法引擎 zip 的共享目录（<dir>/<code>/<version>/）
+    algorithms_dir: str = Field(default="/data/algorithms", validation_alias="VIDEOAI_STORAGE_ALGORITHM_DIR")
 
     @field_validator("face_detector")
     @classmethod

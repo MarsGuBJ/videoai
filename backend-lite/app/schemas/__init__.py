@@ -7,9 +7,15 @@ from app.schemas.deployment_task import (
     DeploymentTaskUpdateRequest,
 )
 from app.schemas.event import (
+    DeploymentEventAreaItem,
+    DeploymentEventItem,
+    DeploymentEventPage,
+    DeploymentEventReviewItem,
+    DeploymentEventStats,
+    DeploymentEventSummary,
+    DeploymentEventTrendItem,
     FaceEventIngestRequest,
     FaceEventResponse,
-    FaceMatchEventResponse,
     ObjectEventIngestRequest,
     ObjectEventResponse,
     ObjectInfo,
@@ -38,13 +44,23 @@ from app.schemas.person_search import (
     PersonSearchImageResponse,
     TextSearchQueryRequest,
 )
+from app.schemas.review_task import ReviewTaskOut
+from app.schemas.review_type import ReviewTypeCreate, ReviewTypeOut, ReviewTypeUpdate
 from app.schemas.windows_camera import WindowsCameraStartRequest, WindowsCameraStatus
+from app.schemas.worker_node import GpuMetricIn, GpuOut, WorkerHeartbeatIn, WorkerNodeOut
 
 __all__ = [
     "CameraResponse",
     "DedupRuleCreate",
     "DedupRuleOut",
     "DedupRuleUpdate",
+    "DeploymentEventAreaItem",
+    "DeploymentEventItem",
+    "DeploymentEventPage",
+    "DeploymentEventReviewItem",
+    "DeploymentEventStats",
+    "DeploymentEventSummary",
+    "DeploymentEventTrendItem",
     "DeploymentTaskCreateRequest",
     "DeploymentTaskResponse",
     "DeploymentTaskUpdateRequest",
@@ -54,10 +70,11 @@ __all__ = [
     "EventInfoUpdate",
     "FaceEventIngestRequest",
     "FaceEventResponse",
-    "FaceMatchEventResponse",
     "FaceProfileResponse",
     "FaceScanSummary",
     "FaceUploadRequest",
+    "GpuMetricIn",
+    "GpuOut",
     "HealthResponse",
     "LlmConfigCreate",
     "LlmConfigOut",
@@ -78,7 +95,13 @@ __all__ = [
     "PushTaskCreate",
     "PushTaskOut",
     "PushTaskUpdate",
+    "ReviewTaskOut",
+    "ReviewTypeCreate",
+    "ReviewTypeOut",
+    "ReviewTypeUpdate",
     "TextSearchQueryRequest",
     "WindowsCameraStartRequest",
     "WindowsCameraStatus",
+    "WorkerHeartbeatIn",
+    "WorkerNodeOut",
 ]

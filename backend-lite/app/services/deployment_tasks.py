@@ -49,7 +49,7 @@ def require_deployment_task(task_id: UUID) -> DeploymentTaskResponse:
 
 
 def ensure_deployment_task_schema() -> None:
-    """轻量迁移：为 deployment_tasks 补 recognition_per_minute 列（幂等）。"""
+    """轻量迁移：为 deployment_tasks 补列（幂等）。"""
     try:
         with engine.begin() as conn:
             conn.execute(
@@ -57,6 +57,18 @@ def ensure_deployment_task_schema() -> None:
                     "ALTER TABLE deployment_tasks "
                     "ADD COLUMN IF NOT EXISTS recognition_per_minute INTEGER NOT NULL DEFAULT 60"
                 )
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_tasks ADD COLUMN IF NOT EXISTS algorithm_id UUID")
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_tasks ADD COLUMN IF NOT EXISTS algorithm_name TEXT")
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_tasks ADD COLUMN IF NOT EXISTS engine_type TEXT")
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_tasks ADD COLUMN IF NOT EXISTS algorithm_code VARCHAR(100)")
             )
     except SQLAlchemyError as exc:  # 数据库不可达时跳过迁移，不阻断启动
         logger.error("deployment task schema ensure failed: %s", exc)
@@ -83,6 +95,10 @@ def load_deployment_tasks_from_db() -> None:
                     faceProfilePhotoUrl=row.face_profile_photo_url,
                     cameraIds=list(row.camera_ids or []),
                     recognitionPerMinute=max(1, int(row.recognition_per_minute or DEFAULT_RECOGNITION_PER_MINUTE)),
+                    algorithmId=row.algorithm_id,
+                    algorithmName=row.algorithm_name,
+                    engineType=row.engine_type,
+                    algorithmCode=row.algorithm_code,
                     createdAt=row.created_at,
                     updatedAt=row.updated_at,
                 )
@@ -114,6 +130,10 @@ def persist_deployment_task(task: DeploymentTaskResponse) -> None:
             row.face_profile_photo_url = task.faceProfilePhotoUrl
             row.camera_ids = list(task.cameraIds or [])
             row.recognition_per_minute = max(1, int(task.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE))
+            row.algorithm_id = task.algorithmId
+            row.algorithm_name = task.algorithmName
+            row.engine_type = task.engineType
+            row.algorithm_code = task.algorithmCode
             row.created_at = task.createdAt
             row.updated_at = task.updatedAt
             pgdb.commit()

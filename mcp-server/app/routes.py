@@ -1,19 +1,23 @@
 """HTTP wrapper routes that expose each MCP tool as a POST endpoint."""
 
+import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from inspect import Parameter, signature
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, RedirectResponse
 
-from .context import mcp
+from .context import hcnetsdk_playback, mcp, nvr_devices, videoai
+from .nvr_devices import parse_device_credentials
 from .tools import (
+    analyze_minio_video,
     detect_persons,
     detect_persons_with_id,
     dino_events,
     download_recording,
+    export_recording,
     gait_feature_compare,
     get_live_stream,
     get_person_bbox,
@@ -22,9 +26,13 @@ from .tools import (
     list_cameras,
     query_face_matches,
     search_person_by_bbox,
+    search_person_by_image,
     search_recordings,
+    text_search_images,
     upload_face_image,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def register_http_tool_routes() -> None:
@@ -34,6 +42,8 @@ def register_http_tool_routes() -> None:
         "search_recordings": search_recordings,
         "get_recording_stream": get_recording_stream,
         "download_recording": download_recording,
+        "export_recording": export_recording,
+        "analyze_minio_video": analyze_minio_video,
         "upload_face_image": upload_face_image,
         "query_face_matches": query_face_matches,
         "detect_persons": detect_persons,
@@ -43,9 +53,47 @@ def register_http_tool_routes() -> None:
         "get_person_bbox": get_person_bbox,
         "gait_feature_compare": gait_feature_compare,
         "dino_events": dino_events,
+        "text_search_images": text_search_images,
+        "search_person_by_image": search_person_by_image,
     }
     for tool_name, handler in tool_handlers.items():
         register_http_tool_route(tool_name, handler)
+    register_recording_live_route()
+
+
+def register_recording_live_route() -> None:
+    from .tools.recordings import parse_datetime  # 避免模块加载期循环依赖
+
+    @mcp.custom_route("/recording-live", methods=["GET"], name="recording_live")
+    async def recording_live_endpoint(request: Request) -> JSONResponse | RedirectResponse:
+        """按需建立录像回放流：按 startTime/endTime 临时创建 SDK 回放，302 到 ZLM FLV 地址。
+
+        带 cameraId 时按摄像头绑定的 NVR（凭据来自摄像头 sourceUrl）建立回放，并补偿设备时钟偏差；
+        NVR 回放并发数受限时逐出最早建立的会话，保证新请求总能拿到流。
+        """
+        try:
+            start = parse_datetime(request.query_params.get("startTime", ""))
+            end = parse_datetime(request.query_params.get("endTime", ""))
+            if end <= start:
+                raise ValueError("endTime must be later than startTime")
+            camera_id = request.query_params.get("cameraId", "").strip()
+            if camera_id:
+                camera = await videoai.get_camera(camera_id)
+                credentials = parse_device_credentials(camera)
+                proxy = nvr_devices.proxy_for(camera)
+                # 设备时钟偏差补偿：SDK 回放时间按设备本地时钟解释
+                shift = timedelta(seconds=await proxy.measure_clock_skew())
+                recording = proxy.build_recording(start + shift, end + shift, credentials.channel)
+            else:
+                proxy = hcnetsdk_playback
+                recording = proxy.build_recording(start, end)
+            url = await proxy.ensure_playback(recording)
+            return RedirectResponse(url, status_code=302)
+        except ValueError as exc:
+            return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)
+        except Exception as exc:  # noqa: BLE001  # 兜底：与 -http 接口一致，细节只进服务端日志
+            logger.exception("recording-live failed with %s", type(exc).__name__)
+            return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500)
 
 
 def register_http_tool_route(tool_name: str, handler: Callable[..., Awaitable[dict]]) -> None:
@@ -58,6 +106,7 @@ def register_http_tool_route(tool_name: str, handler: Callable[..., Awaitable[di
         except ValueError as exc:
             return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)
         except Exception as exc:  # noqa: BLE001  # 兜底：任何未预期异常统一返回 500 与通用错误信息
+            logger.exception("http tool %s failed with %s", tool_name, type(exc).__name__)
             return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500)
 
 

@@ -22,6 +22,10 @@ class DeploymentTaskResponse(BaseModel):
     faceProfilePhotoUrl: str | None = None
     cameraIds: list[str]
     recognitionPerMinute: int = Field(default=DEFAULT_RECOGNITION_PER_MINUTE, ge=1)
+    algorithmId: UUID | None = None
+    algorithmName: str | None = None
+    engineType: str | None = None
+    algorithmCode: str | None = None
     createdAt: datetime
     updatedAt: datetime
 
@@ -38,6 +42,8 @@ class DeploymentTaskCreateRequest(BaseModel):
     faceProfilePhotoUrl: str | None = None
     cameraIds: list[str] = []
     recognitionPerMinute: int = Field(default=DEFAULT_RECOGNITION_PER_MINUTE, ge=1)
+    algorithmId: UUID | None = None
+    algorithmCode: str | None = None
 
 
 class DeploymentTaskUpdateRequest(BaseModel):
@@ -53,3 +59,5 @@ class DeploymentTaskUpdateRequest(BaseModel):
     faceProfilePhotoUrl: str | None = None
     cameraIds: list[str] | None = None
     recognitionPerMinute: int | None = Field(default=None, ge=1)
+    algorithmId: UUID | None = None
+    algorithmCode: str | None = None

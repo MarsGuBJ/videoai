@@ -13,6 +13,7 @@ from app.schemas.person_search import (
     TextSearchQueryRequest,
 )
 from app.services.person_search import person_api_get, person_api_post, required_text, retrieve_api_post
+from app.services.search_keywords import SEARCH_TYPE_TEXT_IMAGE, record_search_keyword
 from app.utils.assets import save_query_image
 
 TEXT_SEARCH_DEFAULT_PAGE = 1
@@ -85,9 +86,11 @@ def person_search_result_proxy(task_id: str) -> dict:
 
 @router.post("/api/text-search/query")
 def text_search_query_proxy(request: TextSearchQueryRequest) -> dict:
-    """代理：自然语言视频检索。"""
+    """代理：自然语言视频检索（文搜图）；记录关键词用于统计。"""
+    message = required_text(request.message, "message")
+    record_search_keyword(message, SEARCH_TYPE_TEXT_IMAGE)
     payload = {
-        "message": required_text(request.message, "message"),
+        "message": message,
         "start_time": request.startTime or None,
         "end_time": request.endTime or None,
         "location": request.location or None,

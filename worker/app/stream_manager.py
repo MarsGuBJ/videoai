@@ -11,7 +11,9 @@ import numpy as np
 import requests
 
 from .config import Settings
+from .engines import loader
 from .schemas import (
+    AlgorithmSpec,
     FaceEventIngestRequest,
     FaceTarget,
     MatchRequest,
@@ -57,6 +59,7 @@ class StreamManager:
         if old_task is not None:
             old_task.stop_event.set()
             old_task.thread.join(timeout=2)
+            loader.release_engine(key)
 
         with self.lock:
             stop_event = threading.Event()
@@ -80,6 +83,7 @@ class StreamManager:
         if task is not None:
             task.stop_event.set()
             task.thread.join(timeout=2)
+            loader.release_engine(key)
 
     def status(self) -> dict[str, str]:
         """Return a snapshot of ``{camera_key: status}`` for all managed streams."""
@@ -229,6 +233,80 @@ class StreamManager:
 
         if request.objectDetectionEnabled:
             self._process_dino_frame(request, frame, snapshot_base64)
+
+        if request.algorithm is not None:
+            self._process_algorithm_frame(request, request.algorithm, frame)
+
+    def _process_algorithm_frame(self, request: StreamStartRequest, spec: AlgorithmSpec, frame) -> None:
+        """按 recognitionPerMinute 限频对抽样帧跑算法引擎，检出转 object-ingest 事件。
+
+        加载/推理/上报任何异常只记日志和状态，绝不让流线程崩溃。
+        """
+        camera_key = str(request.cameraId)
+        try:
+            if not self._algorithm_due(spec, camera_key, time.monotonic()):
+                return
+            engine = loader.acquire_engine(camera_key, spec)
+            raw = engine.inference(frame)
+            objects = loader.raw_to_objects(spec.engineType, raw)
+            self.latest_annotated_frames[camera_key] = frame.copy()
+            if not objects:
+                return
+            self._ingest_algorithm_event(request, spec, engine, raw, objects, frame)
+        except Exception as exc:
+            logger.exception("algorithm %s processing failed for camera %s", spec.engineType, camera_key)
+            self._set_status(camera_key, f"algorithm processing error: {exc}")
+
+    def _algorithm_due(self, spec: AlgorithmSpec, camera_key: str, now: float) -> bool:
+        """与 _due_face_targets 同款的 recognitionPerMinute 限频，键复用 detection_cooldowns。"""
+        per_minute = max(1, int(spec.recognitionPerMinute or 60))
+        interval = 60.0 / per_minute
+        target_key = f"{camera_key}:algo:{spec.algorithmId}"
+        with self.lock:
+            last_seen = self.detection_cooldowns.get(target_key, 0.0)
+            if now - last_seen < interval:
+                return False
+            self.detection_cooldowns[target_key] = now
+        return True
+
+    def _ingest_algorithm_event(
+        self,
+        request: StreamStartRequest,
+        spec: AlgorithmSpec,
+        engine,
+        raw,
+        objects: list[dict],
+        frame,
+    ) -> None:
+        # eventType 取自引擎 build_result（其写死的分辨率等字段忽略）；失败时回退注册表默认值
+        event_type = loader.registry_entry(spec.engineType).event_type
+        try:
+            result = engine.build_result(raw)
+            if isinstance(result, dict) and result.get("eventType"):
+                event_type = str(result["eventType"])
+        except Exception:
+            logger.warning("build_result failed for engine %s", spec.engineType, exc_info=True)
+        h, w = frame.shape[:2]
+        event = ObjectEventIngestRequest(
+            cameraId=request.cameraId,
+            cameraName=request.cameraName,
+            objects=objects,
+            snapshotBase64=encode_jpeg(frame),
+            videoTime=utc_now(),
+            frameWidth=w,
+            frameHeight=h,
+            eventType=event_type,
+            deploymentTaskId=spec.deploymentTaskId or request.deploymentTaskId,
+        )
+        try:
+            response = requests.post(
+                f"{self.settings.backend_internal_url}/api/events/object-ingest",
+                json=event.model_dump(mode="json"),
+                timeout=10,
+            )
+            response.raise_for_status()
+        except Exception:  # noqa: S110, BLE001  # 事件上报失败不阻断拉流，丢弃本帧事件
+            pass
 
     def _process_dino_frame(self, request: StreamStartRequest, frame, snapshot_base64: str = "") -> None:
         camera_key = str(request.cameraId)

@@ -1,39 +1,31 @@
 <template>
   <section class="content review-wide">
-    <div class="review-titlebar"><div><h1>复核类型管理</h1><p>维护用于人工复核和大模型判断的算法类型</p></div></div>
-    <div class="review-board">
-      <div class="algorithm-toolbar"><button class="btn primary" @click="openModal('reviewType')">新建</button></div>
-      <table class="prototype-table">
-        <colgroup><col style="width:48px;" /><col style="width:170px;" /><col style="width:210px;" /><col /><col style="width:110px;" /><col style="width:125px;" /><col style="width:150px;" /><col style="width:100px;" /></colgroup>
-        <thead><tr><th>ID</th><th class="left">算法名称</th><th class="left">算法编码</th><th class="left">提示词</th><th class="left">备注</th><th>注入事件字段</th><th>更新时间</th><th>操作</th></tr></thead>
-        <tbody>
-          <tr v-for="row in store.algorithmRows" :key="row.id">
-            <td>{{ row.id }}</td><td class="left">{{ row.name }}</td><td class="left">{{ row.code }}</td><td class="left ellipsis">{{ row.prompt }}</td><td class="left ellipsis">{{ row.remark }}</td><td><span v-if="row.fields !== '-'" class="mini-tag">{{ row.fields }}</span><span v-else>-</span></td><td>{{ row.updated }}</td>
-            <td><button class="link-blue" @click="openModal('reviewType')">编辑</button><button class="link-red" @click="showToast('已模拟删除该算法')">删除</button></td>
-          </tr>
-        </tbody>
-      </table>
+    <div class="review-titlebar"><div><h1>复核类型管理</h1><p>维护复核类型配置与定时复核任务</p></div></div>
+    <div class="exact-mode-tabs" style="margin-bottom: 14px" role="tablist">
+      <button v-for="tab in tabs" :key="tab.key" class="exact-mode-tab" :class="{ active: activeTab === tab.key }" role="tab" :aria-selected="activeTab === tab.key" @click="activeTab = tab.key">{{ tab.title }}</button>
     </div>
+    <review-type-list-page v-if="activeTab === 'types'" :embedded="true" :store="store" :state="state" :selected-version="selectedVersion" :selected-deploy-task="selectedDeployTask" :selected-event="selectedEvent" :selected-algorithm="selectedAlgorithm"></review-type-list-page>
+    <review-schedules-page v-else :embedded="true" :store="store" :state="state" :selected-version="selectedVersion" :selected-deploy-task="selectedDeployTask" :selected-event="selectedEvent" :selected-algorithm="selectedAlgorithm"></review-schedules-page>
   </section>
 </template>
 
 <script lang="ts">
 import { defineComponent } from "vue";
+import ReviewTypeListPage from "./ReviewTypeListPage.vue";
+import ReviewSchedulesPage from "./ReviewSchedulesPage.vue";
 
 export default defineComponent({
   name: "ReviewTypesPage",
+  components: { ReviewTypeListPage, ReviewSchedulesPage },
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
-  inject: {
-    injectedOpenModal: { from: "openModal", default: (key: string) => {} },
-    injectedShowToast: { from: "showToast", default: (m: string) => {} },
-  },
-  methods: {
-    openModal(key: string) {
-      (this as any).injectedOpenModal(key);
-    },
-    showToast(m: string) {
-      (this as any).injectedShowToast(m);
-    },
+  data() {
+    return {
+      activeTab: "types",
+      tabs: [
+        { key: "types", title: "复核类型" },
+        { key: "schedules", title: "定时任务" }
+      ]
+    };
   },
 });
 </script>

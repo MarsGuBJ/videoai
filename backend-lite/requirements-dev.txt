@@ -5,4 +5,5 @@ httpx==0.28.1  # FastAPI TestClient 依赖
 ruff==0.16.3
 mypy==1.15.0
 types-requests==2.33.0.20260712  # requests 类型存根，mypy strict 需要
+types-croniter==6.2.4.20260711  # croniter 类型存根，mypy strict 需要
 pip-audit==2.7.3

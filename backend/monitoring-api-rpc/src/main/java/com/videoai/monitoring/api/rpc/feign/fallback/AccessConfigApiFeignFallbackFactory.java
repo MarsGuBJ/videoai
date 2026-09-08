@@ -4,10 +4,14 @@ import com.videoai.monitoring.api.rpc.feign.AccessConfigApiFeign;
 import com.videoai.monitoring.common.dto.CertificateCreateRequest;
 import com.videoai.monitoring.common.dto.CheckPortRequest;
 import com.videoai.monitoring.common.dto.Ga1400Config;
+import com.videoai.monitoring.common.dto.Ga1400EntryRequest;
 import com.videoai.monitoring.common.dto.Gb28181Config;
+import com.videoai.monitoring.common.dto.Gb28181EntryRequest;
 import com.videoai.monitoring.common.vo.AccessConfigResponse;
 import com.videoai.monitoring.common.vo.CertificateResponse;
 import com.videoai.monitoring.common.vo.CheckPortResponse;
+import com.videoai.monitoring.common.vo.Ga1400EntryResponse;
+import com.videoai.monitoring.common.vo.Gb28181EntryResponse;
 import com.videoai.monitoring.common.vo.HostIpsResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
@@ -36,6 +40,46 @@ public class AccessConfigApiFeignFallbackFactory implements FallbackFactory<Acce
 
             @Override
             public Ga1400Config saveGa1400(Ga1400Config config) {
+                return null;
+            }
+
+            @Override
+            public List<Ga1400EntryResponse> listGa1400Entries() {
+                return List.of();
+            }
+
+            @Override
+            public Ga1400EntryResponse createGa1400Entry(Ga1400EntryRequest request) {
+                return null;
+            }
+
+            @Override
+            public Ga1400EntryResponse updateGa1400Entry(UUID id, Ga1400EntryRequest request) {
+                return null;
+            }
+
+            @Override
+            public Map<String, Object> deleteGa1400Entry(UUID id) {
+                return null;
+            }
+
+            @Override
+            public List<Gb28181EntryResponse> listGb28181Entries() {
+                return List.of();
+            }
+
+            @Override
+            public Gb28181EntryResponse createGb28181Entry(Gb28181EntryRequest request) {
+                return null;
+            }
+
+            @Override
+            public Gb28181EntryResponse updateGb28181Entry(UUID id, Gb28181EntryRequest request) {
+                return null;
+            }
+
+            @Override
+            public Map<String, Object> deleteGb28181Entry(UUID id) {
                 return null;
             }
 

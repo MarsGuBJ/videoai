@@ -2,7 +2,10 @@ package com.videoai.monitoring.api;
 
 import com.videoai.monitoring.common.dto.CloudPlatformCreateRequest;
 import com.videoai.monitoring.common.dto.CloudPlatformUpdateRequest;
+import com.videoai.monitoring.common.dto.CloudSyncRequest;
 import com.videoai.monitoring.common.vo.CloudPlatformResponse;
+import com.videoai.monitoring.common.vo.CloudSyncPrecheckResponse;
+import com.videoai.monitoring.common.vo.CloudSyncResultResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,4 +39,10 @@ public interface CloudPlatformApi {
 
     @DeleteMapping("/{id}")
     void delete(@PathVariable UUID id);
+
+    @PostMapping("/{id}/precheck")
+    CloudSyncPrecheckResponse precheck(@PathVariable UUID id);
+
+    @PostMapping("/{id}/sync")
+    CloudSyncResultResponse sync(@PathVariable UUID id, @RequestBody CloudSyncRequest request);
 }

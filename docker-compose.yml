@@ -68,8 +68,12 @@ services:
       VIDEOAI_WORKER_URL: ${WORKER_URL:-http://worker:8090}
       VIDEOAI_DINO_CAMERA_HOSTS: ${VIDEOAI_DINO_CAMERA_HOSTS:-192.168.11.65}
       PERSON_API_BASE_URL: ${PERSON_API_BASE_URL:-http://192.168.11.192:18890}
+      # 文搜视频的分析服务地址（MinIO 视频智能分析 API），现场按实际部署覆盖
+      VIDEO_ANALYSIS_API_BASE_URL: ${VIDEO_ANALYSIS_API_BASE_URL:-http://192.168.11.192:8775}
       VIDEOAI_BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
       VIDEOAI_MEDIA_BACKEND_URL: http://backend-media:8081
+      # backend-lite 调 mcp-server 的地址：默认走 compose 内网服务名，避免写死现场 IP
+      MCP_SERVER_BASE_URL: ${MCP_SERVER_BASE_URL:-http://mcp-server:8097}
       VIDEOAI_TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://192.168.11.194:8003}
       TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://192.168.11.194:8003}
       TRITON_MODEL_REPOSITORY: /models
@@ -77,6 +81,7 @@ services:
       VIDEOAI_STORAGE_CAMERA_DIR: /data/cameras
       VIDEOAI_STORAGE_SNAPSHOT_DIR: /data/snapshots
       VIDEOAI_STORAGE_QUERY_IMAGE_DIR: /data/query-images
+      VIDEOAI_STORAGE_ALGORITHM_DIR: /data/algorithms
       UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
       FACE_SCAN_INTERVAL_SECONDS: ${FACE_SCAN_INTERVAL_SECONDS:-30}
       FACE_EVENT_COOLDOWN_SECONDS: ${FACE_EVENT_COOLDOWN_SECONDS:-60}
@@ -100,6 +105,7 @@ services:
       - ./storage/cameras:/data/cameras
       - ./storage/snapshots:/data/snapshots
       - ./storage/query-images:/data/query-images
+      - ./storage/algorithms:/data/algorithms
       - ${TRITON_MODEL_REPOSITORY_HOST:-./infra/model_repository}:/models
       - /:/host:ro
     depends_on:
@@ -153,6 +159,9 @@ services:
   worker:
     profiles:
       - inference
+    # worker 通过 NVML（pynvml）采集 GPU 指标并随心跳上报，资源监控页依赖该数据；
+    # 容器无 GPU 访问权限时心跳会上报 gpus=[]，监控页将没有 GPU 数据
+    gpus: all
     build:
       context: ./worker
       network: host
@@ -160,6 +169,8 @@ services:
       BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8081}
       TRITON_HTTP_URL: ${TRITON_HTTP_URL:-http://192.168.11.194:8003}
       TRITON_GRPC_URL: ${TRITON_GRPC_URL:-192.168.11.194:8004}
+      WORKER_NODE_NAME: ${WORKER_NODE_NAME:-videoai-worker}
+      WORKER_NODE_IP: ${WORKER_NODE_IP:-192.168.11.194}
       SCRFD_MODEL_NAME: scrfd_10g
       FACE_DETECTOR: ${FACE_DETECTOR:-retinaface}
       RETINAFACE_MODEL_NAME: ${RETINAFACE_MODEL_NAME:-retinaface_mobilenet}
@@ -169,6 +180,7 @@ services:
       FACE_MATCH_THRESHOLD: ${FACE_MATCH_THRESHOLD:-0.55}
       FACE_EVENT_COOLDOWN_SECONDS: ${FACE_EVENT_COOLDOWN_SECONDS:-10}
       FRAME_SAMPLE_FPS: ${FRAME_SAMPLE_FPS:-0}
+      VIDEOAI_STORAGE_ALGORITHM_DIR: /data/algorithms
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
@@ -184,6 +196,10 @@ services:
         condition: service_started
       zlm:
         condition: service_started
+    volumes:
+      - ./storage/algorithms:/data/algorithms
+      # 宿主机根目录只读挂载：monitor.py 用 psutil 采集宿主机磁盘使用率（容器内 / 是 overlay）
+      - /:/host:ro
     ports:
       - "192.168.11.194:18099:8090"
     restart: unless-stopped
@@ -196,6 +212,10 @@ services:
       VIDEOAI_BACKEND_URL: ${BACKEND_INTERNAL_URL:-http://backend:8081}
       VIDEOAI_MEDIA_BACKEND_URL: http://backend-media:8081
       PERSON_API_BASE_URL: ${PERSON_API_BASE_URL:-http://192.168.11.192:18890}
+      RETRIEVE_API_BASE_URL: ${RETRIEVE_API_BASE_URL:-http://192.168.11.194:15011}
+      RETRIEVE_API_TIMEOUT_SECONDS: ${RETRIEVE_API_TIMEOUT_SECONDS:-120}
+      VIDEO_ANALYSIS_API_BASE_URL: ${VIDEO_ANALYSIS_API_BASE_URL:-http://192.168.11.192:8775}
+      VIDEO_ANALYSIS_TIMEOUT_SECONDS: ${VIDEO_ANALYSIS_TIMEOUT_SECONDS:-600}
       VIDEOAI_ZLM_HTTP_URL: ${ZLM_HTTP_URL:-http://zlm}
       VIDEOAI_ZLM_PUBLIC_HTTP_URL: ${ZLM_PUBLIC_HTTP_URL:-http://localhost:8080}
       VIDEOAI_ZLM_SECRET: ${ZLM_SECRET:-035c73f7-bb6b-4889-a715-d9eb2d1925cc}
@@ -247,12 +267,8 @@ services:
     build:
       context: ./frontend
       network: host
+      # API 请求走同源 nginx 反代，不注入 VITE_*_BASE_URL（浏览器直连后端端口在现网可能被限速）
     restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
-      # 无 frontend/.env.example：VITE_MEDIA_API_BASE_URL 默认 http://localhost:8082，
-      # 指向 backend-media（/api/cameras|/api/live|/api/streams），可用 MEDIA_BACKEND_PUBLIC_URL 覆盖
-      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
     ports:
       - "192.168.11.194:5173:5173"
     depends_on:
@@ -268,9 +284,6 @@ services:
       args:
         BUILD_MODE: search
     restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
-      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
     ports:
       - "192.168.11.194:5174:5173"
     depends_on:
@@ -286,9 +299,6 @@ services:
       args:
         BUILD_MODE: media
     restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
-      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
     ports:
       - "192.168.11.194:5175:5173"
     depends_on:
@@ -304,9 +314,6 @@ services:
       args:
         BUILD_MODE: control
     restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
-      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
     ports:
       - "192.168.11.194:5176:5173"
     depends_on:
@@ -322,9 +329,6 @@ services:
       args:
         BUILD_MODE: review
     restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
-      VITE_MEDIA_API_BASE_URL: ${MEDIA_BACKEND_PUBLIC_URL:-http://localhost:8082}
     ports:
       - "192.168.11.194:5177:5173"
     depends_on:

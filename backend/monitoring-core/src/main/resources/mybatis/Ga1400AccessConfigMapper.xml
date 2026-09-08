@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.videoai.monitoring.core.dao.Ga1400AccessConfigDao">
+
+    <select id="selectAllOrdered" resultType="com.videoai.monitoring.core.entity.Ga1400AccessConfigEntity">
+        SELECT * FROM ga1400_access_configs ORDER BY created_at DESC
+    </select>
+
+</mapper>

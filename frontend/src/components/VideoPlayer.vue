@@ -22,7 +22,7 @@
       ></video>
       <div v-if="message" class="video-message">{{ message }}</div>
     </div>
-    <div class="ptz-bar" aria-label="数字 PTZ 控制">
+    <div v-if="showZoomBar" class="ptz-bar" aria-label="数字 PTZ 控制">
       <button title="拉近" @click="zoom(0.2)">＋</button>
       <button title="拉远" @click="zoom(-0.2)">－</button>
       <button title="向上" @click="move(0, 12)">↑</button>
@@ -37,8 +37,7 @@
 
 <script lang="ts">
 import { defineComponent, markRaw } from 'vue';
-import flvjs from 'flv.js';
-import type { Player } from 'flv.js';
+import mpegts from 'mpegts.js';
 import Hls from 'hls.js';
 
 type Transform = {
@@ -51,6 +50,8 @@ export default defineComponent({
   name: 'VideoPlayer',
   props: {
     url: { type: String, default: undefined },
+    fit: { type: String, default: 'contain' },
+    showZoomBar: { type: Boolean, default: true },
   },
   data() {
     return {
@@ -58,7 +59,7 @@ export default defineComponent({
       message: '未选择摄像头',
       fallbackUrl: undefined as string | undefined,
       reloadToken: 0,
-      player: null as Player | null,
+      player: null as mpegts.Player | null,
       hls: null as Hls | null,
       retryTimer: null as number | null,
       retryCount: 0,
@@ -79,6 +80,7 @@ export default defineComponent({
     surfaceStyle(): Record<string, string> {
       return {
         transform: `translate(${this.transform.x}%, ${this.transform.y}%) scale(${this.transform.zoom})`,
+        objectFit: this.fit,
       };
     },
   },
@@ -210,9 +212,10 @@ export default defineComponent({
           this.message = '当前浏览器不支持 HLS 播放';
           return;
         }
-      } else if (flvjs.isSupported() && url.endsWith('.flv')) {
+      } else if (mpegts.isSupported() && url.endsWith('.flv')) {
+        // mpegts.js 兼容 flv.js API，同时支持 H.264 和 H.265（FLV CodecID 12）passthrough
         const player = markRaw(
-          flvjs.createPlayer(
+          mpegts.createPlayer(
             { type: 'flv', url, isLive: true },
             {
               enableWorker: false,
@@ -236,7 +239,7 @@ export default defineComponent({
         });
         player.attachMediaElement(video);
         player.load();
-        player.play().then(this.clearMessage).catch(() => {
+        Promise.resolve(player.play()).then(this.clearMessage).catch(() => {
           this.message = '点击视频播放后端流';
         });
       } else {
@@ -269,6 +272,66 @@ export default defineComponent({
       }).catch((error) => {
         this.message = `播放失败：${error.message}`;
       });
+    },
+    // --- 供父组件（实时预览/录像回放工具栏）调用的播放控制 ---
+    isPaused(): boolean {
+      const video = this.videoElement;
+      return video ? video.paused : true;
+    },
+    pause() {
+      this.videoElement?.pause();
+    },
+    resume() {
+      if (!this.player && !this.hls && !this.fallbackUrl && !this.videoElement?.src) {
+        // 已停止：重建流
+        this.restart();
+        return;
+      }
+      this.playVideo();
+    },
+    stop() {
+      this.teardown();
+      this.fallbackUrl = undefined;
+      this.message = '已停止';
+    },
+    restart() {
+      this.reloadToken += 1;
+    },
+    setMuted(muted: boolean) {
+      const video = this.videoElement;
+      if (video) {
+        video.muted = muted;
+      }
+    },
+    // 抓取当前画面为 JPEG dataURL；mjpeg 图片跨域受污染或无可抓画面时返回 null
+    snapshot(mimeType: string = 'image/jpeg', quality = 0.92): string | null {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return null;
+      }
+      try {
+        if (!this.fallbackUrl) {
+          const video = this.videoElement;
+          if (!video || !video.videoWidth) {
+            return null;
+          }
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0);
+        } else {
+          const image = this.$refs.image as HTMLImageElement | undefined;
+          if (!image || !image.naturalWidth) {
+            return null;
+          }
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          ctx.drawImage(image, 0, 0);
+        }
+        return canvas.toDataURL(mimeType, quality);
+      } catch {
+        return null;
+      }
     },
   },
 });

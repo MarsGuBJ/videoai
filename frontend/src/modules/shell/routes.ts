@@ -7,8 +7,6 @@ export const overviewRoute: RouteRecordRaw =
   { path: "/overview", name: "overview", component: () => import("../../pages/OverviewPage.vue") };
 
 export const routes: RouteRecordRaw[] = [
-  { path: "/events", name: "events", component: () => import("../../pages/EventsPage.vue") },
-  { path: "/eventDetail", name: "eventDetail", component: () => import("../../pages/EventDetailPage.vue") },
   { path: "/stats", name: "stats", component: () => import("../../pages/StatsPage.vue") },
   { path: "/eventConfig", name: "eventConfig", component: () => import("../../pages/EventConfigPage.vue") },
   { path: "/eventConfigInfo", name: "eventConfigInfo", component: () => import("../../pages/EventConfigInfoPage.vue") },

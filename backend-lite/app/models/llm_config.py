@@ -15,6 +15,7 @@ class LlmConfigORM(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    model: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     api_key: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     deploy_type: Mapped[str] = mapped_column(String(16), nullable=False, default="cloud")
     timeout: Mapped[int] = mapped_column(Integer, nullable=False, default=30)

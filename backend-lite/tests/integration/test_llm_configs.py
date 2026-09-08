@@ -9,6 +9,7 @@ import app.api.routers.llm_configs as llm_configs_router
 CREATE_PAYLOAD = {
     "name": "通义千问",
     "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1/",
+    "model": "qwen-vl-max",
     "apiKey": "sk-secret-key",
     "deployType": "cloud",
 }
@@ -39,6 +40,7 @@ def test_create_then_list_returns_masked_api_key_and_camel_case(client: TestClie
     created = _create_config(client, monkeypatch)
 
     assert created["name"] == "通义千问"
+    assert created["model"] == "qwen-vl-max"
     # baseUrl 尾斜杠原样保存（仅检测时裁剪）
     assert created["baseUrl"] == CREATE_PAYLOAD["baseUrl"]
     assert created["apiKey"] == "sk-***"
@@ -71,12 +73,13 @@ def test_update_llm_config_empty_api_key_keeps_original(client: TestClient, monk
 
     response = client.put(
         f"/api/llm-configs/{created['id']}",
-        json={"name": "本地 vLLM", "apiKey": "", "timeout": 60, "deployType": "local"},
+        json={"name": "本地 vLLM", "model": "qwen3-vl-plus", "apiKey": "", "timeout": 60, "deployType": "local"},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["name"] == "本地 vLLM"
+    assert payload["model"] == "qwen3-vl-plus"
     assert payload["timeout"] == 60
     assert payload["deployType"] == "local"
     # apiKey 传空保留原值：掩码与 configured 标记不变

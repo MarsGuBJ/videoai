@@ -49,7 +49,7 @@ def test_create_deployment_task_valid_payload_returns_camel_case_contract(client
 
     response = client.post(
         "/api/deployment-tasks",
-        json={"name": "北门布控", "cameraIds": ["cam-1"]},
+        json={"name": "北门布控", "cameraIds": ["cam-1"], "algorithmCode": "algo-gather-v1"},
     )
 
     assert response.status_code == 200
@@ -60,11 +60,37 @@ def test_create_deployment_task_valid_payload_returns_camel_case_contract(client
     assert payload["taskStatus"] == "running"
     assert payload["cameraIds"] == ["cam-1"]
     assert payload["recognitionPerMinute"] == 60
+    assert payload["algorithmCode"] == "algo-gather-v1"
     assert payload["id"]
     assert payload["createdAt"]
     assert payload["updatedAt"]
     assert len(persisted) == 1
     assert len(synced) == 1
+
+
+def test_update_deployment_task_passes_through_algorithm_code(client: TestClient, monkeypatch):
+    persisted = []
+    synced = []
+    # mock 边界：DB 落库与 worker 流同步，在使用处（路由模块命名空间）替换
+    monkeypatch.setattr(deployment_tasks_router, "persist_deployment_task", persisted.append)
+    monkeypatch.setattr(deployment_tasks_router, "sync_worker_streams_for_task", synced.append)
+
+    created = client.post("/api/deployment-tasks", json={"name": "东门布控", "cameraIds": []}).json()
+    assert created["algorithmCode"] is None
+
+    response = client.patch(
+        f"/api/deployment-tasks/{created['id']}",
+        json={"algorithmCode": "algo-gather-v1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["algorithmCode"] == "algo-gather-v1"
+    assert persisted[-1].algorithmCode == "algo-gather-v1"
+
+    # 显式置空可清除编码
+    response = client.patch(f"/api/deployment-tasks/{created['id']}", json={"algorithmCode": None})
+    assert response.status_code == 200
+    assert response.json()["algorithmCode"] is None
 
 
 def test_get_deployment_task_unknown_id_returns_404(client: TestClient):

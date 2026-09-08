@@ -9,3 +9,6 @@ opencv-python-headless==4.11.0.86
 sqlalchemy==2.0.36
 psycopg[binary]==3.2.3
 pydantic-settings==2.13.1  # 配置收敛至 app/core/config.py（BaseSettings），版本按开发环境 pip freeze 锁定
+# croniter 版本按开发环境 pip freeze 佐证锁定（croniter 6.2.2）
+croniter==6.2.2
+minio==7.2.18  # 文搜视频本地视频上传（与 mcp-server 同版本）

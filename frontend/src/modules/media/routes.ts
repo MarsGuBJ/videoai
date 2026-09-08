@@ -9,9 +9,6 @@ export const routes: RouteRecordRaw[] = [
   { path: "/mediaDeviceDetail", name: "mediaDeviceDetail", component: () => import("../../pages/MediaDeviceDetailPage.vue") },
   { path: "/mediaDeviceEdit", name: "mediaDeviceEdit", component: () => import("../../pages/MediaDeviceEditPage.vue") },
   { path: "/mediaAccessConfig", name: "mediaAccessConfig", component: () => import("../../pages/MediaAccessConfigPage.vue") },
-  { path: "/mediaCloudConfig", name: "mediaCloudConfig", component: () => import("../../pages/MediaCloudConfigPage.vue") },
   { path: "/mediaPreview", name: "mediaPreview", component: () => import("../../pages/MediaPreviewPage.vue") },
-  { path: "/mediaPlayback", name: "mediaPlayback", component: () => import("../../pages/MediaPlaybackPage.vue") },
-  { path: "/mediaWall", name: "mediaWall", component: () => import("../../pages/MediaWallPage.vue") },
-  { path: "/mediaAlarm", name: "mediaAlarm", component: () => import("../../pages/MediaAlarmPage.vue") }
+  { path: "/mediaPlayback", name: "mediaPlayback", component: () => import("../../pages/MediaPlaybackPage.vue") }
 ];

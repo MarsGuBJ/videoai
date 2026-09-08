@@ -4,9 +4,8 @@ import com.videoai.monitoring.api.MediaStreamApi;
 import com.videoai.monitoring.common.vo.CameraResponse;
 import com.videoai.monitoring.core.config.VideoAiProperties;
 import com.videoai.monitoring.core.service.CameraService;
-import com.videoai.monitoring.core.service.preview.PreviewRelayException;
-import com.videoai.monitoring.core.service.preview.PreviewRelayManager;
 import com.videoai.monitoring.core.support.HlsPlaylistRewriter;
+import com.videoai.monitoring.core.support.StreamUrls;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +34,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Stream distribution endpoints ported from backend-lite/main.py:
- * live FLV preview relay, HLS playlist/segment proxying, MJPEG transcoding and
+ * live FLV proxying, HLS playlist/segment proxying, MJPEG transcoding and
  * the worker annotated stream.
  */
 @RestController
@@ -44,14 +43,11 @@ public class MediaStreamController implements MediaStreamApi {
     private static final String MJPEG_CONTENT_TYPE = "multipart/x-mixed-replace; boundary=frame";
 
     private final CameraService cameraService;
-    private final PreviewRelayManager previewRelayManager;
     private final VideoAiProperties properties;
     private final HttpClient httpClient;
 
-    public MediaStreamController(CameraService cameraService, PreviewRelayManager previewRelayManager,
-                                 VideoAiProperties properties) {
+    public MediaStreamController(CameraService cameraService, VideoAiProperties properties) {
         this.cameraService = cameraService;
-        this.previewRelayManager = previewRelayManager;
         this.properties = properties;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -60,32 +56,24 @@ public class MediaStreamController implements MediaStreamApi {
 
     @Override
     public ResponseEntity<StreamingResponseBody> proxyFlvStream(String streamName) {
-        CameraResponse camera = requirePreviewCamera(streamName);
-        String remoteUrl;
-        try {
-            remoteUrl = previewRelayManager.acquire(streamName, camera.sourceUrl());
-        } catch (PreviewRelayException.Timeout exception) {
-            throw new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Preview relay startup timed out", exception);
-        } catch (PreviewRelayException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Preview relay startup failed", exception);
-        }
+        requirePreviewCamera(streamName);
+        // 不经 ZLM ffmpeg 转码，直接代理 ZLM 上的原始直播流，
+        // 按摄像头源的原分辨率和编码（H.264/H.265 passthrough）播放
+        String remoteUrl = srsUrl("/live/" + StreamUrls.quote(streamName) + ".live.flv", null);
 
         HttpResponse<InputStream> response;
         try {
-            response = openPreviewRemote(remoteUrl);
+            response = openLiveRemote(remoteUrl);
         } catch (Exception exception) {
-            previewRelayManager.stopStream(streamName);
             if (exception instanceof ResponseStatusException statusException) {
                 throw statusException;
             }
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Preview stream unavailable", exception);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Live stream unavailable", exception);
         }
 
         StreamingResponseBody body = outputStream -> {
             try (InputStream input = response.body()) {
                 input.transferTo(outputStream);
-            } finally {
-                previewRelayManager.release(streamName);
             }
         };
         return ResponseEntity.ok()
@@ -229,8 +217,8 @@ public class MediaStreamController implements MediaStreamApi {
         return camera;
     }
 
-    /** open_preview_remote: retry 404s until the preview start timeout elapses. */
-    private HttpResponse<InputStream> openPreviewRemote(String remoteUrl) {
+    /** 直播流刚启动时 ZLM 可能尚未就绪：在启动超时窗口内对 404 重试。 */
+    private HttpResponse<InputStream> openLiveRemote(String remoteUrl) {
         long timeoutMs = Math.max(1, properties.preview().startTimeoutMs());
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         while (true) {
@@ -244,7 +232,7 @@ public class MediaStreamController implements MediaStreamApi {
                     Thread.sleep(250);
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
-                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Preview stream unavailable", interrupted);
+                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Live stream unavailable", interrupted);
                 }
             }
         }

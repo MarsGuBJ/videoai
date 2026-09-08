@@ -18,6 +18,7 @@ from app.schemas import (
     ModelResponse,
     ObjectEventResponse,
 )
+from app.schemas.algorithm import AlgorithmRecord
 
 _settings = get_settings()
 
@@ -26,10 +27,16 @@ face_embeddings: dict[UUID, list[float]] = {}
 events_store: list[FaceEventResponse] = []
 object_events_store: list[ObjectEventResponse] = []
 deployment_tasks_store: dict[UUID, DeploymentTaskResponse] = {}
+algorithms_store: dict[UUID, AlgorithmRecord] = {}
 llm_configs_store: dict[str, dict[str, Any]] = {}
+review_types_store: dict[str, dict[str, Any]] = {}
+review_tasks_store: dict[str, dict[str, Any]] = {}
+review_schedules_store: dict[str, dict[str, Any]] = {}
+worker_nodes_store: dict[str, dict[str, Any]] = {}
 event_infos_store: dict[str, dict[str, Any]] = {}
 event_dedup_rules_store: dict[str, dict[str, Any]] = {}
 event_push_tasks_store: dict[str, dict[str, Any]] = {}
+search_keywords_store: list[dict[str, Any]] = []
 object_event_cooldowns: dict[str, float] = {}
 event_subscribers: list[queue.Queue[str]] = []
 event_lock = threading.Lock()
@@ -41,6 +48,10 @@ scanner_thread: threading.Thread | None = None
 # worker 流 reconcile 守护线程
 worker_guard_stop_event = threading.Event()
 worker_guard_thread: threading.Thread | None = None
+
+# 定时复核调度线程
+review_scheduler_stop_event = threading.Event()
+review_scheduler_thread: threading.Thread | None = None
 
 # Windows 摄像头推流子进程
 windows_camera_process: subprocess.Popen[bytes] | None = None

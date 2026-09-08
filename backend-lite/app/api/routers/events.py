@@ -2,36 +2,39 @@
 
 import logging
 import queue
-import time
 from collections.abc import Iterator
-from datetime import datetime, timezone
-from uuid import uuid4
+from datetime import datetime
+from uuid import UUID
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import state
-from app.db.session import SessionLocal
-from app.models.face_match_event import FaceMatchEventORM
 from app.schemas.event import (
+    DeploymentEventPage,
+    DeploymentEventStats,
+    DeploymentEventSummary,
     FaceEventIngestRequest,
     FaceEventResponse,
-    FaceMatchEventResponse,
     ObjectEventIngestRequest,
     ObjectEventResponse,
 )
 from app.schemas.face import FaceScanSummary
+from app.services.deployment_events import (
+    deployment_events_stats,
+    deployment_events_summary,
+    query_deployment_events,
+)
 from app.services.events import (
     EVENT_SUBSCRIBER_QUEUE_SIZE,
-    EVENTS_STORE_MAX_SIZE,
     FaceEventInput,
-    broadcast_event,
+    ObjectEventInput,
     create_face_event,
+    create_object_event,
 )
 from app.services.face_scan import scan_running_cameras
 from app.services.faces import require_face
-from app.utils.assets import save_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +42,80 @@ EVENTS_DEFAULT_LIMIT = 100
 EVENTS_MAX_LIMIT = 200
 EVENTS_MATCH_DEFAULT_LIMIT = 10
 EVENTS_MATCH_MAX_LIMIT = 10
-FACE_MATCH_EVENTS_DEFAULT_LIMIT = 100
-FACE_MATCH_EVENTS_MAX_LIMIT = 500
 OBJECT_EVENTS_DEFAULT_LIMIT = 100
 OBJECT_EVENTS_MAX_LIMIT = 200
-OBJECT_EVENT_COOLDOWN_SECONDS = 2.0
 EVENT_STREAM_KEEPALIVE_SECONDS = 15
+DEPLOYMENT_EVENTS_DEFAULT_PAGE_SIZE = 20
+DEPLOYMENT_EVENTS_MAX_PAGE_SIZE = 100
 
 router = APIRouter()
+
+
+@router.get("/api/deployment-events", response_model=DeploymentEventPage)
+def list_deployment_events(
+    page: int = 1,
+    size: int = DEPLOYMENT_EVENTS_DEFAULT_PAGE_SIZE,
+    taskId: UUID | None = None,
+    cameraId: UUID | None = None,
+    eventType: str | None = None,
+    keyword: str | None = None,
+    startTime: datetime | None = None,
+    endTime: datetime | None = None,
+) -> DeploymentEventPage:
+    """分页查询布控事件存储表；数据库不可达时返回空页。"""
+    safe_page = max(1, page)
+    safe_size = max(1, min(size, DEPLOYMENT_EVENTS_MAX_PAGE_SIZE))
+    try:
+        items, total = query_deployment_events(
+            page=safe_page,
+            size=safe_size,
+            task_id=taskId,
+            camera_id=cameraId,
+            event_type=eventType,
+            keyword=keyword,
+            start_time=startTime,
+            end_time=endTime,
+        )
+        return DeploymentEventPage(items=items, total=total, page=safe_page, size=safe_size)
+    except SQLAlchemyError as exc:
+        logger.error("deployment-events query failed: %s", exc)
+        return DeploymentEventPage(items=[], total=0, page=safe_page, size=safe_size)
+
+
+@router.get("/api/deployment-events/summary", response_model=DeploymentEventSummary)
+def get_deployment_events_summary() -> DeploymentEventSummary:
+    """布控事件统计：总数 / 今日新增 / 人脸比对 / 目标检测。"""
+    try:
+        return deployment_events_summary()
+    except SQLAlchemyError as exc:
+        logger.error("deployment-events summary failed: %s", exc)
+        return DeploymentEventSummary(total=0, today=0, faceMatch=0, objectDetection=0)
+
+
+@router.get("/api/deployment-events/stats", response_model=DeploymentEventStats)
+def get_deployment_events_stats(
+    startTime: datetime | None = None,
+    endTime: datetime | None = None,
+    area: str | None = None,
+) -> DeploymentEventStats:
+    """事件统计页聚合：趋势 / 类型分布 / 区域排行 / 复核统计；数据库不可达时返回全零。"""
+    try:
+        return deployment_events_stats(start_time=startTime, end_time=endTime, area=area)
+    except SQLAlchemyError as exc:
+        logger.error("deployment-events stats failed: %s", exc)
+        return DeploymentEventStats(
+            total=0,
+            today=0,
+            week=0,
+            unreviewed=0,
+            reviewRate=0.0,
+            faceMatch=0,
+            objectDetection=0,
+            areas=[],
+            trend=[],
+            byArea=[],
+            reviewByType=[],
+        )
 
 
 @router.get("/api/events", response_model=list[FaceEventResponse])
@@ -68,35 +137,6 @@ def events_match(faceId: str = "", limit: int = EVENTS_MATCH_DEFAULT_LIMIT) -> l
             filtered = list(state.events_store)
         filtered.sort(key=lambda e: e.videoTime, reverse=True)
         return filtered[:safe_limit]
-
-
-@router.get("/api/face-match-events", response_model=list[FaceMatchEventResponse])
-def list_face_match_events(limit: int = FACE_MATCH_EVENTS_DEFAULT_LIMIT) -> list[FaceMatchEventResponse]:
-    """从数据库查询人脸匹配事件；数据库不可达时返回空列表（与原逻辑一致）。"""
-    safe_limit = max(1, min(limit, FACE_MATCH_EVENTS_MAX_LIMIT))
-    try:
-        with SessionLocal() as pgdb:
-            rows = pgdb.query(FaceMatchEventORM).order_by(FaceMatchEventORM.matched_at.desc()).limit(safe_limit).all()
-            return [
-                FaceMatchEventResponse(
-                    id=row.id,
-                    deploymentTaskId=row.deployment_task_id,
-                    faceProfileId=row.face_profile_id,
-                    faceProfileName=row.face_profile_name,
-                    faceProfilePhotoUrl=row.face_profile_photo_url,
-                    snapshotUrl=row.snapshot_url,
-                    cameraId=row.camera_id,
-                    cameraName=row.camera_name,
-                    cameraArea=row.camera_area,
-                    similarity=float(row.similarity or 0.0),
-                    matchedAt=row.matched_at,
-                    createdAt=row.created_at,
-                )
-                for row in rows
-            ]
-    except SQLAlchemyError as exc:
-        logger.error("face-match-events query failed: %s", exc)
-        return []
 
 
 @router.get("/api/events/stream")
@@ -144,33 +184,19 @@ def ingest_event(request: FaceEventIngestRequest) -> FaceEventResponse | None:
 @router.post("/api/events/object-ingest", response_model=ObjectEventResponse | None)
 def ingest_object_event(request: ObjectEventIngestRequest) -> ObjectEventResponse | None:
     """摄取目标检测事件；同摄像头 2 秒冷却期内直接丢弃。"""
-    camera_key = str(request.cameraId)
-    now_ts = time.time()
-    cooldown_key = f"{camera_key}:objects"
-    with state.event_lock:
-        last_time = state.object_event_cooldowns.get(cooldown_key, 0)
-        if now_ts - last_time < OBJECT_EVENT_COOLDOWN_SECONDS:
-            return None
-        state.object_event_cooldowns[cooldown_key] = now_ts
-
-    now = datetime.now(timezone.utc)
-    event = ObjectEventResponse(
-        id=uuid4(),
-        cameraId=request.cameraId,
-        cameraName=request.cameraName,
-        objects=request.objects,
-        snapshotUrl=save_snapshot(request.snapshotBase64),
-        videoTime=request.videoTime,
-        frameWidth=request.frameWidth,
-        frameHeight=request.frameHeight,
-        createdAt=now,
+    return create_object_event(
+        ObjectEventInput(
+            camera_id=request.cameraId,
+            camera_name=request.cameraName,
+            objects=request.objects,
+            snapshot_base64=request.snapshotBase64,
+            video_time=request.videoTime,
+            frame_width=request.frameWidth,
+            frame_height=request.frameHeight,
+            event_type=request.eventType,
+            deployment_task_id=request.deploymentTaskId,
+        )
     )
-    payload = f"event: object-event\ndata: {event.model_dump_json()}\n\n"
-    with state.event_lock:
-        state.object_events_store.insert(0, event)
-        del state.object_events_store[EVENTS_STORE_MAX_SIZE:]
-    broadcast_event(payload)
-    return event
 
 
 @router.get("/api/events/objects", response_model=list[ObjectEventResponse])

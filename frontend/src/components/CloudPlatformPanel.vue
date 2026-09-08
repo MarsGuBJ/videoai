@@ -1,6 +1,5 @@
 <template>
-  <section class="content review-wide">
-    <div class="review-titlebar"><div><h1>云平台配置</h1><p>维护云平台接入信息，包括平台类型、访问密钥和服务地址</p></div></div>
+  <div>
     <div class="event-config-page-board">
       <div class="event-config-filter"><div class="event-config-filter-left"><button class="btn primary" @click="openCreate">＋ 新增平台</button><button class="btn primary" @click="loadPlatforms">查询</button><button class="btn" @click="reset">重置</button><input v-model="keyword" class="input" style="width:260px;" placeholder="请输入平台名称" /></div></div>
       <div class="table-wrap"><table class="prototype-table"><thead><tr><th class="left">平台名称</th><th>平台类型</th><th class="left">Key</th><th>密钥</th><th class="left">IP</th><th>端口</th><th>更新时间</th><th>操作</th></tr></thead><tbody><tr v-for="row in paginatedRows" :key="row.id"><td class="left">{{ row.name }}</td><td>{{ row.type }}</td><td class="left"><code>{{ row.key }}</code></td><td>******</td><td class="left">{{ row.ip }}</td><td>{{ row.port }}</td><td>{{ formatTime(row.updatedAt) }}</td><td><div class="event-config-actions"><button class="link-blue" @click="openEdit(row)">编辑</button><button class="link-blue danger" @click="remove(row)">删除</button></div></td></tr><tr v-if="!loading && !paginatedRows.length"><td colspan="8" class="empty-cell">暂无云平台配置</td></tr><tr v-if="loading"><td colspan="8" class="empty-cell">加载中...</td></tr></tbody></table></div>
@@ -20,10 +19,11 @@
         <div class="event-config-modal-actions"><button class="btn" @click="closeForm">取消</button><button class="btn primary" :disabled="saving" @click="save">保存</button></div>
       </section>
     </div>
-  </section>
+  </div>
 </template>
 
 <script lang="ts">
+// 云平台配置面板：原 MediaCloudConfigPage 内容，作为「接入配置」页的 tab 嵌入。
 import { defineComponent } from "vue";
 import { api } from "../api";
 import type { CloudPlatform } from "../types";
@@ -40,8 +40,7 @@ function formatDateTime(value?: string): string {
 }
 
 export default defineComponent({
-  name: "MediaCloudConfigPage",
-  props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
+  name: "CloudPlatformPanel",
   inject: {
     showToast: { from: "showToast", default: (message: string) => {} },
   },

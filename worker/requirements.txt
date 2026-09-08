@@ -6,3 +6,14 @@ python-multipart==0.0.17
 numpy==1.26.4
 opencv-python-headless==4.10.0.84
 requests==2.32.3
+# GPU 指标采集（pynvml）；运行时可选——monitor.py 内 import 有守卫，无 GPU 环境可缺装
+pynvml==11.5.0
+# CPU/内存/磁盘指标采集（psutil）；运行时可选——monitor.py 内 import 有守卫
+psutil==6.1.0
+# 算法引擎插件化推理：引擎配置类 import yaml；部分引擎 service 链路 import PIL
+pyyaml==6.0.2
+pillow==10.4.0
+# 算法引擎推理运行时（CPU 版；GPU 环境可换装 onnxruntime-gpu）
+onnxruntime==1.19.2
+# kpt 引擎后处理（src.service.kpt.KptPostProcess）用到 scipy.optimize.linear_sum_assignment
+scipy==1.14.1

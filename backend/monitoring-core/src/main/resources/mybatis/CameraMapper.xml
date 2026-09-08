@@ -29,6 +29,12 @@
             password = #{password},
             device_code = #{deviceCode},
             serial_number = #{serialNumber},
+            video_preview_enabled = #{videoPreviewEnabled},
+            audio_enabled = #{audioEnabled},
+            talkback_enabled = #{talkbackEnabled},
+            ptz_enabled = #{ptzEnabled},
+            smart_analysis_enabled = #{smartAnalysisEnabled},
+            alarm_io_enabled = #{alarmIoEnabled},
             updated_at = now()
         WHERE id = #{id}
     </update>

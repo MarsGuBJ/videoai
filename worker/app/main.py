@@ -1,6 +1,9 @@
 """VideoAI worker FastAPI app: face embedding, object detection and stream management routes."""
 
 import asyncio
+import threading
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from uuid import UUID
 
@@ -9,12 +12,27 @@ import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
+from . import monitor
 from .config import settings
 from .schemas import EmbeddingResponse, StreamStartRequest, StreamStatusResponse, StreamStopRequest
 from .stream_manager import StreamManager
 from .triton_models import DinoDetectionClient, TritonFaceClient
 
-app = FastAPI(title="VideoAI Worker", version="0.1.0")
+HEARTBEAT_THREAD_JOIN_TIMEOUT_SECONDS = 2
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """启动时拉起 GPU 监控心跳守护线程，关闭时置位停止事件并等待退出。"""
+    stop_event = threading.Event()
+    heartbeat_thread = threading.Thread(target=monitor.heartbeat_loop, args=(stop_event,), daemon=True)
+    heartbeat_thread.start()
+    yield
+    stop_event.set()
+    heartbeat_thread.join(timeout=HEARTBEAT_THREAD_JOIN_TIMEOUT_SECONDS)
+
+
+app = FastAPI(title="VideoAI Worker", version="0.1.0", lifespan=lifespan)
 
 
 @lru_cache

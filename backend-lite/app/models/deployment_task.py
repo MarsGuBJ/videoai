@@ -29,6 +29,12 @@ class DeploymentTaskORM(Base):
     camera_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     recognition_per_minute: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
 
+    # 绑定算法的冗余快照（创建/更新时从算法表拷贝）
+    algorithm_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    algorithm_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    engine_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    algorithm_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow

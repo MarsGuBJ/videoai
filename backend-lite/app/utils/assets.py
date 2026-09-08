@@ -99,6 +99,45 @@ async def save_query_image(image: UploadFile) -> Path:
     return path
 
 
+async def save_review_image(image: UploadFile) -> str:
+    """保存复核任务上传的图片并返回其对外 URL。
+
+    校验规则与 save_query_image 一致：图片 content-type、20 MB 上限、非空。
+
+    Args:
+        image: 上传文件，必须是图片类型。
+
+    Returns:
+        ``/api/assets/review-images/<filename>`` 形式的 URL。
+
+    Raises:
+        HTTPException: 非图片、超过 20 MB 或内容为空时 400。
+    """
+    settings = get_settings()
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files are supported")
+    suffix = Path(image.filename or "").suffix.lower()
+    if suffix not in ALLOWED_IMAGE_SUFFIXES:
+        suffix = ".jpg"
+    filename = f"{uuid4()}{suffix}"
+    path = settings.review_image_storage_dir / filename
+    total_bytes = 0
+    with path.open("wb") as output:
+        while True:
+            chunk = await image.read(IMAGE_CHUNK_SIZE_BYTES)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > MAX_QUERY_IMAGE_BYTES:
+                path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail="Image file must be 20 MB or smaller")
+            output.write(chunk)
+    if total_bytes == 0:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Image file is empty")
+    return f"/api/assets/review-images/{filename}"
+
+
 def save_snapshot(snapshot_base64: str | None) -> str | None:
     """将 base64 快照落盘并返回对外 URL；数据非法时返回 None。
 

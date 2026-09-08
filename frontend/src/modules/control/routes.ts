@@ -8,5 +8,7 @@ export const routes: RouteRecordRaw[] = [
   { path: "/versionDetail", name: "versionDetail", component: () => import("../../pages/VersionDetailPage.vue") },
   { path: "/previewFile", name: "previewFile", component: () => import("../../pages/PreviewFilePage.vue") },
   { path: "/deployTasks", name: "deployTasks", component: () => import("../../pages/DeployTasksPage.vue") },
-  { path: "/deployTaskDetail", name: "deployTaskDetail", component: () => import("../../pages/DeployTaskDetailPage.vue") }
+  { path: "/deployTaskDetail", name: "deployTaskDetail", component: () => import("../../pages/DeployTaskDetailPage.vue") },
+  { path: "/events", name: "events", component: () => import("../../pages/EventsPage.vue") },
+  { path: "/eventDetail", name: "eventDetail", component: () => import("../../pages/EventDetailPage.vue") }
 ];
