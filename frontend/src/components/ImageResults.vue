@@ -6,8 +6,8 @@ import { similarityColor } from "../utils/prototype-helpers";
 // to the prototype's `inject: ["openResult", "setRoute"]`.
 export default {
   name: "ImageResults",
-  props: ["items", "showScore", "selectable", "selectedIndexes", "indexOffset", "hideJump", "hideDescription", "showActions"],
-  emits: ["toggle-selection", "image-action"],
+  props: ["items", "showScore", "selectable", "selectedIndexes", "indexOffset", "hideJump", "hideDescription", "showActions", "clickCropSearch"],
+  emits: ["toggle-selection", "image-action", "card-click"],
   inject: {
     openResultImpl: { from: "openResult" },
     setRouteImpl: { from: "setRoute" }
@@ -25,6 +25,14 @@ export default {
     },
     isSelected(index: number) {
       return (this.selectedIndexes || []).includes(this.globalIndex(index));
+    },
+    onCardClick(index: number, item: any) {
+      // clickCropSearch：点击卡片交给页面处理（图搜图页用于弹窗框选后再次搜图）
+      if (this.clickCropSearch) {
+        this.$emit("card-click", { item, index });
+        return;
+      }
+      this.openResult(index, item);
     }
   }
 };
@@ -32,7 +40,7 @@ export default {
 
 <template>
   <div class="result-grid">
-    <article class="result-card clickable" :class="{ selected: selectable && isSelected(index) }" v-for="(item, index) in items" :key="globalIndex(index)" @click="openResult(globalIndex(index), item)">
+    <article class="result-card clickable" :class="{ selected: selectable && isSelected(index) }" v-for="(item, index) in items" :key="globalIndex(index)" @click="onCardClick(globalIndex(index), item)">
       <label v-if="selectable" class="result-select" @click.stop>
         <input type="checkbox" :checked="isSelected(index)" :aria-label="'选择' + item.title" @change.stop="$emit('toggle-selection', globalIndex(index))" />
       </label>

@@ -34,6 +34,7 @@ public record CameraResponse(
         boolean talkbackEnabled,
         boolean ptzEnabled,
         boolean smartAnalysisEnabled,
-        boolean alarmIoEnabled
+        boolean alarmIoEnabled,
+        String subStreamName
 ) {
 }

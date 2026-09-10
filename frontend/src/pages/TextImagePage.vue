@@ -1,17 +1,13 @@
 <template>
   <section class="content wide search-experience-page text-image-page">
-    <div class="search-page-head"><div class="title-row"><div><h1 class="page-title">文搜图</h1><p class="page-subtitle">文字描述人员或车辆属性搜索图片</p></div></div></div>
+    <div class="search-page-head"><div class="title-row"><div><h1 class="page-title">文搜图</h1><p class="page-subtitle">文字描述人员属性搜索图片</p></div></div></div>
     <div class="panel search-panel prototype-search-panel">
-      <div class="exact-mode-tabs text-image-mode-tabs" role="tablist"><button class="exact-mode-tab" :class="{ active: activeType === 'person' }" role="tab" :aria-selected="activeType === 'person'" @click="setActiveType('person')">人员检索</button><button class="exact-mode-tab" :class="{ active: activeType === 'vehicle' }" role="tab" :aria-selected="activeType === 'vehicle'" @click="setActiveType('vehicle')">车辆检索</button></div>
-      <div v-if="activeType === 'person'" class="attribute-grid person-grid">
+      <div class="search-filter-row">
         <div class="deploy-field"><area-camera-picker v-model="personFilters.area" aria-label="区域" /></div>
         <div class="deploy-field"><date-time-range-picker v-model:start="personFilters.start" v-model:end="personFilters.end" /></div>
+        <input class="input query-input" v-model="query" placeholder="描述你要查找的目标特征，如：戴眼镜、穿深色外套、出现在办公区附近的人员" />
+        <button class="btn primary" :disabled="searching" @click="searchImages">⌕ 搜索图片</button>
       </div>
-      <div v-else class="attribute-grid vehicle-grid">
-        <div class="deploy-field"><area-camera-picker v-model="vehicleFilters.area" aria-label="区域" /></div>
-        <div class="deploy-field"><date-time-range-picker v-model:start="vehicleFilters.start" v-model:end="vehicleFilters.end" /></div>
-      </div>
-      <div class="search-query-row"><input class="input" v-model="query" :placeholder="activeType === 'vehicle' ? '描述你要查找的目标特征，如：白色车辆' : '描述你要查找的目标特征，如：戴眼镜、穿深色外套、出现在办公区附近的人员'" /><button class="btn primary" :disabled="searching" @click="searchImages">⌕ 搜索图片</button><button class="btn" @click="clearSearch">清除</button></div>
     </div>
     <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div><div class="result-toolbar-actions"><button class="btn" :disabled="!searched || !allResults.length" @click="toggleSelectAll">{{ isAllSelected ? '取消全选' : '全选' }}</button><button class="btn primary" :disabled="!selectedIndexes.length" @click="openTrack">⌁ 还原目标轨迹</button></div></div>
     <image-results v-if="searched" :items="paginatedResults" :show-score="!searchedReal" :selectable="true" :selected-indexes="selectedIndexes" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" @toggle-selection="toggleSelection"></image-results>
@@ -103,7 +99,6 @@ export default defineComponent({
   },
   data() {
     return {
-      activeType: "person",
       query: "",
       searched: false,
       page: 1,
@@ -112,7 +107,6 @@ export default defineComponent({
       jumpPage: "",
       selectedIndexes: [] as number[],
       personFilters: { area: "", start: "", end: "" },
-      vehicleFilters: { area: "", start: "", end: "" },
       // Real text-search state (retrieve API wiring)
       searching: false,
       searchedReal: false,
@@ -142,11 +136,6 @@ export default defineComponent({
     }
   },
   methods: {
-    setActiveType(type: string) {
-      this.activeType = type;
-      this.page = 1;
-      this.selectedIndexes = [];
-    },
     async searchImages() {
       const message = this.query.trim();
       if (!message) {
@@ -159,7 +148,7 @@ export default defineComponent({
       this.selectedIndexes = [];
       this.searching = true;
       try {
-        const filters = this.activeType === "person" ? this.personFilters : this.vehicleFilters;
+        const filters = this.personFilters;
         const response = await api.textSearchQuery({
           message,
           startTime: toRetrieveApiDateTime(filters.start),
@@ -179,14 +168,6 @@ export default defineComponent({
       } finally {
         this.searching = false;
       }
-    },
-    clearSearch() {
-      this.query = "";
-      this.searched = false;
-      this.page = 1;
-      this.selectedIndexes = [];
-      this.searchedReal = false;
-      this.realResults = [];
     },
     goToPage(page: number) {
       this.page = Math.min(this.pageCount, Math.max(1, page));

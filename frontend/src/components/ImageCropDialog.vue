@@ -1,7 +1,7 @@
 <script lang="ts">
 export default {
   name: "ImageCropDialog",
-  props: ["open", "item", "action", "itemIndex"],
+  props: ["open", "item", "action", "itemIndex", "confirmLabel", "allowEmptyConfirm"],
   emits: ["close", "confirm"],
   data() {
     return {
@@ -34,6 +34,12 @@ export default {
     },
     hasValidSelection() {
       return Boolean(this.selection && this.selection.width >= 3 && this.selection.height >= 3);
+    },
+    canConfirm() {
+      return Boolean(this.allowEmptyConfirm) || this.hasValidSelection;
+    },
+    confirmButtonLabel() {
+      return this.confirmLabel || "确定";
     }
   },
   methods: {
@@ -77,13 +83,16 @@ export default {
       this.$emit("close");
     },
     confirmSelection() {
-      if (!this.item || !this.hasValidSelection) return;
-      const crop = {
-        x: Number(this.selection.x.toFixed(2)),
-        y: Number(this.selection.y.toFixed(2)),
-        width: Number(this.selection.width.toFixed(2)),
-        height: Number(this.selection.height.toFixed(2))
-      };
+      if (!this.item || !this.canConfirm) return;
+      // 允许不框选直接确认时（如图搜图结果"搜图"），无有效框选则 crop 为 null 表示整图
+      const crop = this.hasValidSelection
+        ? {
+            x: Number(this.selection.x.toFixed(2)),
+            y: Number(this.selection.y.toFixed(2)),
+            width: Number(this.selection.width.toFixed(2)),
+            height: Number(this.selection.height.toFixed(2))
+          }
+        : null;
       this.$emit("confirm", { action: this.action, item: this.item, index: this.itemIndex, crop });
     }
   }
@@ -100,7 +109,7 @@ export default {
           <span v-if="selection" class="image-crop-selection" :style="selectionStyle"></span>
         </div>
       </div>
-      <div class="modal-footer"><button class="btn" @click="closeDialog">取消</button><button class="btn primary" :disabled="!hasValidSelection" @click="confirmSelection">确定</button></div>
+      <div class="modal-footer"><button class="btn" @click="closeDialog">取消</button><button class="btn primary" :disabled="!canConfirm" @click="confirmSelection">{{ confirmButtonLabel }}</button></div>
     </section>
   </div>
 </template>

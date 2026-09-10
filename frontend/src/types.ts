@@ -30,6 +30,7 @@ export type Camera = {
   ptzEnabled?: boolean;
   smartAnalysisEnabled?: boolean;
   alarmIoEnabled?: boolean;
+  subStreamName?: string | null;
 };
 
 export type CloudPlatform = {

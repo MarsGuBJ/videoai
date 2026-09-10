@@ -897,7 +897,6 @@
     .result-card-footer,
     .result-toolbar,
     .search-page-head,
-    .search-query-row,
     .i2i-file-note {
       display: flex;
       align-items: center;
@@ -1060,19 +1059,6 @@
       font-size: 14px;
     }
 
-    .attribute-grid {
-      display: grid;
-      gap: 12px;
-    }
-
-    .person-grid {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-
-    .vehicle-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
     .text-image-filter-select:invalid {
       color: #98a2b3;
     }
@@ -1104,12 +1090,21 @@
       color: transparent;
     }
 
-    .search-query-row {
-      margin-top: 18px;
+    /* 文搜图/图搜图搜索条件：所有控件单行排列、占满全宽 */
+    .search-filter-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
-    .search-query-row .input {
-      flex: 1 1 auto;
+    .search-filter-row .deploy-field {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .search-filter-row .query-input {
+      flex: 2 1 0;
+      min-width: 0;
     }
 
     .result-toolbar {
@@ -1138,10 +1133,14 @@
     }
 
     .i2i-form-grid {
-      display: grid;
-      grid-template-columns: 84px minmax(0, 1fr);
-      gap: 18px;
-      align-items: start;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .i2i-form-grid .deploy-field {
+      flex: 1 1 0;
+      min-width: 0;
     }
 
     .i2i-upload-zone {
@@ -1199,23 +1198,11 @@
       display: none;
     }
 
-    .i2i-filter-area {
-      min-width: 0;
-    }
-
-    .i2i-attribute-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      align-items: end;
-    }
-
     .similarity-field {
       display: grid;
-      grid-column: 1;
-      grid-row: 2;
       grid-template-columns: max-content minmax(0, 1fr);
       align-items: center;
       gap: 8px;
-      transform: translateY(-5px);
     }
 
     .similarity-field input[type="range"] {
@@ -1230,14 +1217,6 @@
 
     .similarity-field b {
       color: var(--blue);
-    }
-
-    .i2i-actions {
-      grid-column: 2 / -1;
-      grid-row: 2;
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
     }
 
     .i2i-file-note {
@@ -4282,11 +4261,6 @@
 
     .event-config-tab-pane {
       min-height: 0;
-    }
-
-    .text-image-mode-tabs {
-      margin: -18px -18px 18px;
-      padding: 0 18px;
     }
 
     .exact-source-form {
@@ -9089,6 +9063,7 @@
 
     .media-video-grid {
       display: grid;
+      position: relative;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       grid-template-rows: repeat(2, minmax(190px, 1fr));
       flex: 1 1 auto;
@@ -9111,6 +9086,38 @@
     .media-video-grid.grid-16 {
       grid-template-columns: repeat(4, minmax(0, 1fr));
       grid-template-rows: repeat(1, minmax(160px, 1fr));
+    }
+
+    /* “满屏窗口”：视频宫格整体全屏时铺满屏幕 */
+    .media-video-grid:fullscreen {
+      min-height: 0;
+    }
+
+    /* 全屏状态下右上角悬浮的取消全屏按钮 */
+    .media-fullscreen-exit {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 10;
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border: 1px solid rgba(255, 255, 255, .35);
+      border-radius: 50%;
+      background: rgba(13, 23, 38, .55);
+      color: #fff;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: .6;
+      transition: opacity .15s ease, background .15s ease;
+    }
+
+    .media-video-grid:hover .media-fullscreen-exit,
+    .media-fullscreen-exit:hover {
+      opacity: 1;
+      background: rgba(20, 42, 70, .85);
     }
 
     .media-video-tile,

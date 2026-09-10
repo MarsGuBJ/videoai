@@ -606,12 +606,16 @@ export function streamUrl(path?: string | null): string | undefined {
   return `${baseUrl}/${path}`;
 }
 
-export function cameraStreamUrl(camera?: Camera | null): string | undefined {
+export function cameraStreamUrl(camera?: Camera | null, streamType: 'main' | 'sub' = 'main'): string | undefined {
   if (!camera) {
     return undefined;
   }
   if (camera.objectDetectionEnabled) {
     return streamUrl(`/api/cameras/${camera.id}/annotated.mjpeg`);
+  }
+  // 子码流由后端按厂商约定注册为 {streamName}-sub；无子码流的设备回退主码流
+  if (streamType === 'sub' && camera.subStreamName) {
+    return streamUrl(`/api/live/${encodeURIComponent(camera.subStreamName)}.live.flv`);
   }
   if (camera.streamName && (camera.sourceUrl.startsWith('rtsp://') || camera.playbackUrl.includes('/live/'))) {
     return streamUrl(`/api/live/${encodeURIComponent(camera.streamName)}.live.flv`);

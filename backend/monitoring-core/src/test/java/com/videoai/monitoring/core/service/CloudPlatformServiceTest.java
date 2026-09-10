@@ -117,7 +117,7 @@ class CloudPlatformServiceTest {
                 id, "本地-" + ip, "rtsp://" + ip + "/stream", "live", "s-" + ip, null, null, "办公楼",
                 "RUNNING", null, OffsetDateTime.now(), OffsetDateTime.now(),
                 null, null, null, null, null, null, ip, "554",
-                null, null, null, null, false, true, false, false, false, false, false);
+                null, null, null, null, false, true, false, false, false, false, false, null);
     }
 
     private static CloudDeviceItem cloudDevice(String name, String ip) {

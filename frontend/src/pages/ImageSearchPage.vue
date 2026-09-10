@@ -5,22 +5,18 @@
       <input ref="imageSearchInput" class="hidden-file-input" type="file" accept="image/*" @change="handleImageUpload" />
       <div class="i2i-form-grid">
         <button class="i2i-upload-zone" @click="triggerImageUpload" @dragover.prevent @drop.prevent="handleImageUpload">
-          <img v-if="imagePreview" :src="imagePreview" alt="参考图" />
+          <img v-if="imagePreview" :src="imagePreview" alt="参考图" title="点击放大并框选裁剪" style="cursor:zoom-in;" @click.stop="openCurrentImageCrop" />
           <span v-if="imagePreview && imageCrop" class="i2i-crop-box" :style="imageCropStyle"></span>
           <span v-if="!imagePreview"><span class="upload-mark">☁</span><strong>上传图片</strong><small>点击或拖拽图片到此处</small></span>
         </button>
-        <div class="i2i-filter-area">
-          <div class="attribute-grid i2i-attribute-grid">
-            <div class="deploy-field"><date-time-range-picker v-model:start="start" v-model:end="end" /></div>
-            <div class="deploy-field"><area-camera-picker v-model="place" aria-label="地点" /></div>
-            <div class="deploy-field similarity-field"><label>相似度：<b>{{ similarity }}%</b></label><input type="range" min="0" max="100" v-model.number="similarity" /></div>
-            <div class="i2i-actions"><button class="btn primary" :disabled="searching" @click="searchSimilar">⌕ 搜索</button><button class="btn" @click="clearSearchImage">清除</button></div>
-          </div>
-        </div>
+        <div class="deploy-field"><date-time-range-picker v-model:start="start" v-model:end="end" /></div>
+        <div class="deploy-field"><area-camera-picker v-model="place" aria-label="地点" /></div>
+        <div class="deploy-field similarity-field"><label>相似度：<b>{{ similarity }}%</b></label><input type="range" min="0" max="100" v-model.number="similarity" /></div>
+        <button class="btn primary" :disabled="searching" @click="searchSimilar">⌕ 搜索</button>
       </div>
     </div>
     <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div><div class="result-toolbar-actions"><button class="btn" :disabled="!searched || !allResults.length" @click="toggleSelectAll">{{ isAllSelected ? '取消全选' : '全选' }}</button><button class="btn primary" :disabled="!selectedIndexes.length" @click="openTrack">⌁ 还原目标轨迹</button></div></div>
-    <image-results v-if="searched" :items="paginatedResults" :show-score="true" :selectable="true" :selected-indexes="selectedIndexes" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" @toggle-selection="toggleSelection"></image-results>
+    <image-results v-if="searched" :items="paginatedResults" :show-score="true" :selectable="true" :selected-indexes="selectedIndexes" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :click-crop-search="true" @toggle-selection="toggleSelection" @card-click="openResultImageCrop"></image-results>
     <div v-if="searched" class="image-search-result-footer">
       <div class="exact-pagination">
         <span>显示 {{ pageStart }}-{{ pageEnd }} 共 {{ allResults.length }} 条</span>
@@ -35,7 +31,7 @@
     </div>
     <div v-else class="search-empty-state"><strong>等待图像检索</strong><span>上传参考图并点击「搜索」查看匹配结果</span></div>
     <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在检索相似目标，请稍候...</p></div></div>
-    <image-crop-dialog :open="cropDialogOpen" :item="cropDialogItem" action="imageSearch" :item-index="-1" @close="cancelImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
+    <image-crop-dialog :open="cropDialogOpen" :item="cropDialogItem" action="imageSearch" :item-index="-1" :confirm-label="cropConfirmLabel" :allow-empty-confirm="cropMode === 'result'" @close="cancelImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
   </section>
 </template>
 
@@ -119,7 +115,6 @@ export default defineComponent({
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
   inject: {
     showToast: { from: "showToast", default: (m: string) => {} },
-    clearImage: { from: "clearImage", default: () => {} },
     setRoute: { from: "setRoute", default: (route: string, options?: any) => {} }
   },
   data() {
@@ -146,6 +141,9 @@ export default defineComponent({
       pollRunId: 0,
       // Upload-then-crop dialog state
       cropDialogOpen: false,
+      // upload：新上传图片后框选；edit：点击已上传参考图框选替换；result：点击结果图框选后再次搜图
+      cropMode: "upload" as "upload" | "edit" | "result",
+      resultDialogItem: null as any,
       pendingFile: null as File | null,
       pendingPreviewUrl: ""
     };
@@ -181,8 +179,17 @@ export default defineComponent({
       };
     },
     cropDialogItem() {
+      if (this.cropMode === "edit") {
+        return this.imagePreview ? { image: this.imagePreview, title: this.imageFileName || "参考图" } : null;
+      }
+      if (this.cropMode === "result") {
+        return this.resultDialogItem;
+      }
       if (!this.pendingPreviewUrl) return null;
       return { image: this.pendingPreviewUrl, title: this.pendingFile ? this.pendingFile.name : "参考图" };
+    },
+    cropConfirmLabel() {
+      return this.cropMode === "result" ? "搜图" : "确定";
     }
   },
   methods: {
@@ -201,13 +208,79 @@ export default defineComponent({
       if (this.pendingPreviewUrl) URL.revokeObjectURL(this.pendingPreviewUrl);
       this.pendingFile = file;
       this.pendingPreviewUrl = URL.createObjectURL(file);
+      this.cropMode = "upload";
       this.cropDialogOpen = true;
     },
-    // 框选确认：本地裁剪图片，用框选的局部替换参考图（裁剪失败时退回整张原图）
+    // 点击已上传的参考图：弹窗放大并框选，确定后用框选区域替换参考图
+    openCurrentImageCrop() {
+      if (!this.imagePreview) return;
+      this.cropMode = "edit";
+      this.cropDialogOpen = true;
+    },
+    // 点击搜索结果图：弹窗放大并框选，点「搜图」用裁剪结果在当前页重新搜索
+    openResultImageCrop(payload: any) {
+      if (!payload || !payload.item || !payload.item.image) return;
+      this.resultDialogItem = payload.item;
+      this.cropMode = "result";
+      this.cropDialogOpen = true;
+    },
+    // 用裁剪得到的图片文件替换当前参考图，并清空上次搜索结果
+    applyReferenceFile(file: File) {
+      if (this.imagePreview && this.imagePreview.startsWith("blob:")) URL.revokeObjectURL(this.imagePreview);
+      this.imagePreview = URL.createObjectURL(file);
+      this.imageFileName = file.name;
+      this.imageCrop = null;
+      this.searched = false;
+      this.page = 1;
+      this.selectedIndexes = [];
+      this.selectedFile = file;
+      this.searchedReal = false;
+      this.realResults = [];
+      this.pollRunId += 1;
+    },
+    // 框选确认：按弹窗来源分发——upload 新图入库、edit 裁剪替换参考图、result 裁剪后再次搜图
     async confirmImageCrop(payload: any) {
+      const mode = this.cropMode;
       this.cropDialogOpen = false;
+      const crop = payload?.crop as ImageCropSelection | undefined | null;
+      if (mode === "edit") {
+        const currentUrl = this.imagePreview;
+        if (!currentUrl || !crop) return;
+        try {
+          const cropped = await cropImageToFile(currentUrl, crop, this.imageFileName || "参考图.jpg");
+          this.applyReferenceFile(cropped);
+          this.showToast("参考图已更新为框选区域，请重新搜索");
+        } catch {
+          this.showToast("局部裁剪失败，已保留原图");
+        }
+        return;
+      }
+      if (mode === "result") {
+        const item = this.resultDialogItem;
+        this.resultDialogItem = null;
+        if (!item || !item.image) return;
+        const region = crop || { x: 0, y: 0, width: 100, height: 100 };
+        try {
+          const cropped = await cropImageToFile(item.image, region, "搜图裁剪.jpg");
+          this.applyReferenceFile(cropped);
+        } catch {
+          // 结果图跨域导致 canvas 被污染时，退回直接用结果图 URL 作为查询图
+          if (this.imagePreview && this.imagePreview.startsWith("blob:")) URL.revokeObjectURL(this.imagePreview);
+          this.imagePreview = item.image;
+          this.imageFileName = item.title || "结果图";
+          this.imageCrop = null;
+          this.searched = false;
+          this.page = 1;
+          this.selectedIndexes = [];
+          this.selectedFile = null;
+          this.searchedReal = false;
+          this.realResults = [];
+          this.pollRunId += 1;
+        }
+        this.searchSimilar();
+        return;
+      }
       const file = this.pendingFile;
-      const crop = payload?.crop as ImageCropSelection | undefined;
       this.pendingFile = null;
       if (!file) {
         if (this.pendingPreviewUrl) URL.revokeObjectURL(this.pendingPreviewUrl);
@@ -224,21 +297,13 @@ export default defineComponent({
       }
       URL.revokeObjectURL(this.pendingPreviewUrl);
       this.pendingPreviewUrl = "";
-      if (this.imagePreview && this.imagePreview.startsWith("blob:")) URL.revokeObjectURL(this.imagePreview);
-      this.imagePreview = URL.createObjectURL(finalFile);
-      this.imageFileName = finalFile.name;
-      this.imageCrop = null;
-      this.searched = false;
-      this.page = 1;
-      this.selectedIndexes = [];
-      this.selectedFile = finalFile;
-      this.searchedReal = false;
-      this.realResults = [];
-      this.pollRunId += 1;
+      this.applyReferenceFile(finalFile);
       this.showToast("参考图已载入，请设置筛选条件后搜索");
     },
     cancelImageCrop() {
       this.cropDialogOpen = false;
+      this.cropMode = "upload";
+      this.resultDialogItem = null;
       this.pendingFile = null;
       if (this.pendingPreviewUrl) URL.revokeObjectURL(this.pendingPreviewUrl);
       this.pendingPreviewUrl = "";
@@ -329,21 +394,6 @@ export default defineComponent({
         await delay(POLL_INTERVAL_MS);
       }
       throw new Error("搜索任务超时，请稍后重试");
-    },
-    clearSearchImage() {
-      if (this.imagePreview && this.imagePreview.startsWith("blob:")) URL.revokeObjectURL(this.imagePreview);
-      this.imagePreview = "";
-      this.imageFileName = "";
-      this.imageCrop = null;
-      this.searched = false;
-      this.page = 1;
-      this.selectedIndexes = [];
-      this.selectedFile = null;
-      this.searchedReal = false;
-      this.realResults = [];
-      this.pollRunId += 1;
-      this.clearImage();
-      if (this.$refs.imageSearchInput) (this.$refs.imageSearchInput as HTMLInputElement).value = "";
     },
     goToPage(page: number) {
       this.page = Math.min(this.pageCount, Math.max(1, page));

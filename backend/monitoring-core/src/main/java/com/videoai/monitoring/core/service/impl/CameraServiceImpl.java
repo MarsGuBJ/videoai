@@ -149,6 +149,7 @@ public class CameraServiceImpl implements CameraService {
         if (!newSourceUrl.equals(old.sourceUrl()) || !streamName.equals(old.streamName())) {
             previewRelayManager.stopStream(old.streamName());
             liveRelayService.stopFfmpegLiveRelay(old.streamName());
+            liveRelayService.removeZlmediakitProxy(StreamUrls.subStreamName(old.streamName()));
         }
         return get(id);
     }
@@ -159,6 +160,7 @@ public class CameraServiceImpl implements CameraService {
         find(id).ifPresent(camera -> {
             previewRelayManager.stopStream(camera.streamName());
             liveRelayService.removeZlmediakitProxy(camera.streamName());
+            liveRelayService.removeZlmediakitProxy(StreamUrls.subStreamName(camera.streamName()));
             cameraDao.deleteById(id);
         });
     }
@@ -169,6 +171,11 @@ public class CameraServiceImpl implements CameraService {
         CameraResponse camera = get(id);
         cameraDao.updateStatus(id, "RUNNING");
         liveRelayService.addZlmediakitProxy(camera.sourceUrl(), camera.streamName());
+        // 可推导子码流地址的设备同时注册子码流代理（{streamName}-sub），供预览页切换
+        String subSourceUrl = StreamUrls.deriveSubSourceUrl(camera.sourceUrl());
+        if (subSourceUrl != null) {
+            liveRelayService.addZlmediakitProxy(subSourceUrl, StreamUrls.subStreamName(camera.streamName()));
+        }
         return get(id);
     }
 
@@ -178,6 +185,7 @@ public class CameraServiceImpl implements CameraService {
         CameraResponse camera = get(id);
         previewRelayManager.stopStream(camera.streamName());
         liveRelayService.removeZlmediakitProxy(camera.streamName());
+        liveRelayService.removeZlmediakitProxy(StreamUrls.subStreamName(camera.streamName()));
         cameraDao.updateStatus(id, "STOPPED");
         return get(id);
     }
@@ -243,7 +251,9 @@ public class CameraServiceImpl implements CameraService {
                 Boolean.TRUE.equals(entity.getTalkbackEnabled()),
                 Boolean.TRUE.equals(entity.getPtzEnabled()),
                 Boolean.TRUE.equals(entity.getSmartAnalysisEnabled()),
-                Boolean.TRUE.equals(entity.getAlarmIoEnabled())
+                Boolean.TRUE.equals(entity.getAlarmIoEnabled()),
+                // 子码流流名由 sourceUrl 按厂商约定推导；无法推导的设备为 null（前端禁用切换）
+                StreamUrls.deriveSubSourceUrl(sourceUrl) != null ? StreamUrls.subStreamName(stream) : null
         );
     }
 

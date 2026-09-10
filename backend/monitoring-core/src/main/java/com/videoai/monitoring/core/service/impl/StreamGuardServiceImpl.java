@@ -5,6 +5,7 @@ import com.videoai.monitoring.core.client.ZlmClient;
 import com.videoai.monitoring.core.service.CameraService;
 import com.videoai.monitoring.core.service.LiveRelayService;
 import com.videoai.monitoring.core.service.StreamGuardService;
+import com.videoai.monitoring.core.support.StreamUrls;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -45,6 +46,7 @@ public class StreamGuardServiceImpl implements StreamGuardService {
             }
             try {
                 liveRelayService.addZlmediakitProxy(camera.sourceUrl(), camera.streamName());
+                addSubStreamProxy(camera);
             } catch (Exception exception) {
                 log.warn("restore_running_camera_streams failed for {}: {}", camera.streamName(), exception.getMessage());
             }
@@ -64,9 +66,24 @@ public class StreamGuardServiceImpl implements StreamGuardService {
                     log.info("stream_proxy_guard: re-adding proxy for {}", camera.streamName());
                     liveRelayService.addZlmediakitProxy(camera.sourceUrl(), camera.streamName(), true);
                 }
+                String subStreamName = camera.subStreamName();
+                if (subStreamName != null && !activeStreams.contains(subStreamName)) {
+                    log.info("stream_proxy_guard: re-adding proxy for {}", subStreamName);
+                    liveRelayService.addZlmediakitProxy(
+                            StreamUrls.deriveSubSourceUrl(camera.sourceUrl()), subStreamName, true);
+                }
             }
         } catch (Exception exception) {
             log.warn("stream_proxy_guard failed: {}", exception.getMessage());
+        }
+    }
+
+    /** 与主码流对称：可推导子码流地址的 RUNNING 设备同时恢复子码流代理。 */
+    private void addSubStreamProxy(CameraResponse camera) {
+        String subStreamName = camera.subStreamName();
+        String subSourceUrl = StreamUrls.deriveSubSourceUrl(camera.sourceUrl());
+        if (subStreamName != null && subSourceUrl != null) {
+            liveRelayService.addZlmediakitProxy(subSourceUrl, subStreamName);
         }
     }
 

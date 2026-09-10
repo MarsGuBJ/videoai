@@ -54,4 +54,31 @@ class StreamUrlsTest {
         assertEquals("/api/streams/live/abc-123.mjpeg",
                 StreamUrls.playbackUrl(PUBLIC, "srt://example.com/stream", "abc-123"));
     }
+
+    @Test
+    void deriveSubSourceUrlForHikvisionSwitchesChannelTo02() {
+        assertEquals("rtsp://admin:x@192.168.11.65:554/Streaming/Channels/102",
+                StreamUrls.deriveSubSourceUrl("rtsp://admin:x@192.168.11.65:554/Streaming/Channels/101"));
+        assertEquals("rtsp://192.168.1.10:554/Streaming/Channels/202",
+                StreamUrls.deriveSubSourceUrl("rtsp://192.168.1.10:554/Streaming/Channels/201"));
+    }
+
+    @Test
+    void deriveSubSourceUrlForDahuaSwitchesSubtypeTo1() {
+        assertEquals("rtsp://admin:x@192.168.1.20:554/cam/realmonitor?channel=1&subtype=1",
+                StreamUrls.deriveSubSourceUrl("rtsp://admin:x@192.168.1.20:554/cam/realmonitor?channel=1&subtype=0"));
+    }
+
+    @Test
+    void deriveSubSourceUrlReturnsNullWhenNoRuleMatches() {
+        assertNull(StreamUrls.deriveSubSourceUrl(null));
+        assertNull(StreamUrls.deriveSubSourceUrl("http://example.com/Streaming/Channels/101"));
+        assertNull(StreamUrls.deriveSubSourceUrl("rtsp://192.168.11.195:8554/live/cam01"));
+    }
+
+    @Test
+    void subStreamNameAppendsSuffix() {
+        assertEquals("cam01-sub", StreamUrls.subStreamName("cam01"));
+        assertNull(StreamUrls.subStreamName(null));
+    }
 }

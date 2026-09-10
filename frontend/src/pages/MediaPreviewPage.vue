@@ -10,8 +10,8 @@
         <ul v-else class="media-plan-list"><li v-for="scene in sceneRecords" :key="scene.id" style="cursor:pointer;" title="点击还原该场景的全部视频流" @click="restoreScene(scene)"><template v-if="renamingSceneId === scene.id"><input class="input" v-model="renamingSceneName" style="width:100%;" @click.stop @keyup.enter="confirmRenameScene" @keyup.esc="cancelRenameScene" /><div style="display:flex;gap:10px;"><span class="link-blue" @click.stop="confirmRenameScene">确定</span><span class="link-red" @click.stop="cancelRenameScene">取消</span></div></template><template v-else><b>▦ {{ scene.name }}</b><span>{{ scene.time }}</span><div style="display:flex;gap:10px;"><span class="link-blue" @click.stop="startRenameScene(scene)">改名</span><span class="link-red" @click.stop="removeScene(scene)">删除</span></div></template></li><li v-for="record in historyRecords" :key="record.id + record.time" style="cursor:pointer;" @click="selectCameraById(record.id)"><b>{{ record.name }}</b><span>{{ record.time }}</span></li><li v-if="!sceneRecords.length && !historyRecords.length" style="color:#888;">暂无预览历史</li></ul>
       </aside>
       <section class="panel media-stage-panel">
-        <div class="media-stage-toolbar"><div class="media-layout-buttons"><span>分屏</span><button v-for="count in [1, 4, 9, 16]" :key="count" :class="{ active: previewLayout === count }" @click="changeLayout(count)">{{ count }}</button></div><div class="media-control-buttons"><button class="btn" @click="saveScene">保存场景</button><select class="select" style="width:96px;" v-model="streamType" aria-label="码流类型" @change="onStreamTypeChange"><option value="main">主码流</option><option value="sub" disabled>子码流</option></select><button class="btn" @click="openModal('videoConfig')">视频参数</button><select class="select" style="width:96px;" v-model="videoFit" aria-label="画面比例"><option value="contain">原始比例</option><option value="cover">满屏窗口</option></select></div></div>
-        <div class="media-video-grid" :class="gridClass"><article v-for="(feed, index) in visibleFeeds" :key="feed ? feed.name + '-' + index : 'empty-' + index" class="media-video-tile" :class="{ selected: feed && selectedFeed === index, 'drop-hover': dropHoverIndex === index }" @click="feed && selectFeed(index)" @dragover.prevent="onTileDragOver(index)" @dragleave="onTileDragLeave(index)" @drop="onTileDrop($event, index)"><video-player v-if="feed && feed.camera" :ref="(el: any) => setPlayerRef(el, index)" :url="feedUrl(feed.camera)" :fit="videoFit" :show-zoom-bar="!!feed.digitalZoom" /><div v-else class="media-video-empty">请从左侧选择一个监控点上屏</div><template v-if="previewLayout === 1 && feed"><button class="media-feed-switch prev" title="上一路" aria-label="上一路摄像头" @click.stop="switchFeed(-1)">‹</button><button class="media-feed-switch next" title="下一路" aria-label="下一路摄像头" @click.stop="switchFeed(1)">›</button></template><span class="media-video-clock">{{ now }}</span></article></div>
+        <div class="media-stage-toolbar"><div class="media-layout-buttons"><span>分屏</span><button v-for="count in [1, 4, 9, 16]" :key="count" :class="{ active: previewLayout === count }" @click="changeLayout(count)">{{ count }}</button></div><div class="media-control-buttons"><button class="btn" @click="saveScene">保存场景</button><select class="select" style="width:96px;" v-model="streamType" aria-label="码流类型" @change="onStreamTypeChange"><option value="main">主码流</option><option value="sub">子码流</option></select><button class="btn" @click="openModal('videoConfig')">视频参数</button><select class="select" style="width:96px;" v-model="videoFit" aria-label="画面比例" @change="onVideoFitChange"><option value="contain">原始比例</option><option value="cover">满屏窗口</option></select></div></div>
+        <div class="media-video-grid" ref="videoGrid" :class="gridClass"><article v-for="(feed, index) in visibleFeeds" :key="feed ? feed.name + '-' + index : 'empty-' + index" class="media-video-tile" :class="{ selected: feed && selectedFeed === index, 'drop-hover': dropHoverIndex === index }" @click="feed && selectFeed(index)" @dragover.prevent="onTileDragOver(index)" @dragleave="onTileDragLeave(index)" @drop="onTileDrop($event, index)"><video-player v-if="feed && feed.camera" :ref="(el: any) => setPlayerRef(el, index)" :url="feedUrl(feed)" :fit="videoFit" :show-zoom-bar="!!feed.digitalZoom" /><div v-else class="media-video-empty">请从左侧选择一个监控点上屏</div><template v-if="previewLayout === 1 && feed"><button class="media-feed-switch prev" title="上一路" aria-label="上一路摄像头" @click.stop="switchFeed(-1)">‹</button><button class="media-feed-switch next" title="下一路" aria-label="下一路摄像头" @click.stop="switchFeed(1)">›</button></template><span class="media-video-clock">{{ now }}</span></article><button v-if="gridFullscreen" class="media-fullscreen-exit" title="取消全屏" aria-label="取消全屏" @click="exitGridFullscreen">⛶</button></div>
         <div class="media-stage-controls"><div class="media-control-buttons"><button class="media-icon-button" :title="ctrlPaused ? '播放' : '暂停'" @click="togglePlay">{{ ctrlPaused ? '▶' : '⏸' }}</button><button class="media-icon-button" title="停止" @click="stopSelected">■</button><button class="media-icon-button" :title="ctrlMuted ? '打开声音' : '静音'" @click="toggleSound">{{ ctrlMuted ? '静' : '♪' }}</button><button class="media-icon-button" title="抓拍" @click="snapshotSelected">▣</button><button class="btn" @click="openModal('quickReplay')">即时回放</button><button class="btn" @click="setRoute('mediaPlayback')">切至录像</button><button class="btn" :class="{ primary: selectedDigitalZoom }" @click="toggleDigitalZoom">电子放大</button><button class="btn" @click="snapshotSelected">保存截图</button></div><span class="media-network-state">{{ selectedFeedName ? '当前窗口：' + selectedFeedName : '点击窗口或左侧监控点选择一路设备' }}</span></div>
       </section>
       <aside class="panel media-ptz-panel">
@@ -101,6 +101,7 @@ export default defineComponent({
       selectedRegion: null as RegionNode | null,
       selectedCamera: null as any,
       videoFit: "contain",
+      gridFullscreen: false,
       ctrlPaused: false,
       ctrlMuted: true,
       ptzStep: 5,
@@ -185,12 +186,14 @@ export default defineComponent({
     this.nowTimer = window.setInterval(() => {
       this.now = formatTime(new Date());
     }, 1000);
+    document.addEventListener("fullscreenchange", this.onFullscreenChange);
   },
   beforeUnmount() {
     if (this.nowTimer !== null) {
       window.clearInterval(this.nowTimer);
       this.nowTimer = null;
     }
+    document.removeEventListener("fullscreenchange", this.onFullscreenChange);
   },
   watch: {
     // 设备管理页增删改设备或新增区域后，刷新监控点树
@@ -248,14 +251,23 @@ export default defineComponent({
       if (this.selectedFeed >= this.feeds.length) this.selectedFeed = 0;
       this.ctrlPaused = false;
       this.ensureStarted();
+      this.syncStreamTypeSelector();
     },
     buildFeed(camera: any) {
-      return {
+      const feed = {
         name: camera.name,
-        meta: `${camera.protocol || camera.streamName || "IPC"} · ${statusLabel(camera.status)} · 主码流`,
+        meta: "",
         camera,
+        streamType: "main",
         digitalZoom: false
       };
+      feed.meta = this.feedMeta(feed);
+      return feed;
+    },
+    feedMeta(feed: any): string {
+      const camera = feed.camera;
+      const streamLabel = feed.streamType === "sub" ? "子码流" : "主码流";
+      return `${camera.protocol || camera.streamName || "IPC"} · ${statusLabel(camera.status)} · ${streamLabel}`;
     },
     // 顶层区域展开时显示其全部子孙区域的设备；搜索关键字按名称/IP 过滤
     camerasForRegion(region: RegionNode): any[] {
@@ -288,24 +300,79 @@ export default defineComponent({
         }
       }
     },
-    feedUrl(camera: any) {
-      return cameraStreamUrl(camera);
+    feedUrl(feed: any) {
+      return feed && feed.camera ? cameraStreamUrl(feed.camera, feed.streamType) : undefined;
     },
-    // 子码流需要后端为设备代理子码流地址后才能启用，目前仅提示
+    // 码流切换作用于当前选中窗口；子码流代理由后端按厂商约定（海康 101→102、大华 subtype=0→1）注册
     onStreamTypeChange() {
-      if (this.streamType === "sub") {
+      const feed = this.visibleFeeds[this.selectedFeed];
+      if (!feed || !feed.camera) {
         this.streamType = "main";
-        this.showToast("子码流暂未接入，当前仅支持主码流");
+        this.showToast("当前窗口无视频流");
+        return;
       }
+      if (this.streamType === "sub") {
+        if (!feed.camera.subStreamName) {
+          this.streamType = "main";
+          this.showToast("该设备不支持子码流");
+          return;
+        }
+        if (feed.camera.objectDetectionEnabled) {
+          this.streamType = "main";
+          this.showToast("开启目标检测标注的画面仅支持主码流");
+          return;
+        }
+        // 兜底：变更前已 RUNNING 的设备可能未注册子码流代理，重新 start 一次确保注册
+        api.startCamera(feed.camera.id).catch(() => undefined);
+      }
+      feed.streamType = this.streamType;
+      feed.meta = this.feedMeta(feed);
+      this.ctrlPaused = false;
+    },
+    // 下拉框始终反映当前选中窗口的码流类型
+    syncStreamTypeSelector() {
+      const feed = this.visibleFeeds[this.selectedFeed];
+      this.streamType = feed && feed.streamType === "sub" ? "sub" : "main";
     },
     changeLayout(count: number) {
       this.previewLayout = count;
       if (this.selectedFeed >= count) this.selectedFeed = 0;
       this.ensureStarted();
+      this.syncStreamTypeSelector();
+    },
+    // 选择“满屏窗口”：按当前分屏布局（1/4/9/16 路）将视频宫格整体全屏；
+    // 退出全屏（悬浮按钮 / Esc / 切回原始比例）后还原为原始比例
+    onVideoFitChange() {
+      if (this.videoFit === "cover") {
+        const grid = this.$refs.videoGrid as HTMLElement | undefined;
+        if (!grid || !grid.requestFullscreen) {
+          this.videoFit = "contain";
+          this.showToast("当前浏览器不支持全屏播放");
+          return;
+        }
+        grid.requestFullscreen().catch(() => {
+          this.videoFit = "contain";
+          this.showToast("进入全屏失败");
+        });
+      } else if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => undefined);
+      }
+    },
+    onFullscreenChange() {
+      this.gridFullscreen = document.fullscreenElement === this.$refs.videoGrid;
+      if (!this.gridFullscreen && this.videoFit === "cover") {
+        this.videoFit = "contain";
+      }
+    },
+    exitGridFullscreen() {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => undefined);
+      }
     },
     selectFeed(index: number) {
       this.selectedFeed = index;
       this.ctrlPaused = false;
+      this.syncStreamTypeSelector();
     },
     // 单分屏时左右箭头按设备列表顺序切换当前窗口画面（循环）
     switchFeed(direction: number) {
@@ -323,6 +390,7 @@ export default defineComponent({
       this.ctrlPaused = false;
       this.recordHistory(camera);
       this.ensureStarted();
+      this.syncStreamTypeSelector();
     },
     toggleRegion(region: RegionNode) {
       if (!this.selectedRegion || this.selectedRegion.fullPath !== region.fullPath) {
@@ -346,6 +414,7 @@ export default defineComponent({
       this.ctrlPaused = false;
       this.recordHistory(realCamera);
       this.ensureStarted();
+      this.syncStreamTypeSelector();
     },
     selectCameraById(id: string) {
       const camera = this.cameraList.find(c => c.id === id);
@@ -386,6 +455,7 @@ export default defineComponent({
       this.ctrlPaused = false;
       this.recordHistory(camera);
       this.ensureStarted();
+      this.syncStreamTypeSelector();
     },
     // --- 场景保存 / 还原（localStorage 持久化） ---
     saveScene() {
@@ -421,6 +491,7 @@ export default defineComponent({
       this.selectedFeed = 0;
       this.ctrlPaused = false;
       this.ensureStarted();
+      this.syncStreamTypeSelector();
       this.showToast(missing ? `场景已还原，${missing} 路设备已不存在` : `场景已还原（${this.feeds.filter(Boolean).length} 路视频流）`);
     },
     // --- 场景改名 / 删除 ---
