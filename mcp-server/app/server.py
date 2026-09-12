@@ -24,13 +24,12 @@ from .context import (
     recording_mp4_storage,
     retrieve_api,
     settings,
-    video_analysis,
+    video_understanding_client,
     videoai,
 )
 from .hcnetsdk_playback import NET_DVR_PLAYBACK_BY_TIME
 from .routes import register_http_tool_routes
 from .tools import (
-    analyze_minio_video,
     detect_persons,
     detect_persons_with_id,
     dino_events,
@@ -48,6 +47,7 @@ from .tools import (
     search_recordings,
     text_search_images,
     upload_face_image,
+    video_understanding,
 )
 from .tools.cameras import detect_format
 from .tools.dino import build_mock_dino_events, normalize_dino_event_limit
@@ -74,7 +74,6 @@ __all__ = [
     "DINO_EVENT_STATUS",
     "DINO_EVENT_TYPE",
     "NET_DVR_PLAYBACK_BY_TIME",
-    "analyze_minio_video",
     "attach_first_playable_recording_stream",
     "build_mock_dino_events",
     "detect_format",
@@ -119,7 +118,8 @@ __all__ = [
     "tools",
     "unique_recording_tracks",
     "upload_face_image",
-    "video_analysis",
+    "video_understanding",
+    "video_understanding_client",
     "videoai",
 ]
 

@@ -11,7 +11,8 @@ export default defineConfig(({ mode }) => ({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://backend:8081',
+        // 本地调试时用 VITE_DEV_API_TARGET 覆盖（如 http://localhost:8081）
+        target: process.env.VITE_DEV_API_TARGET || 'http://backend:8081',
         changeOrigin: true,
       },
     },

@@ -216,6 +216,7 @@ export default defineComponent({
         mediaExport: { title: "导出设备", narrow: true },
         mediaMove: { title: "批量设备移动", narrow: true },
         mediaCapability: { title: "批量配置设备能力", narrow: true },
+        mediaRegion: { title: "区域管理", narrow: true },
         mediaCloud: { title: "从云平台同步设备", wide: true },
         mediaDelete: { title: "删除设备", narrow: true },
         videoConfig: { title: "视频参数配置", wide: true },

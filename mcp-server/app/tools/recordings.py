@@ -100,9 +100,21 @@ async def search_recordings(
     if end <= start:
         raise ValueError("endTime must be later than startTime")
 
+    # 入参回显：随输出一起返回调用方传入的检索条件
+    input_echo = {
+        "cameraId": cameraId,
+        "startTime": startTime,
+        "endTime": endTime,
+        "limit": limit,
+        "trackId": trackId,
+        "autoProxy": autoProxy,
+        "streamFormat": streamFormat,
+    }
     camera_id = (cameraId or "").strip()
     if camera_id:
-        return await search_camera_recordings(camera_id, start, end, limit, autoProxy)
+        result = await search_camera_recordings(camera_id, start, end, limit, autoProxy)
+        result["input"] = input_echo
+        return result
 
     failed_tracks: dict[str, str] = {}
     recording = hcnetsdk_playback.build_recording(start, end)
@@ -112,6 +124,7 @@ async def search_recordings(
         items[0]["url"] = dynamic_recording_url(start, end)
         items[0]["format"] = "flv"
     return {
+        "input": input_echo,
         "data": items,
         "xml": build_video_list_xml(items),
         "searchedTrackIds": [recording.trackId],
@@ -192,6 +205,7 @@ async def get_recording_stream(recordingId: str, format: str = "flv", speed: flo
         )
         data = response.model_dump(mode="json")
         data["xml"] = build_video_file_xml(data)
+        data["input"] = {"recordingId": recordingId, "format": format, "speed": speed}
         return data
     playback_format = normalize_playback_format(format)
     url = await media_proxy.start_rtsp_relay(
@@ -210,6 +224,7 @@ async def get_recording_stream(recordingId: str, format: str = "flv", speed: flo
     )
     data = response.model_dump(mode="json")
     data["xml"] = build_video_file_xml(data)
+    data["input"] = {"recordingId": recordingId, "format": format, "speed": speed}
     return data
 
 

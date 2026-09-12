@@ -134,6 +134,10 @@ export type SimilarPersonResult = {
   camera_id?: string;
   camera_locate?: string;
   image_url?: string;
+  age?: string;
+  accessory?: string;
+  top_color?: string | string[];
+  action?: string;
 };
 
 export type PersonSearchResultResponse = {

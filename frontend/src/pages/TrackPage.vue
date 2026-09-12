@@ -6,6 +6,14 @@
         <div class="track-section-head"><div><h3>检索条件</h3></div></div>
         <input ref="trackTargetInput" class="hidden-file-input" type="file" accept="image/*" @change="handleTargetUpload" />
         <div class="track-query-grid">
+          <div class="track-query-block track-target-block">
+            <div class="field-label">目标参考图</div>
+            <div class="track-target-upload-wrap">
+              <button class="upload-card track-target-upload" type="button" :title="targetPreview ? '点击放大并框选裁剪目标图片' : '点击上传目标图片'" @click="handleTargetCardClick"><img v-if="targetPreview" :src="targetPreview" alt="目标参考图" /><span v-if="targetPreview && targetCrop" class="transferred-crop-box" :style="targetCropStyle"></span><span v-if="!targetPreview" class="upload-image-hint">点击上传目标图片</span></button>
+              <button v-if="targetPreview" class="track-target-upload-btn" type="button" title="上传/更换图片" aria-label="上传/更换图片" @click.stop="triggerTargetUpload">⭱</button>
+            </div>
+            <span v-if="targetFileName" class="hint-text">{{ targetFileName }}</span>
+          </div>
           <div class="track-query-block">
             <div class="field-label">时间范围</div>
             <date-time-range-picker v-model:start="trackStart" v-model:end="trackEnd" />
@@ -29,12 +37,6 @@
             <div class="field-label">相似度阈值</div>
             <div class="track-threshold-control"><input type="range" min="0" max="100" v-model.number="trackThreshold" /><strong>{{ trackThreshold }}%</strong></div>
           </div>
-          <div class="track-query-block track-target-block">
-            <div class="field-label">目标参考图</div>
-            <button class="upload-card track-target-upload" type="button" :title="targetPreview ? '点击图片放大并框选目标区域' : '点击上传目标图片'" @click="handleTargetCardClick"><img v-if="targetPreview" :src="targetPreview" alt="目标参考图" /><span v-if="targetPreview && targetCrop" class="transferred-crop-box" :style="targetCropStyle"></span><span class="upload-image-hint">{{ targetPreview ? '点击放大框选' : '点击上传目标图片' }}</span></button>
-            <span v-if="targetFileName" class="hint-text">{{ targetFileName }}</span>
-            <button v-if="targetPreview" class="btn track-target-reupload" type="button" @click="triggerTargetUpload">更换图片</button>
-          </div>
         </div>
         <div class="track-query-actions">
           <button class="btn primary" :disabled="searching" @click="runCandidateSearch">⌕ 搜索候选图片</button>
@@ -49,9 +51,9 @@
             <div class="metric-row"><span class="metric">总时长：<b>{{ trackDuration }}</b></span><span class="metric">经过点位：<b>{{ trackPointCount }}</b></span><span class="metric">轨迹置信：<b>{{ trackConfidence }}%</b></span></div>
             <div class="timeline">
               <article class="timeline-card" v-for="item in trackItems" :key="item.title">
-                <div><h4>{{ item.title }}</h4><p>{{ item.desc }}</p><div class="tags"><span class="tag blue">{{ item.location }}</span><span class="tag">相似度 {{ item.score }}%</span></div></div>
+                <div><h4>{{ item.title }}</h4><p v-if="item.desc">{{ item.desc }}</p><div class="tags"><span class="tag blue">{{ item.location }}</span><span class="tag">相似度 {{ item.score }}%</span></div></div>
                 <div class="timeline-card-controls"><span class="hint-text timeline-card-date">{{ item.date.slice(11, 19) }}</span><button class="timeline-delete-btn" @click="removeTrackItem(item)">删除</button></div>
-                <button class="timeline-image-button" type="button" title="查看图片详情" @click="openResult(-1, item)"><img :src="item.image" :alt="item.title" /></button>
+                <button class="timeline-image-button" type="button" title="点击放大查看" @click="openImagePreview(item)"><img :src="item.image" :alt="item.title" /></button>
               </article>
             </div>
           </div>
@@ -60,7 +62,11 @@
       </div>
       <div v-if="searching" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索候选图片，请稍候...</p></div></div>
     </div>
-    <image-crop-dialog :open="cropDialogOpen" :item="cropDialogItem" action="track" :item-index="-1" @close="cropDialogOpen = false" @confirm="handleCropConfirm"></image-crop-dialog>
+    <div v-if="previewImage" class="image-lightbox" @click.self="closeImagePreview">
+      <button class="image-lightbox-close" type="button" aria-label="关闭" @click="closeImagePreview">×</button>
+      <img class="image-lightbox-img" :src="previewImage" alt="轨迹抓拍大图" />
+    </div>
+    <image-crop-dialog :open="cropDialogOpen" :item="cropDialogItem" action="replaceTarget" :item-index="-1" @close="cropDialogOpen = false" @confirm="handleCropConfirm"></image-crop-dialog>
   </section>
 </template>
 
@@ -125,24 +131,22 @@ function formatCreateTime(value?: number | string): string {
 function mapSimilarPerson(result: SimilarPersonResult, index: number) {
   const raw = result.similarity_score;
   const score = raw === undefined || Number.isNaN(Number(raw)) ? 0 : Math.round(Number(raw) <= 1 ? Number(raw) * 100 : Number(raw));
+  // 特征行（原型：特征：年龄/配饰/衣服颜色/行为），后端无特征字段时留空
+  const extra = result as any;
+  const featureParts = [
+    extra.age ? `年龄:${extra.age}` : "",
+    extra.accessory ? `配饰:${extra.accessory}` : "",
+    extra.topColor ? `衣服颜色:${extra.topColor}` : "",
+    extra.action ? `行为:${extra.action}` : ""
+  ].filter(Boolean);
   return {
     title: `相似人员 ${index + 1}`,
     image: assetUrl(result.image_url),
     location: result.camera_locate || result.camera_id || "未知摄像头",
     date: formatCreateTime(result.create_time),
     score,
-    desc: result.es_doc_id || ""
+    desc: featureParts.length ? `特征：${featureParts.join(" ")}` : ""
   };
-}
-
-// The prototype accesses the injected openResult directly in the template;
-// vue-tsc does not infer inject keys onto the template `this`, so merge it
-// into ComponentCustomProperties (type-level only, runtime inject declaration
-// below stays exactly as the prototype).
-declare module "vue" {
-  interface ComponentCustomProperties {
-    openResult: (index: number, item?: any) => void;
-  }
 }
 
 export default defineComponent({
@@ -151,7 +155,6 @@ export default defineComponent({
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
   inject: {
     showToast: { from: "showToast", default: (m: string) => {} },
-    openResult: { from: "openResult", default: (index: number, item?: any) => {} },
   },
   data() {
     return {
@@ -171,6 +174,7 @@ export default defineComponent({
       targetFileName: "",
       selectedFile: null as File | null,
       cropDialogOpen: false,
+      previewImage: "",
       // Raw similar_persons from the backend and the mapped timeline items.
       rawPersons: [] as SimilarPersonResult[],
       trackItems: [] as any[],
@@ -385,6 +389,19 @@ export default defineComponent({
         this.triggerTargetUpload();
       }
     },
+    openImagePreview(item: any) {
+      this.previewImage = item?.image || "";
+    },
+    closeImagePreview() {
+      this.previewImage = "";
+    },
+    // 更换/框选目标图后重置已生成的轨迹
+    resetTrackState() {
+      this.searched = false;
+      this.rawPersons = [];
+      this.trackItems = [];
+      this.trackGenerated = false;
+    },
     // 框选确认：本地裁剪图片并替换目标参考图（无法裁剪时退回 bbox 检索模式）
     async handleCropConfirm(payload: any) {
       this.cropDialogOpen = false;
@@ -403,6 +420,7 @@ export default defineComponent({
           this.selectedFile = croppedFile;
           this.targetFileName = croppedFile.name;
           this.targetCrop = null;
+          this.resetTrackState();
           this.showToast("已用框选区域替换目标图片");
           return;
         } catch {
@@ -410,6 +428,7 @@ export default defineComponent({
         }
       }
       this.targetCrop = crop;
+      this.resetTrackState();
       this.showToast("已记录框选区域，搜索将按该区域检索");
     },
     handleTargetUpload(event: Event) {
@@ -425,10 +444,7 @@ export default defineComponent({
       this.targetCrop = null;
       this.targetFileName = file.name;
       this.selectedFile = file;
-      this.searched = false;
-      this.rawPersons = [];
-      this.trackItems = [];
-      this.trackGenerated = false;
+      this.resetTrackState();
       this.showToast("目标图片已载入");
     }
   }

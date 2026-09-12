@@ -58,6 +58,7 @@ async def get_live_stream(cameraId: str, autoStart: bool = True) -> dict:
     )
     data = response.model_dump(mode="json")
     data["xml"] = build_camera_flow_xml(data)
+    data["input"] = {"cameraId": cameraId, "autoStart": autoStart}
     return data
 
 

@@ -13,7 +13,7 @@ from .person_api_client import PersonApiClient
 from .recording_cache import RecordingCache
 from .retrieve_api_client import RetrieveApiClient
 from .settings import load_settings
-from .video_analysis_client import VideoAnalysisClient
+from .video_understanding_client import VideoUnderstandingClient
 from .videoai_client import VideoAiClient
 
 settings = load_settings()
@@ -34,7 +34,9 @@ videoai = VideoAiClient(
 )
 person_api = PersonApiClient(settings.person_api_base_url, settings.request_timeout_seconds)
 retrieve_api = RetrieveApiClient(settings.retrieve_api_base_url, settings.retrieve_api_timeout_seconds)
-video_analysis = VideoAnalysisClient(settings.video_analysis_api_base_url, settings.video_analysis_timeout_seconds)
+video_understanding_client = VideoUnderstandingClient(
+    settings.video_understanding_api_base_url, settings.video_understanding_timeout_seconds
+)
 hikvision = HikvisionNvrClient(
     settings.hikvision_base_url,
     settings.hikvision_username,

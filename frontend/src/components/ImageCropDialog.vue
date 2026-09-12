@@ -1,7 +1,7 @@
 <script lang="ts">
 export default {
   name: "ImageCropDialog",
-  props: ["open", "item", "action", "itemIndex", "confirmLabel", "allowEmptyConfirm"],
+  props: ["open", "item", "action", "itemIndex", "confirmLabel"],
   emits: ["close", "confirm"],
   data() {
     return {
@@ -20,7 +20,7 @@ export default {
   },
   computed: {
     actionLabel() {
-      const labels: any = { imageSearch: "以图搜图", quickDeploy: "快速布防", track: "轨迹还原" };
+      const labels: any = { imageSearch: "以图搜图", quickDeploy: "快速布防", track: "轨迹还原", replaceUpload: "裁剪参考图", replaceTarget: "裁剪目标图片", searchCrop: "以图搜图" };
       return labels[this.action] || "目标操作";
     },
     selectionStyle() {
@@ -36,10 +36,10 @@ export default {
       return Boolean(this.selection && this.selection.width >= 3 && this.selection.height >= 3);
     },
     canConfirm() {
-      return Boolean(this.allowEmptyConfirm) || this.hasValidSelection;
+      return this.hasValidSelection;
     },
     confirmButtonLabel() {
-      return this.confirmLabel || "确定";
+      return this.confirmLabel || (this.action === "searchCrop" ? "搜图" : "确定");
     }
   },
   methods: {
@@ -84,7 +84,7 @@ export default {
     },
     confirmSelection() {
       if (!this.item || !this.canConfirm) return;
-      // 允许不框选直接确认时（如图搜图结果"搜图"），无有效框选则 crop 为 null 表示整图
+      // canConfirm 已保证框选有效（宽高 ≥3%），crop 恒为有效百分比选区
       const crop = this.hasValidSelection
         ? {
             x: Number(this.selection.x.toFixed(2)),

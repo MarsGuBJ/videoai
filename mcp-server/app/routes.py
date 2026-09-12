@@ -12,7 +12,6 @@ from starlette.responses import JSONResponse, RedirectResponse
 from .context import hcnetsdk_playback, mcp, nvr_devices, videoai
 from .nvr_devices import parse_device_credentials
 from .tools import (
-    analyze_minio_video,
     detect_persons,
     detect_persons_with_id,
     dino_events,
@@ -30,6 +29,7 @@ from .tools import (
     search_recordings,
     text_search_images,
     upload_face_image,
+    video_understanding,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ def register_http_tool_routes() -> None:
         "get_recording_stream": get_recording_stream,
         "download_recording": download_recording,
         "export_recording": export_recording,
-        "analyze_minio_video": analyze_minio_video,
+        "video_understanding": video_understanding,
         "upload_face_image": upload_face_image,
         "query_face_matches": query_face_matches,
         "detect_persons": detect_persons,

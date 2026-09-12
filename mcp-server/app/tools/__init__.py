@@ -1,6 +1,5 @@
 """MCP tool registrations, grouped by domain. Importing this package registers all tools."""
 
-from .analysis import analyze_minio_video
 from .cameras import get_live_stream, list_cameras
 from .dino import dino_events
 from .faces import query_face_matches, upload_face_image
@@ -14,9 +13,9 @@ from .persons import (
 )
 from .recordings import download_recording, export_recording, get_recording_stream, search_recordings
 from .search import search_person_by_image, text_search_images
+from .understanding import video_understanding
 
 __all__ = [
-    "analyze_minio_video",
     "detect_persons",
     "detect_persons_with_id",
     "dino_events",
@@ -34,4 +33,5 @@ __all__ = [
     "search_recordings",
     "text_search_images",
     "upload_face_image",
+    "video_understanding",
 ]

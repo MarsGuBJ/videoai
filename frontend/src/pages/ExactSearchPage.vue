@@ -40,7 +40,14 @@
         <div class="exact-query-workspace">
           <div class="exact-dialog-chat-head"><strong>视频问答</strong></div>
           <div class="exact-chat-messages">
-            <div v-for="(message, index) in questionMessages" :key="index" class="exact-chat-message" :class="message.role">{{ message.text }}</div>
+            <div v-for="(message, index) in questionMessages" :key="index" class="exact-chat-item" :class="message.role">
+              <div class="exact-chat-message" :class="message.role">{{ message.text }}</div>
+              <div v-if="message.role === 'assistant' && message.analysisId" class="exact-message-actions">
+                <button class="exact-message-analysis-btn" :class="{ active: activeAnalysisId === message.analysisId }" type="button" title="分析概要" aria-label="分析概要" @click="loadAnalysisSnapshot(message.analysisId)">&#xf080;</button>
+                <button class="exact-message-reanalysis-btn" type="button" :disabled="questionBusy || analyzing" title="重新分析" aria-label="重新分析" @click="rerunMessageAnalysis(message)">&#xf021;</button>
+                <button class="exact-message-detail-btn" type="button" title="分析详情" aria-label="分析详情" @click="openMessageDetail(message)">&#xf05a;</button>
+              </div>
+            </div>
             <div v-if="questionBusy" class="exact-chat-loading">分析助手正在结合视频内容整理答案...</div>
           </div>
           <div class="exact-chat-quick"><button v-for="prompt in quickQuestions" :key="prompt" :class="{ active: activeQuickPrompt === prompt || query === prompt }" @click="fillQuickPrompt(prompt)">{{ prompt }}</button></div>
@@ -49,8 +56,14 @@
       </section>
       </div>
       <aside class="panel exact-dialog-panel">
-        <div class="exact-dialog-head"><span class="status-pill" :class="analyzed ? 'pass' : 'waiting'">{{ analyzed ? '分析完成' : '待分析' }}</span></div>
-        <div class="exact-dialog-body">
+        <div class="exact-dialog-head">
+          <div class="exact-mode-tabs exact-analysis-tabs" role="tablist" aria-label="分析结果视图">
+            <button class="exact-mode-tab" :class="{ active: activeResultTab === 'summary' }" type="button" role="tab" :aria-selected="activeResultTab === 'summary'" @click="activeResultTab = 'summary'">分析概要</button>
+            <button v-for="tab in resultTabs" :key="tab.key" class="exact-mode-tab" :class="{ active: activeResultTab === tab.key }" type="button" role="tab" :aria-selected="activeResultTab === tab.key" @click="activeResultTab = tab.key">{{ tab.title }}<span class="exact-tab-close" role="button" tabindex="0" :aria-label="'关闭' + tab.title + '标签页'" title="关闭" @click.stop="closeResultTab(tab.key)" @keydown.enter.stop.prevent="closeResultTab(tab.key)">×</span></button>
+          </div>
+          <span v-if="activeResultTab === 'summary'" class="status-pill" :class="analyzed ? 'pass' : 'waiting'">{{ analyzed ? '分析完成' : '待分析' }}</span>
+        </div>
+        <div v-if="activeResultTab === 'summary'" class="exact-dialog-body" role="tabpanel" aria-label="分析概要">
           <div v-if="!analyzed" class="exact-empty-state"><div><strong>等待开始文搜</strong><br /><span>确认视频源后，输入描述并开始分析</span></div></div>
           <template v-else>
             <div class="exact-conclusion">
@@ -73,19 +86,104 @@
             </div>
           </template>
         </div>
+        <div v-else-if="activeResultTab === 'imageSearch'" class="exact-dialog-body exact-image-search-tab" role="tabpanel" aria-label="以图搜图">
+          <div class="result-toolbar exact-i2i-result-toolbar"><div class="result-count">共找到 <b>{{ imageSearchItems.length }}</b> 条相似结果</div></div>
+          <div v-if="imageSearchLoading" class="track-empty">正在搜索相似目标，请稍候...</div>
+          <image-results v-else-if="imageSearchItems.length" :items="imageSearchItems" :show-score="true" :selectable="false" :hide-jump="true" :show-actions="true" @image-action="onImageSearchAction"></image-results>
+          <div v-else class="track-empty">未找到相似目标，可在事件卡片重新框选后再次搜索。</div>
+        </div>
+        <div v-else-if="activeResultTab === 'quickDeploy' && activeResultTabPayload" class="exact-dialog-body exact-quick-deploy-tab" role="tabpanel" aria-label="快速布防">
+          <div class="exact-quick-deploy-form">
+            <div class="modal-form-row"><label><span class="required">*</span>任务名称：</label><input class="input" v-model="deployTaskName" placeholder="请输入任务名称" /></div>
+            <div class="modal-form-row"><label><span class="required">*</span>布控点位：</label>
+              <div class="exact-tree-select" @click.stop>
+                <button class="exact-tree-trigger" :class="{ open: deployAreaOpen }" type="button" @click="deployAreaOpen = !deployAreaOpen"><span>{{ deployAreaLabel }}</span><span>{{ deployAreaOpen ? '收起' : '展开' }}⌄</span></button>
+                <div v-if="deployAreaOpen" class="exact-tree-dropdown">
+                  <div v-for="area in areas" :key="area.name">
+                    <button class="exact-tree-area-row" type="button" @click="toggleDeployArea(area)"><span>{{ deployAreaExpanded[area.name] ? '⌄' : '›' }} {{ area.name }}</span><span>{{ area.count }} 台设备</span></button>
+                    <div v-if="deployAreaExpanded[area.name]" class="exact-tree-children">
+                      <label v-for="camera in area.cameras" :key="camera.code" class="exact-tree-device deploy-camera-option"><input type="checkbox" :checked="deployCameraSelections.includes(camera.code)" @change="toggleDeployCamera(camera)" /><span>{{ camera.name }}</span><span>{{ camera.status }}</span></label>
+                    </div>
+                  </div>
+                  <div v-if="!areas.length" class="exact-tree-empty">暂无监控点数据</div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-form-row"><label>布控目标：</label>
+              <div class="deploy-target-field">
+                <div v-if="activeResultTabPayload.image" class="deploy-target-preview"><img :src="activeResultTabPayload.image" :alt="activeResultTabPayload.sourceName || '已框选布控目标'" /><span v-if="activeResultTabPayload.crop" class="transferred-crop-box" :style="deployTargetCropStyle"></span></div>
+                <span v-else class="hint-text">未带入布控目标图</span>
+              </div>
+            </div>
+            <div class="modal-form-row"><label><span class="required">*</span>布控算法：</label>
+              <select class="select" v-model="deployAlgorithmId"><option value="">请选择布控算法</option><option v-for="item in deployAlgorithmOptions" :key="item.id" :value="item.id">{{ item.name }}</option></select>
+            </div>
+            <div class="modal-form-row"><label><span class="required">*</span>生效日期：</label>
+              <div class="effective-range"><input class="input" type="date" v-model="deployEffectiveStart" aria-label="生效开始日期" /><span class="range-arrow">→</span><input class="input" type="date" v-model="deployEffectiveEnd" aria-label="生效结束日期" /></div>
+            </div>
+            <div class="modal-form-row"><label><span class="required">*</span>循环时段：</label>
+              <div class="effective-range"><input class="input" type="time" v-model="deployCycleStart" aria-label="循环开始时间" /><span class="range-arrow">→</span><input class="input" type="time" v-model="deployCycleEnd" aria-label="循环结束时间" /></div>
+            </div>
+            <div class="modal-form-row"><label><span class="required">*</span>置信度：</label>
+              <div class="deploy-similarity-field"><input type="range" min="0" max="100" step="1" v-model.number="deploySimilarity" aria-label="置信度" /><output>{{ deploySimilarity }}%</output></div>
+            </div>
+            <div class="modal-form-row"><label>任务描述：</label><textarea class="textarea" style="height:96px;" v-model="deployDescription" placeholder="请输入任务描述"></textarea></div>
+            <div class="exact-quick-deploy-actions"><button class="btn" type="button" @click="closeResultTab('quickDeploy')">取消</button><button class="btn primary" type="button" :disabled="deploySaving" @click="saveQuickDeploy">保存</button></div>
+          </div>
+        </div>
+        <div v-else-if="activeResultTab === 'track'" class="exact-dialog-body" role="tabpanel" aria-label="轨迹图">
+          <div v-if="trackLoading" class="track-empty">正在搜索目标轨迹，请稍候...</div>
+          <div v-else-if="trackItems.length" class="track-result-content exact-track-result-content">
+            <div class="metric-row"><span class="metric">总时长：<b>{{ trackDuration }}</b></span><span class="metric">经过点位：<b>{{ trackPointCount }}</b></span><span class="metric">轨迹置信：<b>{{ trackConfidence }}%</b></span></div>
+            <div class="timeline">
+              <article class="timeline-card" v-for="item in trackItems" :key="item.title + item.date">
+                <div><h4>{{ item.title }}</h4><p>{{ item.desc }}</p><div class="tags"><span class="tag blue">{{ item.location }}</span><span class="tag">相似度 {{ item.score }}%</span></div></div>
+                <div class="timeline-card-controls"><span class="hint-text timeline-card-date">{{ item.date }}</span></div>
+                <button class="timeline-image-button" type="button" title="查看图片详情" @click="openResult(-1, item)"><img :src="item.image" :alt="item.title" /></button>
+              </article>
+            </div>
+          </div>
+          <div class="track-empty" v-else>未匹配到可用于轨迹还原的相似目标。</div>
+        </div>
       </aside>
     </div>
     </div>
   </section>
   <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeResultCrop" @confirm="confirmResultCrop"></image-crop-dialog>
+  <div v-if="messageDetailSnapshot" class="exact-result-modal-mask" @click.self="closeMessageDetail">
+    <section class="exact-result-modal" role="dialog" aria-modal="true" aria-label="分析详情">
+      <div class="drawer-head"><h3>分析详情</h3><button class="close" aria-label="关闭" @click="closeMessageDetail">×</button></div>
+      <div class="drawer-body exact-message-detail-body">
+        <p class="exact-message-detail-query">检索内容：{{ messageDetailSnapshot.query || '-' }}</p>
+        <div v-if="messageDetailSnapshot.events.length" class="exact-message-detail-events">
+          <article v-for="event in messageDetailSnapshot.events" :key="event.name + event.time" class="exact-message-detail-event">
+            <img :src="event.image" :alt="event.name" />
+            <div><h4>{{ event.time }} {{ event.name }}</h4><p>{{ event.detail }}</p></div>
+          </article>
+        </div>
+        <dl class="detail-list" style="margin-top:12px;">
+          <dt>分析结论</dt><dd>{{ messageDetailSnapshot.answer }}</dd>
+          <dt>事件分段</dt><dd>共 {{ messageDetailSnapshot.events.length }} 个</dd>
+          <dt>涉及人员</dt><dd>{{ messageDetailSnapshot.summary.persons.join('；') || '无' }}</dd>
+          <dt>涉及车辆</dt><dd>{{ messageDetailSnapshot.summary.vehicles.join('；') || '无' }}</dd>
+          <template v-for="result in messageDetailSnapshot.results" :key="result.title"><dt>{{ result.title }}</dt><dd>{{ result.value }}。{{ result.detail }}</dd></template>
+        </dl>
+      </div>
+    </section>
+  </div>
   <div v-if="searching || analyzing || uploadingVideo" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>{{ uploadingVideo ? '正在上传视频到分析服务，请稍候...' : (analyzing ? '正在分析视频，请稍候...' : (preparingRecording ? '正在从 NVR 导出录像，时长较长时请耐心等待...' : '正在搜索回放，请稍候...')) }}</p></div></div>
 </template>
 
 <script lang="ts">
 import { defineComponent } from "vue";
 import ImageCropDialog from "../components/ImageCropDialog.vue";
+import ImageResults from "../components/ImageResults.vue";
 import DateTimeRangePicker from "../components/DateTimeRangePicker.vue";
-import { api, videoAnalysisFrameUrl } from "../api";
+import { api, assetUrl, videoAnalysisFrameUrl } from "../api";
+import type { PersonSearchBboxPoint, SimilarPersonResult } from "../api";
+import type { DeploymentTaskCreate } from "../types";
+import { cropImageToFile, cropToPixelBbox } from "../utils/person-search";
+import type { ImageCropSelection } from "../utils/person-search";
 
 function statusLabel(status?: string): string {
   const value = (status || "").toUpperCase();
@@ -237,13 +335,71 @@ function mapAnalysisEvent(item: any, index: number, images: string[], segmentSec
   return { name: title || `事件 ${index + 1}`, time, start, image, detail: desc || title || "该分段无详细描述" };
 }
 
+const RESULT_TAB_TITLES: Record<string, string> = {
+  imageSearch: "以图搜图",
+  quickDeploy: "快速布防",
+  track: "轨迹图"
+};
+
+const PERSON_SEARCH_POLL_INTERVAL_MS = 1500;
+const PERSON_SEARCH_POLL_MAX_ATTEMPTS = 60;
+
+function delay(ms: number) {
+  return new Promise(resolve => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+// create_time (epoch 秒/毫秒或字符串) -> "YYYY-MM-DD HH:mm:ss"
+function formatCreateTime(value?: number | string): string {
+  let d: Date | null = null;
+  if (value !== undefined && value !== null && value !== "") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      d = new Date(numeric > 10_000_000_000 ? numeric : numeric * 1000);
+    } else {
+      const parsed = new Date(String(value));
+      if (!Number.isNaN(parsed.getTime())) d = parsed;
+    }
+  }
+  if (!d || Number.isNaN(d.getTime())) return value ? String(value) : "未知时间";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function personSearchResultPayload(response: any) {
+  const payload = response && response.data && response.data.data;
+  return (payload && payload.result) || payload || null;
+}
+
+// 后端 similar_persons 条目 -> 结果卡片/轨迹条目（与 TrackPage.mapSimilarPerson 同形）
+function mapSimilarPerson(result: SimilarPersonResult, index: number) {
+  const raw = result.similarity_score;
+  const score = raw === undefined || Number.isNaN(Number(raw)) ? 0 : Math.round(Number(raw) <= 1 ? Number(raw) * 100 : Number(raw));
+  return {
+    title: `相似人员 ${index + 1}`,
+    image: assetUrl(result.image_url),
+    location: result.camera_locate || result.camera_id || "未知摄像头",
+    date: formatCreateTime(result.create_time),
+    score,
+    desc: result.es_doc_id || ""
+  };
+}
+
+// 模板中直接使用注入的 openResult；vue-tsc 不会把 inject 键推导到模板 this 上，
+// 因此以类型补丁形式合并进 ComponentCustomProperties（运行时 inject 声明保持不变）。
+declare module "vue" {
+  interface ComponentCustomProperties {
+    openResult: (index: number, item?: any) => void;
+  }
+}
+
 export default defineComponent({
   name: "ExactSearchPage",
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
-  components: { ImageCropDialog, DateTimeRangePicker },
+  components: { ImageCropDialog, ImageResults, DateTimeRangePicker },
   inject: {
     showToast: { from: "showToast", default: (m: string) => {} },
-    setRoute: { from: "setRoute", default: (route: string, options?: any) => {} },
+    openResult: { from: "openResult", default: (index: number, item?: any) => {} },
   },
   mounted() {
     this.loadCameras();
@@ -266,8 +422,6 @@ export default defineComponent({
       searching: false,
       preparingRecording: false,
       analyzing: false,
-      sourcePage: 1,
-      sourcePageSize: 2,
       onlineStart: "",
       onlineEnd: "",
       localFileName: lastLocalVideo.name || "",
@@ -289,6 +443,30 @@ export default defineComponent({
       questionInput: "",
       questionBusy: false,
       questionMessages: [],
+      analysisSnapshots: [] as any[],
+      activeAnalysisId: null as string | null,
+      analysisSnapshotCounter: 0,
+      messageDetailSnapshot: null as any,
+      resultTabs: [] as Array<{ key: string; title: string; payload: any }>,
+      activeResultTab: "summary",
+      imageSearchItems: [] as any[],
+      imageSearchLoading: false,
+      trackItems: [] as any[],
+      trackLoading: false,
+      personSearchRunId: 0,
+      deployTaskName: "",
+      deployAlgorithmId: "",
+      deployAlgorithmOptions: [] as any[],
+      deployCameraSelections: [] as string[],
+      deployAreaOpen: false,
+      deployAreaExpanded: {} as Record<string, boolean>,
+      deployEffectiveStart: "",
+      deployEffectiveEnd: "",
+      deployCycleStart: "00:00",
+      deployCycleEnd: "23:59",
+      deploySimilarity: 50,
+      deployDescription: "",
+      deploySaving: false,
       quickQuestions: ["这段视频发生了什么？", "车辆的特征是什么？", "按时间梳理事件", "是否需要布控？"],
       lastQuery: "",
       selectedEventIndex: 0,
@@ -320,12 +498,45 @@ export default defineComponent({
       if (this.selectedArea) return `${(this.selectedArea as any).name} / 请选择监控点`;
       return "请选择区域 / 监控点";
     },
-    paginatedSources() {
-      const start = (this.sourcePage - 1) * this.sourcePageSize;
-      return this.onlineSources.slice(start, start + this.sourcePageSize);
+    activeResultTabPayload() {
+      const tab = this.resultTabs.find(item => item.key === this.activeResultTab);
+      return tab ? tab.payload : null;
     },
-    sourcePageCount() {
-      return Math.max(1, Math.ceil(this.onlineSources.length / this.sourcePageSize));
+    deployAreaLabel() {
+      if (!this.deployCameraSelections.length) return "请选择布控点位（可多选摄像机）";
+      const names: string[] = [];
+      (this.areas as any[]).forEach(area => area.cameras.forEach((camera: any) => {
+        if (this.deployCameraSelections.includes(camera.code)) names.push(`${area.name} / ${camera.name}`);
+      }));
+      return names.length <= 2 ? names.join("、") : `已选 ${names.length} 台摄像机`;
+    },
+    deployTargetCropStyle(): Record<string, string> {
+      const payload = this.activeResultTabPayload;
+      const crop = (payload && payload.crop) || { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        left: `${crop.x}%`,
+        top: `${crop.y}%`,
+        width: `${crop.width}%`,
+        height: `${crop.height}%`
+      };
+    },
+    trackDuration(): string {
+      if (this.trackItems.length < 2) return "0min";
+      const parse = (value: string) => new Date(value.replace(" ", "T")).getTime();
+      const first = parse(this.trackItems[0].date);
+      const last = parse(this.trackItems[this.trackItems.length - 1].date);
+      if (Number.isNaN(first) || Number.isNaN(last) || last < first) return "-";
+      const minutes = Math.round((last - first) / 60000);
+      const hours = Math.floor(minutes / 60);
+      return hours > 0 ? `${hours}h ${minutes % 60}min` : `${minutes}min`;
+    },
+    trackPointCount(): number {
+      return new Set(this.trackItems.map(item => item.location)).size;
+    },
+    trackConfidence(): number {
+      if (!this.trackItems.length) return 0;
+      const total = this.trackItems.reduce((sum, item) => sum + (Number(item.score) || 0), 0);
+      return Math.round(total / this.trackItems.length);
     },
     processText() {
       if (this.analyzed) return "已完成视频分析，可点击事件卡片定位视频画面";
@@ -514,7 +725,6 @@ export default defineComponent({
       window.setTimeout(() => {
         this.searching = false;
         this.onlineSearched = true;
-        this.sourcePage = 1;
         const selectedArea = this.selectedArea as any;
         const source = {
           id: "SRC-" + selectedCamera.code,
@@ -541,9 +751,6 @@ export default defineComponent({
         }
       }, 600);
     },
-    goSourcePage(page) {
-      this.sourcePage = Math.min(Math.max(page, 1), this.sourcePageCount);
-    },
     useOnlineSource(source) {
       this.applyOnlineSource(source);
       this.showToast("视频源已确定，可以开始文搜");
@@ -566,6 +773,18 @@ export default defineComponent({
       }];
       this.questionInput = "";
       this.questionBusy = false;
+      // 切换视频源后清空分析快照与右侧动态 tab，并作废进行中的检索轮询
+      this.analysisSnapshots = [];
+      this.activeAnalysisId = null;
+      this.analysisSnapshotCounter = 0;
+      this.messageDetailSnapshot = null;
+      this.resultTabs = [];
+      this.activeResultTab = "summary";
+      this.personSearchRunId += 1;
+      this.imageSearchItems = [];
+      this.imageSearchLoading = false;
+      this.trackItems = [];
+      this.trackLoading = false;
     },
     switchVideoView(view) {
       this.videoView = view;
@@ -656,7 +875,6 @@ export default defineComponent({
       this.selectedCamera = null;
       this.onlineSearched = false;
       this.onlineSources = [];
-      this.sourcePage = 1;
       this.onlineStart = "2026-07-24T09:00";
       this.onlineEnd = "2026-07-24T10:00";
       this.selectedSource = null;
@@ -740,10 +958,10 @@ export default defineComponent({
           this.currentTime = (this.events[0] as any).start;
           this.seekVideo(this.currentTime);
         }
-        this.questionMessages.push({
-          role: "assistant",
-          text: `已完成视频源文搜。\n\n事件摘要：${overview}\n\n已识别 ${this.events.length} 个关键事件，右侧可查看事件摘要、分析结果，并继续对视频提问。`
-        });
+        const answerText = `已完成视频源文搜。\n\n事件摘要：${overview}\n\n已识别 ${this.events.length} 个关键事件，右侧可查看事件摘要、分析结果，并继续对视频提问。`;
+        const snapshot = this.saveAnalysisSnapshot(answerText, question);
+        this.questionMessages.push({ role: "assistant", text: answerText, analysisId: snapshot.id });
+        this.activeAnalysisId = snapshot.id;
         this.query = "";
         this.showToast("文搜分析完成，已生成事件结论");
       } catch (error) {
@@ -898,7 +1116,9 @@ export default defineComponent({
         }
         this.summary = { overview: answer, persons: [], vehicles: [] };
         this.results = [];
-        this.questionMessages.push({ role: "assistant", text: answer });
+        const snapshot = this.saveAnalysisSnapshot(answer, question);
+        this.questionMessages.push({ role: "assistant", text: answer, analysisId: snapshot.id });
+        this.activeAnalysisId = snapshot.id;
       } catch (error) {
         const message = error instanceof Error ? error.message : "视频分析失败";
         this.questionMessages.push({ role: "assistant", text: `分析失败：${message}` });
@@ -911,8 +1131,8 @@ export default defineComponent({
       this.cropAction = action;
       this.cropTarget = {
         ...event,
-        title: event.name,
-        date: `2026-07-24 ${event.time}`
+        title: event.name || event.title,
+        date: event.date || (event.time ? `2026-07-24 ${event.time}` : "")
       };
       this.cropTargetIndex = index;
       this.cropDialogOpen = true;
@@ -925,21 +1145,255 @@ export default defineComponent({
     },
     confirmResultCrop(payload) {
       const { action, item, index, crop: selection } = payload;
-      const crop = { ...selection, sourceName: item.title, sourceTime: item.date, sourceIndex: index };
-      const matchingResultIndex = this.store.results.findIndex(result => result.image === item.image);
+      const crop = selection ? { ...selection, sourceName: item.title, sourceTime: item.date, sourceIndex: index } : null;
       this.closeResultCrop();
-      if (action === "imageSearch") {
-        this.setRoute("imageSearch", { prefill: item.image, imageCrop: crop });
-      } else if (action === "quickDeploy") {
-        this.setRoute("newDeployTask", { prefill: item.image, imageCrop: crop });
-      } else if (action === "track") {
-        this.setRoute("track", {
-          prefill: item.image,
-          imageCrop: crop,
-          selectedIndexes: matchingResultIndex >= 0 ? [matchingResultIndex] : [],
-          trackView: "timeline"
-        });
+      // 裁图确认后不再跨页跳转，改为在右侧栏打开对应的页内 tab
+      if (action === "imageSearch" || action === "quickDeploy" || action === "track") {
+        this.openResultTab(action, { image: item.image, crop, sourceName: item.title });
       }
+    },
+    openResultTab(key, payload) {
+      const existing = this.resultTabs.find(tab => tab.key === key);
+      if (existing) existing.payload = payload;
+      else this.resultTabs.push({ key, title: RESULT_TAB_TITLES[key] || key, payload });
+      this.activeResultTab = key;
+      if (key === "imageSearch") this.runImageSearchTab();
+      else if (key === "quickDeploy") this.prepareQuickDeployTab();
+      else if (key === "track") this.runTrackTab();
+    },
+    closeResultTab(key) {
+      this.resultTabs = this.resultTabs.filter(tab => tab.key !== key);
+      if (this.activeResultTab === key) this.activeResultTab = "summary";
+      // 作废该 tab 可能仍在进行的检索轮询
+      this.personSearchRunId += 1;
+      if (key === "imageSearch") {
+        this.imageSearchItems = [];
+        this.imageSearchLoading = false;
+      } else if (key === "track") {
+        this.trackItems = [];
+        this.trackLoading = false;
+      }
+    },
+    // 本地裁剪框选区域并上传为检索图；失败时退回原图 URL + 像素 bbox 模式
+    async preparePersonSearchTarget(image: string, crop: ImageCropSelection | null): Promise<{ imageUrl: string; bbox?: PersonSearchBboxPoint[] }> {
+      if (crop) {
+        try {
+          const file = await cropImageToFile(image, crop, "exact-target.jpg");
+          const uploaded = await api.uploadPersonSearchImage(file);
+          return { imageUrl: uploaded.imageUrl };
+        } catch {
+          const bbox = await cropToPixelBbox(image, crop);
+          if (bbox) return { imageUrl: image, bbox };
+        }
+      }
+      return { imageUrl: image };
+    },
+    // 以图搜图/轨迹图共用的行人检索流程：提交任务并轮询结果（参照 TrackPage.runCandidateSearch）；返回 null 表示已被新任务取代
+    async runPersonSearch(image: string, crop: ImageCropSelection | null, runId: number): Promise<SimilarPersonResult[] | null> {
+      const target = await this.preparePersonSearchTarget(image, crop);
+      if (runId !== this.personSearchRunId) return null;
+      let bbox = target.bbox;
+      if (!bbox) {
+        const detectResponse = await api.detectPersons(target.imageUrl);
+        if (runId !== this.personSearchRunId) return null;
+        const detected = detectResponse.data?.detected_persons ?? [];
+        if (detectResponse.data?.status !== "success" || !detected.length) {
+          throw new Error(detectResponse.data?.message || "未检测到目标，请调整框选区域后重试");
+        }
+        bbox = detected[0]?.bbox;
+      }
+      const submitResponse = await api.searchPersonByBbox({
+        imageUrl: target.imageUrl,
+        bbox,
+        searchMethod: "reid",
+        similarityThreshold: 0.5,
+        topK: 50
+      });
+      if (runId !== this.personSearchRunId) return null;
+      const taskId = submitResponse.data?.task_id ?? submitResponse.data?.data?.task_id;
+      if (!taskId) throw new Error(submitResponse.data?.message || "搜索任务提交失败");
+      for (let attempt = 0; attempt < PERSON_SEARCH_POLL_MAX_ATTEMPTS; attempt += 1) {
+        if (runId !== this.personSearchRunId) return null;
+        const response = await api.personSearchResult(taskId);
+        if (runId !== this.personSearchRunId) return null;
+        const taskStatus = response.data?.status;
+        if (taskStatus === "success") {
+          const resultPayload = personSearchResultPayload(response);
+          return (resultPayload && resultPayload.similar_persons) || [];
+        }
+        if (taskStatus === "error") throw new Error(response.data?.message || "搜索任务失败");
+        await delay(PERSON_SEARCH_POLL_INTERVAL_MS);
+      }
+      throw new Error("搜索任务超时，请稍后重试");
+    },
+    async runImageSearchTab() {
+      const payload = this.activeResultTabPayload;
+      if (!payload || !payload.image) return;
+      const runId = ++this.personSearchRunId;
+      this.imageSearchLoading = true;
+      this.imageSearchItems = [];
+      try {
+        const persons = await this.runPersonSearch(payload.image, payload.crop, runId);
+        if (persons === null || runId !== this.personSearchRunId) return;
+        this.imageSearchItems = persons.map((person, index) => mapSimilarPerson(person, index));
+        this.showToast(this.imageSearchItems.length ? `找到 ${this.imageSearchItems.length} 条相似结果` : "未找到相似目标");
+      } catch (error) {
+        if (runId !== this.personSearchRunId) return;
+        this.showToast(error instanceof Error ? error.message : "以图搜图失败");
+      } finally {
+        if (runId === this.personSearchRunId) this.imageSearchLoading = false;
+      }
+    },
+    // 以图搜图结果卡片上的三个动作：把检索结果规整为事件结构后走同一套裁图流转
+    onImageSearchAction(payload) {
+      const item = payload && payload.item;
+      if (!item || !payload.action) return;
+      this.openResultCrop(payload.action, {
+        name: item.title,
+        title: item.title,
+        time: item.date ? item.date.slice(11, 19) : "",
+        start: 0,
+        image: item.image,
+        detail: item.desc || "",
+        date: item.date
+      }, -1);
+    },
+    prepareQuickDeployTab() {
+      const payload = this.activeResultTabPayload;
+      if (!this.deployTaskName) {
+        this.deployTaskName = payload && payload.sourceName ? `布控-${payload.sourceName}` : "";
+      }
+      if (this.deployAlgorithmOptions.length) return;
+      api.algorithms().then(list => {
+        this.deployAlgorithmOptions = (list || []) as any;
+      }).catch(() => {
+        this.showToast("算法列表加载失败");
+      });
+    },
+    toggleDeployArea(area) {
+      this.deployAreaExpanded = { ...this.deployAreaExpanded, [area.name]: !this.deployAreaExpanded[area.name] };
+    },
+    toggleDeployCamera(camera) {
+      if (this.deployCameraSelections.includes(camera.code)) {
+        this.deployCameraSelections = this.deployCameraSelections.filter(code => code !== camera.code);
+      } else {
+        this.deployCameraSelections = [...this.deployCameraSelections, camera.code];
+      }
+    },
+    // 保存布控任务：payload 字段映射参照 App.vue submitDeployTask
+    async saveQuickDeploy() {
+      if (!this.deployTaskName.trim()) {
+        this.showToast("请输入任务名称");
+        return;
+      }
+      if (!this.deployCameraSelections.length) {
+        this.showToast("请选择布控点位");
+        return;
+      }
+      if (!this.deployAlgorithmId) {
+        this.showToast("请选择布控算法");
+        return;
+      }
+      if (!this.deployEffectiveStart || !this.deployEffectiveEnd) {
+        this.showToast("请选择生效日期");
+        return;
+      }
+      if (this.deploySaving) return;
+      const algorithm = this.deployAlgorithmOptions.find(item => item.id === this.deployAlgorithmId);
+      const areaNames = (this.areas as any[])
+        .filter(area => area.cameras.some((camera: any) => this.deployCameraSelections.includes(camera.code)))
+        .map(area => area.name);
+      const body: DeploymentTaskCreate = {
+        name: this.deployTaskName.trim(),
+        pipeline: algorithm ? algorithm.name : "",
+        algorithmId: algorithm ? algorithm.id : null,
+        algorithmName: algorithm ? algorithm.name : null,
+        algorithmCode: algorithm ? algorithm.code : null,
+        engineType: algorithm ? algorithm.engineType : null,
+        cameraIds: [...this.deployCameraSelections],
+        desc: this.deployDescription.trim(),
+        area: areaNames.length ? areaNames.join("、") : null,
+        areaCount: this.deployCameraSelections.length
+      };
+      this.deploySaving = true;
+      try {
+        await api.createDeploymentTask(body);
+        this.showToast("布控任务已创建");
+        this.deployTaskName = "";
+        this.deployCameraSelections = [];
+        this.closeResultTab("quickDeploy");
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "布控任务保存失败");
+      } finally {
+        this.deploySaving = false;
+      }
+    },
+    async runTrackTab() {
+      const payload = this.activeResultTabPayload;
+      if (!payload || !payload.image) return;
+      const runId = ++this.personSearchRunId;
+      this.trackLoading = true;
+      this.trackItems = [];
+      try {
+        const persons = await this.runPersonSearch(payload.image, payload.crop, runId);
+        if (persons === null || runId !== this.personSearchRunId) return;
+        this.trackItems = persons
+          .map((person, index) => mapSimilarPerson(person, index))
+          .sort((a, b) => a.date.localeCompare(b.date));
+        if (!this.trackItems.length) this.showToast("未匹配到可用于轨迹还原的相似目标");
+      } catch (error) {
+        if (runId !== this.personSearchRunId) return;
+        this.showToast(error instanceof Error ? error.message : "轨迹搜索任务失败");
+      } finally {
+        if (runId === this.personSearchRunId) this.trackLoading = false;
+      }
+    },
+    cloneAnalysisData(value) {
+      return JSON.parse(JSON.stringify(value));
+    },
+    // 每轮分析/追问完成后留存快照：摘要、事件列表、选中事件下标的深拷贝
+    saveAnalysisSnapshot(answer, query) {
+      this.analysisSnapshotCounter += 1;
+      const snapshot = {
+        id: `analysis-${this.analysisSnapshotCounter}`,
+        answer,
+        query,
+        summary: this.cloneAnalysisData(this.summary),
+        events: this.cloneAnalysisData(this.events),
+        results: this.cloneAnalysisData(this.results),
+        selectedEventIndex: this.selectedEventIndex
+      };
+      this.analysisSnapshots.push(snapshot);
+      return snapshot;
+    },
+    loadAnalysisSnapshot(snapshotId) {
+      const snapshot = this.analysisSnapshots.find(item => item.id === snapshotId);
+      if (!snapshot) return;
+      this.activeAnalysisId = snapshot.id;
+      this.summary = this.cloneAnalysisData(snapshot.summary);
+      this.events = this.cloneAnalysisData(snapshot.events);
+      this.results = this.cloneAnalysisData(snapshot.results);
+      this.lastQuery = snapshot.query || this.lastQuery;
+      this.analyzed = true;
+      this.activeResultTab = "summary";
+      const maxIndex = Math.max(this.events.length - 1, 0);
+      this.selectedEventIndex = Math.min(snapshot.selectedEventIndex || 0, maxIndex);
+      if (this.events.length) this.selectEvent(this.selectedEventIndex);
+    },
+    // 以该轮问题重新发起分析（未分析时走首次分析流程）
+    rerunMessageAnalysis(message) {
+      const snapshot = this.analysisSnapshots.find(item => item.id === message.analysisId);
+      const question = snapshot ? snapshot.query : "";
+      if (!question || this.questionBusy || this.analyzing) return;
+      this.activeQuickPrompt = "";
+      this.askVideoQuestion(question);
+    },
+    openMessageDetail(message) {
+      const snapshot = this.analysisSnapshots.find(item => item.id === message.analysisId);
+      if (snapshot) this.messageDetailSnapshot = snapshot;
+    },
+    closeMessageDetail() {
+      this.messageDetailSnapshot = null;
     },
     exportFromMenu(type, event) {
       const menu = (event.currentTarget as HTMLElement).closest("details") as HTMLDetailsElement;

@@ -14,7 +14,7 @@
             <button class="btn" @click="resetFilters">重置</button>
           </div>
           <div class="video-device-toolbar">
-            <div class="video-device-toolbar-actions"><button class="btn primary" @click="setRoute('mediaDeviceWizard')">＋ 新增</button><button class="btn" @click="openModal('mediaCloud')">云平台同步</button><button class="btn" @click="openModal('mediaImport')">⇧ 批量导入</button><button class="btn" @click="exportDevices">⇩ 导出</button><button class="btn" @click="moveSelected">⇄ 批量设备移动</button><button class="btn" @click="openCapability">⚙ 能力配置</button><button class="btn danger" @click="deleteSelected">删除</button></div>
+            <div class="video-device-toolbar-actions"><button class="btn primary" @click="setRoute('mediaDeviceWizard')">＋ 新增</button><button class="btn" @click="openModal('mediaCloud')">云平台同步</button><button class="btn" @click="openModal('mediaImport')">⇧ 批量导入</button><button class="btn" @click="exportDevices">⇩ 导出</button><button class="btn" @click="moveSelected">⇄ 批量设备移动</button><button class="btn" @click="openCapability">⚙ 能力配置</button><button class="btn" @click="openModal('mediaRegion')">▦ 区域管理</button><button class="btn danger" @click="deleteSelected">删除</button></div>
             <label class="video-device-include"><input type="checkbox" v-model="includeChildren" />包含下级区域设备</label>
           </div>
           <div class="video-device-tabs"><button v-for="tab in quickTabs" :key="tab.key" class="video-device-tab" :class="{ active: activeQuickTab === tab.key }" @click="activeQuickTab = tab.key">{{ tab.label }} {{ tab.count }}</button></div>

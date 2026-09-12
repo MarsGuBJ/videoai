@@ -4,9 +4,10 @@
     <div class="panel search-panel i2i-search-panel">
       <input ref="imageSearchInput" class="hidden-file-input" type="file" accept="image/*" @change="handleImageUpload" />
       <div class="i2i-form-grid">
-        <button class="i2i-upload-zone" @click="triggerImageUpload" @dragover.prevent @drop.prevent="handleImageUpload">
-          <img v-if="imagePreview" :src="imagePreview" alt="参考图" title="点击放大并框选裁剪" style="cursor:zoom-in;" @click.stop="openCurrentImageCrop" />
+        <button class="i2i-upload-zone" :title="imagePreview ? '点击放大并框选裁剪，拖拽可替换图片' : '点击或拖拽图片到此处'" @click="handleUploadZoneClick" @dragover.prevent @drop.prevent="handleImageUpload">
+          <img v-if="imagePreview" :src="imagePreview" alt="参考图" />
           <span v-if="imagePreview && imageCrop" class="i2i-crop-box" :style="imageCropStyle"></span>
+          <span v-if="imagePreview" class="i2i-reupload-hint">点击放大裁剪</span>
           <span v-if="!imagePreview"><span class="upload-mark">☁</span><strong>上传图片</strong><small>点击或拖拽图片到此处</small></span>
         </button>
         <div class="deploy-field"><date-time-range-picker v-model:start="start" v-model:end="end" /></div>
@@ -15,8 +16,8 @@
         <button class="btn primary" :disabled="searching" @click="searchSimilar">⌕ 搜索</button>
       </div>
     </div>
-    <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div><div class="result-toolbar-actions"><button class="btn" :disabled="!searched || !allResults.length" @click="toggleSelectAll">{{ isAllSelected ? '取消全选' : '全选' }}</button><button class="btn primary" :disabled="!selectedIndexes.length" @click="openTrack">⌁ 还原目标轨迹</button></div></div>
-    <image-results v-if="searched" :items="paginatedResults" :show-score="true" :selectable="true" :selected-indexes="selectedIndexes" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :click-crop-search="true" @toggle-selection="toggleSelection" @card-click="openResultImageCrop"></image-results>
+    <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div></div>
+    <image-results v-if="searched" :items="paginatedResults" :show-score="true" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @open-result="openResultSearch"></image-results>
     <div v-if="searched" class="image-search-result-footer">
       <div class="exact-pagination">
         <span>显示 {{ pageStart }}-{{ pageEnd }} 共 {{ allResults.length }} 条</span>
@@ -30,8 +31,8 @@
       </div>
     </div>
     <div v-else class="search-empty-state"><strong>等待图像检索</strong><span>上传参考图并点击「搜索」查看匹配结果</span></div>
-    <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在检索相似目标，请稍候...</p></div></div>
-    <image-crop-dialog :open="cropDialogOpen" :item="cropDialogItem" action="imageSearch" :item-index="-1" :confirm-label="cropConfirmLabel" :allow-empty-confirm="cropMode === 'result'" @close="cancelImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
+    <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索，请稍候…</p></div></div>
+    <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
   </section>
 </template>
 
@@ -99,13 +100,19 @@ function formatCreateTime(value?: number | string): string {
 function mapSimilarPerson(result: SimilarPersonResult, index: number) {
   const raw = result.similarity_score;
   const score = raw === undefined || Number.isNaN(Number(raw)) ? 0 : Math.round(Number(raw) <= 1 ? Number(raw) * 100 : Number(raw));
+  const topColor = Array.isArray(result.top_color) ? result.top_color.join("、") : result.top_color;
   return {
     title: `相似人员 ${index + 1}`,
     image: assetUrl(result.image_url),
     location: result.camera_locate || result.camera_id || "未知摄像头",
     date: formatCreateTime(result.create_time),
     score,
-    desc: result.es_doc_id || ""
+    desc: result.es_doc_id || "",
+    // 原型结果卡片的属性行；后端暂未返回时为 undefined，卡片按字段级 v-if 隐藏
+    age: result.age,
+    accessory: result.accessory,
+    topColor,
+    action: result.action
   };
 }
 
@@ -114,12 +121,10 @@ export default defineComponent({
   components: { ImageResults, ImageCropDialog, AreaCameraPicker, DateTimeRangePicker },
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
   inject: {
-    showToast: { from: "showToast", default: (m: string) => {} },
-    setRoute: { from: "setRoute", default: (route: string, options?: any) => {} }
+    showToast: { from: "showToast", default: (m: string) => {} }
   },
   data() {
     return {
-      query: "",
       searched: false,
       start: "",
       end: "",
@@ -130,22 +135,18 @@ export default defineComponent({
       imageCrop: this.state.imageCrop,
       page: 1,
       pageSize: 8,
-      pageSizeOptions: [8, 16, 24, 48],
+      pageSizeOptions: [8, 16, 24],
       jumpPage: "",
-      selectedIndexes: [] as number[],
       // Real person-search state (batch A API wiring)
       selectedFile: null as File | null,
       searching: false,
-      searchedReal: false,
       realResults: [] as any[],
       pollRunId: 0,
-      // Upload-then-crop dialog state
+      // 共享裁剪弹窗状态（对齐原型）：replaceUpload 裁剪参考图；searchCrop 框选结果图再次搜图
       cropDialogOpen: false,
-      // upload：新上传图片后框选；edit：点击已上传参考图框选替换；result：点击结果图框选后再次搜图
-      cropMode: "upload" as "upload" | "edit" | "result",
-      resultDialogItem: null as any,
-      pendingFile: null as File | null,
-      pendingPreviewUrl: ""
+      cropAction: "" as "" | "replaceUpload" | "searchCrop",
+      cropTarget: null as any,
+      cropTargetIndex: -1
     };
   },
   computed: {
@@ -166,9 +167,6 @@ export default defineComponent({
     pageEnd() {
       return Math.min(this.page * this.pageSize, this.allResults.length);
     },
-    isAllSelected() {
-      return this.allResults.length > 0 && this.selectedIndexes.length === this.allResults.length;
-    },
     imageCropStyle() {
       const crop = this.imageCrop || { x: 0, y: 0, width: 0, height: 0 };
       return {
@@ -177,24 +175,19 @@ export default defineComponent({
         width: `${crop.width}%`,
         height: `${crop.height}%`
       };
-    },
-    cropDialogItem() {
-      if (this.cropMode === "edit") {
-        return this.imagePreview ? { image: this.imagePreview, title: this.imageFileName || "参考图" } : null;
-      }
-      if (this.cropMode === "result") {
-        return this.resultDialogItem;
-      }
-      if (!this.pendingPreviewUrl) return null;
-      return { image: this.pendingPreviewUrl, title: this.pendingFile ? this.pendingFile.name : "参考图" };
-    },
-    cropConfirmLabel() {
-      return this.cropMode === "result" ? "搜图" : "确定";
     }
   },
   methods: {
     triggerImageUpload() {
       (this.$refs.imageSearchInput as HTMLInputElement).click();
+    },
+    // 原型交互：无图点击触发文件选择；有图点击打开「裁剪参考图」框选弹窗
+    handleUploadZoneClick() {
+      if (this.imagePreview) {
+        this.openUploadCrop();
+      } else {
+        this.triggerImageUpload();
+      }
     },
     handleImageUpload(event: any) {
       const file = (event.target.files && event.target.files[0]) || (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]);
@@ -205,24 +198,30 @@ export default defineComponent({
       }
       // Allow picking the same file again after cancelling or confirming.
       if (event.target instanceof HTMLInputElement) event.target.value = "";
-      if (this.pendingPreviewUrl) URL.revokeObjectURL(this.pendingPreviewUrl);
-      this.pendingFile = file;
-      this.pendingPreviewUrl = URL.createObjectURL(file);
-      this.cropMode = "upload";
-      this.cropDialogOpen = true;
+      this.applyReferenceFile(file);
+      this.showToast("参考图已载入，请设置筛选条件后搜索");
     },
     // 点击已上传的参考图：弹窗放大并框选，确定后用框选区域替换参考图
-    openCurrentImageCrop() {
+    openUploadCrop() {
       if (!this.imagePreview) return;
-      this.cropMode = "edit";
+      this.cropAction = "replaceUpload";
+      this.cropTarget = { image: this.imagePreview, title: this.imageFileName || "上传参考图" };
+      this.cropTargetIndex = -1;
       this.cropDialogOpen = true;
     },
-    // 点击搜索结果图：弹窗放大并框选，点「搜图」用裁剪结果在当前页重新搜索
-    openResultImageCrop(payload: any) {
+    // 点击搜索结果图：弹窗放大并框选，点「搜图」以框选区域在当前页重新搜索
+    openResultSearch(payload: any) {
       if (!payload || !payload.item || !payload.item.image) return;
-      this.resultDialogItem = payload.item;
-      this.cropMode = "result";
+      this.cropAction = "searchCrop";
+      this.cropTarget = payload.item;
+      this.cropTargetIndex = payload.index ?? -1;
       this.cropDialogOpen = true;
+    },
+    closeImageCrop() {
+      this.cropDialogOpen = false;
+      this.cropAction = "";
+      this.cropTarget = null;
+      this.cropTargetIndex = -1;
     },
     // 用裁剪得到的图片文件替换当前参考图，并清空上次搜索结果
     applyReferenceFile(file: File) {
@@ -232,81 +231,39 @@ export default defineComponent({
       this.imageCrop = null;
       this.searched = false;
       this.page = 1;
-      this.selectedIndexes = [];
       this.selectedFile = file;
-      this.searchedReal = false;
       this.realResults = [];
       this.pollRunId += 1;
     },
-    // 框选确认：按弹窗来源分发——upload 新图入库、edit 裁剪替换参考图、result 裁剪后再次搜图
+    // 框选确认：按 action 分发——replaceUpload 裁剪替换参考图；searchCrop 结果图+裁剪框原地再搜
     async confirmImageCrop(payload: any) {
-      const mode = this.cropMode;
-      this.cropDialogOpen = false;
+      const action = this.cropAction;
+      const item = this.cropTarget;
+      this.closeImageCrop();
       const crop = payload?.crop as ImageCropSelection | undefined | null;
-      if (mode === "edit") {
+      if (action === "replaceUpload") {
         const currentUrl = this.imagePreview;
         if (!currentUrl || !crop) return;
         try {
           const cropped = await cropImageToFile(currentUrl, crop, this.imageFileName || "参考图.jpg");
           this.applyReferenceFile(cropped);
-          this.showToast("参考图已更新为框选区域，请重新搜索");
+          this.showToast("已按框选区域更新参考图，请重新搜索");
         } catch {
-          this.showToast("局部裁剪失败，已保留原图");
+          this.showToast("图片加载失败，请重新上传");
         }
         return;
       }
-      if (mode === "result") {
-        const item = this.resultDialogItem;
-        this.resultDialogItem = null;
-        if (!item || !item.image) return;
-        const region = crop || { x: 0, y: 0, width: 100, height: 100 };
-        try {
-          const cropped = await cropImageToFile(item.image, region, "搜图裁剪.jpg");
-          this.applyReferenceFile(cropped);
-        } catch {
-          // 结果图跨域导致 canvas 被污染时，退回直接用结果图 URL 作为查询图
-          if (this.imagePreview && this.imagePreview.startsWith("blob:")) URL.revokeObjectURL(this.imagePreview);
-          this.imagePreview = item.image;
-          this.imageFileName = item.title || "结果图";
-          this.imageCrop = null;
-          this.searched = false;
-          this.page = 1;
-          this.selectedIndexes = [];
-          this.selectedFile = null;
-          this.searchedReal = false;
-          this.realResults = [];
-          this.pollRunId += 1;
-        }
+      if (action === "searchCrop") {
+        if (!item || !item.image || !crop) return;
+        // 原型行为：参考图直接换为结果图，裁剪框作为 bbox 参与检索，原地刷新不跳转
+        if (this.imagePreview && this.imagePreview.startsWith("blob:")) URL.revokeObjectURL(this.imagePreview);
+        this.imagePreview = item.image;
+        this.imageFileName = "";
+        this.imageCrop = crop;
+        this.selectedFile = null;
+        this.page = 1;
         this.searchSimilar();
-        return;
       }
-      const file = this.pendingFile;
-      this.pendingFile = null;
-      if (!file) {
-        if (this.pendingPreviewUrl) URL.revokeObjectURL(this.pendingPreviewUrl);
-        this.pendingPreviewUrl = "";
-        return;
-      }
-      let finalFile = file;
-      if (crop) {
-        try {
-          finalFile = await cropImageToFile(this.pendingPreviewUrl, crop, file.name, file.type);
-        } catch {
-          this.showToast("局部裁剪失败，已使用原图");
-        }
-      }
-      URL.revokeObjectURL(this.pendingPreviewUrl);
-      this.pendingPreviewUrl = "";
-      this.applyReferenceFile(finalFile);
-      this.showToast("参考图已载入，请设置筛选条件后搜索");
-    },
-    cancelImageCrop() {
-      this.cropDialogOpen = false;
-      this.cropMode = "upload";
-      this.resultDialogItem = null;
-      this.pendingFile = null;
-      if (this.pendingPreviewUrl) URL.revokeObjectURL(this.pendingPreviewUrl);
-      this.pendingPreviewUrl = "";
     },
     async searchSimilar() {
       if (!this.imagePreview) {
@@ -316,7 +273,6 @@ export default defineComponent({
       if (this.searching) return;
       this.searched = true;
       this.page = 1;
-      this.selectedIndexes = [];
       const runId = ++this.pollRunId;
       this.searching = true;
       try {
@@ -366,7 +322,6 @@ export default defineComponent({
       } catch (error) {
         if (runId !== this.pollRunId) return;
         this.realResults = [];
-        this.searchedReal = true;
         this.showToast(error instanceof Error ? error.message : "图搜人任务失败");
       } finally {
         if (runId === this.pollRunId) {
@@ -384,7 +339,6 @@ export default defineComponent({
           const payload = personSearchResultPayload(response);
           const similarPersons = payload?.similar_persons ?? [];
           this.realResults = similarPersons.map(mapSimilarPerson);
-          this.searchedReal = true;
           this.showToast(payload?.message || `找到 ${similarPersons.length} 个相似人员`);
           return;
         }
@@ -407,35 +361,11 @@ export default defineComponent({
       if (this.jumpPage === "" || !Number.isFinite(target)) return;
       this.goToPage(Math.floor(target));
       this.jumpPage = "";
-    },
-    toggleSelectAll() {
-      if (this.isAllSelected) {
-        this.selectedIndexes = [];
-      } else {
-        this.selectedIndexes = this.allResults.map((_, index) => index);
-      }
-    },
-    toggleSelection(index: number) {
-      if (this.selectedIndexes.includes(index)) {
-        this.selectedIndexes = this.selectedIndexes.filter(item => item !== index);
-      } else {
-        this.selectedIndexes = [...this.selectedIndexes, index].sort((a, b) => a - b);
-      }
-    },
-    openTrack() {
-      if (!this.selectedIndexes.length) return;
-      const firstSelected = this.allResults[this.selectedIndexes[0]];
-      this.setRoute("track", {
-        prefill: firstSelected ? firstSelected.image : this.imagePreview,
-        selectedIndexes: this.selectedIndexes,
-        trackView: "timeline"
-      });
     }
   },
   beforeUnmount() {
     this.pollRunId += 1;
     if (this.imagePreview && this.imagePreview.startsWith("blob:")) URL.revokeObjectURL(this.imagePreview);
-    if (this.pendingPreviewUrl) URL.revokeObjectURL(this.pendingPreviewUrl);
   }
 });
 </script>

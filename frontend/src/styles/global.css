@@ -1090,6 +1090,104 @@
       color: transparent;
     }
 
+    /* 文搜图筛选行：区域 160px、时间段 320px、描述输入自适应（对齐原型） */
+    .text-image-filter-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .text-image-area-field {
+      flex: 0 0 160px;
+    }
+
+    .text-image-range-field {
+      flex: 0 0 320px;
+    }
+
+    .text-image-query-input {
+      flex: 1 1 auto;
+    }
+
+    /* 文搜图卡片：图/视频视图切换按钮（左上角） */
+    .result-media-switch {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      z-index: 2;
+      width: 24px;
+      height: 24px;
+      border: 1px solid rgba(255, 255, 255, .9);
+      border-radius: 4px;
+      background: rgba(17, 24, 39, .55);
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .thumb-video {
+      position: relative;
+      background: #101828;
+    }
+
+    .thumb-video img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: .75;
+    }
+
+    /* 文搜图卡片属性行：年龄/配饰/衣服颜色/行为 */
+    .result-attrs {
+      display: flex;
+      flex-wrap: wrap;
+      column-gap: 8px;
+      row-gap: 2px;
+      margin: 4px 0;
+      font-size: 12px;
+      color: #667085;
+    }
+
+    .result-attrs span {
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+
+    .result-attrs .attr-label {
+      color: #245b9b;
+    }
+
+    /* 图片放大灯箱 */
+    .image-lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 95;
+      display: grid;
+      place-items: center;
+      background: rgba(17, 24, 39, .72);
+    }
+
+    .image-lightbox-img {
+      max-width: 82vw;
+      max-height: 82vh;
+      border-radius: 8px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, .4);
+    }
+
+    .image-lightbox-close {
+      position: absolute;
+      top: 18px;
+      right: 22px;
+      width: 32px;
+      height: 32px;
+      border: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, .16);
+      color: #fff;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
     /* 文搜图/图搜图搜索条件：所有控件单行排列、占满全宽 */
     .search-filter-row {
       display: flex;
@@ -1189,6 +1287,21 @@
       pointer-events: none;
     }
 
+    .i2i-upload-zone .i2i-reupload-hint {
+      position: absolute;
+      z-index: 3;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      display: block;
+      padding: 2px 0;
+      background: rgba(9, 30, 66, .55);
+      color: #fff;
+      font-size: 11px;
+      line-height: 1.4;
+      pointer-events: none;
+    }
+
     .i2i-upload-zone strong {
       color: #344054;
       font-size: 12px;
@@ -1229,30 +1342,39 @@
 
     .track-target-upload {
       position: relative;
-      width: 132px;
-      height: 132px;
+      width: 100%;
+      min-height: 120px;
       overflow: hidden;
       padding: 0;
       cursor: zoom-in;
     }
 
     .track-target-upload img {
+      display: block;
       width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: #0d1726;
+      height: auto;
     }
 
-    /* 目标参考图居右：占查询面板右列并纵向贯通三个条件块 */
-    .track-target-block {
-      grid-column: 2;
-      grid-row: 1 / span 3;
+    .track-target-upload-wrap {
+      position: relative;
     }
 
-    .track-target-reupload {
-      width: 132px;
-      padding: 6px 0;
-      font-size: 12px;
+    /* 右下角悬浮圆形上传按钮（原型 .track-target-upload-btn） */
+    .track-target-upload-btn {
+      position: absolute;
+      right: 8px;
+      bottom: 8px;
+      z-index: 3;
+      width: 28px;
+      height: 28px;
+      border: none;
+      border-radius: 50%;
+      background: #fff;
+      color: var(--blue);
+      font-size: 14px;
+      line-height: 1;
+      box-shadow: 0 2px 8px rgba(16, 42, 80, .25);
+      cursor: pointer;
     }
 
     .transferred-crop-box {
@@ -2101,8 +2223,8 @@
 
     .track-query-grid {
       display: grid;
-      /* 左列为检索条件，右列固定 132px 放置目标参考图 */
-      grid-template-columns: minmax(0, 1fr) 132px;
+      /* 原型为单列布局：目标参考图 / 时间范围 / 检索区域 / 相似度阈值 */
+      grid-template-columns: minmax(0, 1fr);
       gap: 12px;
       align-items: start;
       margin-top: 12px;
@@ -4850,6 +4972,22 @@
       color: #667085;
       font-size: 11px;
       cursor: pointer;
+    }
+
+    .exact-pagination .select {
+      width: auto;
+      height: 26px;
+      font-size: 11px;
+    }
+
+    .exact-pagination .exact-page-jump-input {
+      width: 52px;
+      height: 26px;
+      padding: 0 6px;
+      border: 1px solid #d9dee7;
+      border-radius: 4px;
+      color: #344054;
+      font-size: 11px;
     }
 
     .exact-pagination .page-jump {
@@ -10151,16 +10289,6 @@
 
       .track-layout,
       .track-main-grid,
-      .track-query-grid {
-        grid-template-columns: 1fr;
-      }
-
-      /* 窄屏下目标参考图回到普通流内布局 */
-      .track-target-block {
-        grid-column: auto;
-        grid-row: auto;
-      }
-
       .track-workbench {
         grid-template-columns: 1fr;
       }
@@ -10315,4 +10443,188 @@
       .sxin-message {
         max-width: 100%;
       }
+    }
+
+
+    /* ===== 文搜视频页：结果 tab / 消息操作 / 快速布防 / 分析详情弹窗（原型 exact-* 迁移） ===== */
+
+    .exact-chat-item {
+      display: grid;
+      justify-items: start;
+      gap: 4px;
+    }
+
+    .exact-chat-item.user {
+      justify-items: end;
+    }
+
+    .exact-message-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .exact-message-analysis-btn,
+    .exact-message-reanalysis-btn,
+    .exact-message-detail-btn {
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border: 1px solid #dbe8f8;
+      border-radius: 4px;
+      background: #fff;
+      color: #5c78a0;
+      font-family: "FontAwesome";
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .exact-message-analysis-btn:hover,
+    .exact-message-analysis-btn.active,
+    .exact-message-reanalysis-btn:hover:not(:disabled),
+    .exact-message-detail-btn:hover {
+      border-color: #9fc7ff;
+      background: #f7fbff;
+      color: var(--blue);
+    }
+
+    .exact-message-reanalysis-btn:disabled {
+      cursor: not-allowed;
+      opacity: .55;
+    }
+
+    .exact-analysis-tabs {
+      width: 100%;
+    }
+
+    .exact-analysis-tabs .exact-mode-tab {
+      height: 34px;
+    }
+
+    .exact-tab-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      margin-left: 4px;
+      border-radius: 50%;
+      color: #98a2b3;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .exact-tab-close:hover {
+      background: #e4e9f1;
+      color: #176fdc;
+    }
+
+    .exact-i2i-result-toolbar {
+      margin: 0 0 10px;
+      padding: 0;
+      border: 0;
+    }
+
+    .exact-image-search-tab .result-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .exact-track-result-content .timeline-card-date {
+      font-size: 13px;
+    }
+
+    .exact-quick-deploy-tab .modal-form-row {
+      grid-template-columns: 88px minmax(0, 1fr);
+      margin-bottom: 14px;
+    }
+
+    .exact-quick-deploy-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding-top: 4px;
+      border-top: 1px solid #edf0f5;
+    }
+
+    .deploy-camera-option {
+      justify-content: flex-start;
+      gap: 7px;
+    }
+
+    .deploy-camera-option input[type="checkbox"] {
+      flex: 0 0 auto;
+      margin: 0;
+    }
+
+    .deploy-camera-option span:last-child {
+      margin-left: auto;
+    }
+
+    .exact-result-modal-mask {
+      position: fixed;
+      inset: 0;
+      z-index: 24;
+      display: grid;
+      place-items: center;
+      background: rgba(17, 24, 39, .48);
+    }
+
+    .exact-result-modal {
+      display: flex;
+      flex-direction: column;
+      width: 480px;
+      max-width: calc(100vw - 32px);
+      max-height: calc(100vh - 48px);
+      overflow: hidden;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 20px 54px rgba(16, 24, 40, .28);
+    }
+
+    .exact-result-modal .drawer-head {
+      flex: 0 0 auto;
+    }
+
+    .exact-message-detail-body {
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .exact-message-detail-query {
+      margin: 0 0 10px;
+      color: #667085;
+      font-size: 11px;
+    }
+
+    .exact-message-detail-events {
+      display: grid;
+      gap: 10px;
+    }
+
+    .exact-message-detail-event {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+
+    .exact-message-detail-event img {
+      width: 96px;
+      aspect-ratio: 4 / 3;
+      border-radius: 4px;
+      object-fit: cover;
+    }
+
+    .exact-message-detail-event h4 {
+      margin: 0 0 4px;
+      color: #344054;
+      font-size: 12px;
+    }
+
+    .exact-message-detail-event p {
+      margin: 0;
+      color: #667085;
+      font-size: 11px;
+      line-height: 1.6;
     }

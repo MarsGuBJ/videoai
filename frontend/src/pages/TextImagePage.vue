@@ -1,30 +1,35 @@
 <template>
   <section class="content wide search-experience-page text-image-page">
-    <div class="search-page-head"><div class="title-row"><div><h1 class="page-title">文搜图</h1><p class="page-subtitle">文字描述人员属性搜索图片</p></div></div></div>
+    <div class="search-page-head"><div class="title-row"><div><h1 class="page-title">文搜图</h1><p class="page-subtitle">文字描述人员或车辆属性搜索图片</p></div></div></div>
     <div class="panel search-panel prototype-search-panel">
-      <div class="search-filter-row">
-        <div class="deploy-field"><area-camera-picker v-model="personFilters.area" aria-label="区域" /></div>
-        <div class="deploy-field"><date-time-range-picker v-model:start="personFilters.start" v-model:end="personFilters.end" /></div>
-        <input class="input query-input" v-model="query" placeholder="描述你要查找的目标特征，如：戴眼镜、穿深色外套、出现在办公区附近的人员" />
+      <div class="text-image-filter-row">
+        <div class="deploy-field text-image-area-field"><area-camera-picker v-model="personFilters.area" aria-label="区域" /></div>
+        <div class="deploy-field text-image-range-field"><date-time-range-picker v-model:start="personFilters.start" v-model:end="personFilters.end" /></div>
+        <input class="input text-image-query-input" v-model="query" placeholder="描述你要查找的目标特征，如：戴眼镜、穿深色外套、出现在办公区附近的人员" />
         <button class="btn primary" :disabled="searching" @click="searchImages">⌕ 搜索图片</button>
       </div>
     </div>
-    <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div><div class="result-toolbar-actions"><button class="btn" :disabled="!searched || !allResults.length" @click="toggleSelectAll">{{ isAllSelected ? '取消全选' : '全选' }}</button><button class="btn primary" :disabled="!selectedIndexes.length" @click="openTrack">⌁ 还原目标轨迹</button></div></div>
-    <image-results v-if="searched" :items="paginatedResults" :show-score="!searchedReal" :selectable="true" :selected-indexes="selectedIndexes" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" @toggle-selection="toggleSelection"></image-results>
+    <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div></div>
+    <image-results v-if="searched" :items="paginatedResults" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @open-result="openImagePreview"></image-results>
     <div v-if="searched" class="image-search-result-footer">
       <div class="exact-pagination">
         <span>显示 {{ pageStart }}-{{ pageEnd }} 共 {{ allResults.length }} 条</span>
-        <select class="page-size-select" v-model.number="pageSize" @change="handlePageSizeChange" aria-label="每页条数">
+        <select class="select" v-model.number="pageSize" @change="handlePageSizeChange" aria-label="每页条数">
           <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }} 条/页</option>
         </select>
         <button :disabled="page === 1" @click="goToPage(page - 1)">上一页</button>
         <button v-for="pageNumber in pageCount" :key="pageNumber" :class="{ active: page === pageNumber }" @click="goToPage(pageNumber)">{{ pageNumber }}</button>
         <button :disabled="page === pageCount" @click="goToPage(page + 1)">下一页</button>
-        <span class="page-jump"><input class="page-jump-input" type="number" min="1" :max="pageCount" v-model="jumpPage" placeholder="页码" aria-label="跳转页码" @keyup.enter="jumpToPage" /><button @click="jumpToPage">确定</button></span>
+        <span>跳至</span><input class="input exact-page-jump-input" type="number" min="1" :max="pageCount" v-model="pageJump" aria-label="跳转页码" @keyup.enter="jumpToPage" /><span>页</span>
+        <button type="button" @click="jumpToPage">确定</button>
       </div>
     </div>
-    <div v-else class="search-empty-state"><strong>还没有开始检索</strong><span>设置筛选条件或输入目标描述后，点击「搜索图片」</span></div>
-    <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在检索图片，请稍候...</p></div></div>
+    <div v-else class="search-empty-state"><strong>等待图像检索</strong><span>设置筛选条件或输入目标描述后，点击「搜索图片」</span></div>
+    <div v-if="previewImage" class="image-lightbox" @click.self="closeImagePreview">
+      <button class="image-lightbox-close" type="button" aria-label="关闭" @click="closeImagePreview">×</button>
+      <img class="image-lightbox-img" :src="previewImage" alt="结果大图" />
+    </div>
+    <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索，请稍候…</p></div></div>
   </section>
 </template>
 
@@ -79,13 +84,19 @@ function mapTextSearchItem(item: TextSearchItem, index: number) {
     payload.top_color?.[0] && payload.top_type ? `${payload.top_color[0]}${payload.top_type}` : payload.top_color?.[0],
     payload.bottom_color?.[0] && payload.bottom_type ? `${payload.bottom_color[0]}${payload.bottom_type}` : payload.bottom_color?.[0]
   ].filter(Boolean);
+  const extra = payload as Record<string, any>;
   return {
     title: titleParts.join("·") || `检索结果 ${index + 1}`,
     image: assetUrl(payload.image_url),
     location: payload.camera_locate || payload.camera_id || "未知摄像头",
     date: formatCreateTime(payload.create_time),
     score: null,
-    desc: item.esid || item.document_id || ""
+    desc: item.esid || item.document_id || "",
+    // 卡片属性行；后端暂未返回的字段以 "—" 兜底，返回后自动生效
+    age: extra.age ?? "—",
+    accessory: extra.accessory ?? "—",
+    topColor: (payload.top_color ?? []).join("、") || "—",
+    action: extra.action ?? "—"
   };
 }
 
@@ -103,13 +114,12 @@ export default defineComponent({
       searched: false,
       page: 1,
       pageSize: 8,
-      pageSizeOptions: [8, 16, 24, 48],
-      jumpPage: "",
-      selectedIndexes: [] as number[],
+      pageSizeOptions: [8, 16, 24],
+      pageJump: "",
+      previewImage: "",
       personFilters: { area: "", start: "", end: "" },
       // Real text-search state (retrieve API wiring)
       searching: false,
-      searchedReal: false,
       realResults: [] as any[]
     };
   },
@@ -130,9 +140,6 @@ export default defineComponent({
     },
     pageEnd(): number {
       return Math.min(this.page * this.pageSize, this.allResults.length);
-    },
-    isAllSelected(): boolean {
-      return this.allResults.length > 0 && this.selectedIndexes.length === this.allResults.length;
     }
   },
   methods: {
@@ -145,7 +152,6 @@ export default defineComponent({
       if (this.searching) return;
       this.searched = true;
       this.page = 1;
-      this.selectedIndexes = [];
       this.searching = true;
       try {
         const filters = this.personFilters;
@@ -159,11 +165,9 @@ export default defineComponent({
         });
         const items = response.data?.items ?? [];
         this.realResults = items.map(mapTextSearchItem);
-        this.searchedReal = true;
         (this as any).showToast(response.message || `检索完成，共找到 ${items.length} 条结果`);
       } catch (error) {
         this.realResults = [];
-        this.searchedReal = true;
         (this as any).showToast(error instanceof Error ? error.message : "文搜图检索失败");
       } finally {
         this.searching = false;
@@ -174,36 +178,19 @@ export default defineComponent({
     },
     handlePageSizeChange() {
       this.page = 1;
-      this.jumpPage = "";
+      this.pageJump = "";
     },
     jumpToPage() {
-      const target = Number(this.jumpPage);
-      if (this.jumpPage === "" || !Number.isFinite(target)) return;
-      this.goToPage(Math.floor(target));
-      this.jumpPage = "";
+      const target = parseInt(this.pageJump, 10);
+      if (Number.isNaN(target)) return;
+      this.goToPage(target);
+      this.pageJump = "";
     },
-    toggleSelectAll() {
-      if (this.isAllSelected) {
-        this.selectedIndexes = [];
-      } else {
-        this.selectedIndexes = this.allResults.map((_, index) => index);
-      }
+    openImagePreview(payload: any) {
+      this.previewImage = payload.item.image;
     },
-    toggleSelection(index: number) {
-      if (this.selectedIndexes.includes(index)) {
-        this.selectedIndexes = this.selectedIndexes.filter(item => item !== index);
-      } else {
-        this.selectedIndexes = [...this.selectedIndexes, index].sort((a, b) => a - b);
-      }
-    },
-    openTrack() {
-      if (!this.selectedIndexes.length) return;
-      const firstSelected = this.allResults[this.selectedIndexes[0]];
-      (this as any).setRoute("track", {
-        prefill: firstSelected ? firstSelected.image : "",
-        selectedIndexes: this.selectedIndexes,
-        trackView: "timeline"
-      });
+    closeImagePreview() {
+      this.previewImage = "";
     }
   }
 });

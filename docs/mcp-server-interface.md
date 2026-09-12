@@ -39,7 +39,7 @@ http://192.168.11.194:8097/search_recordings-http
 http://192.168.11.194:8097/get_recording_stream-http
 http://192.168.11.194:8097/download_recording-http
 http://192.168.11.194:8097/export_recording-http
-http://192.168.11.194:8097/analyze_minio_video-http
+http://192.168.11.194:8097/video_understanding-http
 http://192.168.11.194:8097/text_search_images-http
 http://192.168.11.194:8097/search_person_by_image-http
 http://192.168.11.194:8097/upload_face_image-http
@@ -68,7 +68,7 @@ MCP Server 依赖以下服务：
 - VideoAI Backend（backend-media）：读取摄像头列表、获取摄像头详情、启动直播。
 - Person API：封装 `192.168.11.192:18890` 的图搜人和步态识别接口。
 - 文搜图检索服务：`192.168.11.194:15011` 的自然语言图片检索接口（`text_search_images`）。
-- 视频智能分析服务：`192.168.11.192:8775` 的 MinIO 视频分析接口（`analyze_minio_video`）。
+- 视频理解结构化展示服务：`192.168.11.192:8775` 的视频理解结构化接口（`video_understanding`，上游为 `POST /api/v1/video-understanding/structure`）。
 - ZLMediaKit：把海康回放码流转为 FLV/HLS 播放地址。
 - 海康 NVR / HCNetSDK 设备：`search_recordings` 的 SDK 回放、`download_recording` 的 SDK 下载、`export_recording` 的 SDK 按时间下载（RTSP 回放抓流兜底）。
 - MinIO：保存 `download_recording` / `export_recording` 生成的 MP4 文件。
@@ -82,8 +82,8 @@ MCP Server 依赖以下服务：
 | `PERSON_API_BASE_URL` | `http://192.168.11.192:18890` | 图搜人和步态识别上游服务地址。 |
 | `RETRIEVE_API_BASE_URL` | `http://192.168.11.194:15011` | 文搜图（自然语言图片检索）上游服务地址。 |
 | `RETRIEVE_API_TIMEOUT_SECONDS` | `120` | 文搜图检索请求超时时间，单位秒。 |
-| `VIDEO_ANALYSIS_API_BASE_URL` | `http://192.168.11.192:8775` | MinIO 视频智能分析上游服务地址（`analyze_minio_video`）。 |
-| `VIDEO_ANALYSIS_TIMEOUT_SECONDS` | `600` | 视频分析请求超时时间，单位秒。 |
+| `VIDEO_UNDERSTANDING_API_BASE_URL` | `http://192.168.11.192:8775` | 视频理解结构化展示服务地址（`video_understanding`，上游 `POST /api/v1/video-understanding/structure`）。 |
+| `VIDEO_UNDERSTANDING_TIMEOUT_SECONDS` | `600` | 视频理解结构化请求超时时间，单位秒。 |
 | `VIDEOAI_ZLM_HTTP_URL` | `http://127.0.0.1:8082` | ZLMediaKit 内部 API 地址。 |
 | `VIDEOAI_ZLM_PUBLIC_HTTP_URL` | `http://192.168.11.194:9100` | 返回给客户端的播放地址前缀，应配置为客户端所在网络可访问的 ZLMediaKit HTTP 地址。 |
 | `VIDEOAI_ZLM_SECRET` | 项目默认 secret | ZLMediaKit API secret。 |
@@ -203,7 +203,7 @@ MCP Server 依赖以下服务：
 
 #### 返回值
 
-返回播放地址信息，并附 `xml`（`sxin-camera-flow` 摘要）字段。
+返回播放地址信息，并附 `xml`（`sxin-camera-flow` 摘要）字段；`input` 字段原样回显本次调用的输入参数（`cameraId`、`autoStart`）。
 
 ```json
 {
@@ -280,6 +280,8 @@ MCP Server 依赖以下服务：
 ```
 
 #### 返回值
+
+顶层含 `input` 字段，原样回显本次调用的输入参数（`cameraId`、`startTime`、`endTime`、`limit`、`trackId`、`autoProxy`、`streamFormat`）。
 
 ```json
 {
@@ -388,7 +390,7 @@ MCP Server 依赖以下服务：
 - 默认缓存有效期为 `VIDEOAI_MCP_PLAYBACK_TTL_SECONDS`，默认 `1800` 秒；过期需重新调用 `search_recordings`。
 - 录像来源为 HCNetSDK 回放（`hikvision_hcnetsdk_playback`）时，重新启动一路 SDK 回放会话并输出 FLV（忽略 `format` 参数）；cameraId 路径检索出的录像（metadata 含非单例设备的 `deviceHost`）会按 `cameraId` 再查一次摄像头，路由到该摄像头绑定 NVR 的 per-device 回放代理。
 - 其他来源（RTSP 回放地址）通过 FFmpeg/ZLMediaKit 转推为 FLV/HLS；当 NVR 返回 `453 Not Enough Bandwidth` 时，使用 `VIDEOAI_MCP_RECORDING_FALLBACK_FILE` 指定的演示录像文件生成同格式代理流。
-- 返回值同样附 `xml`（`sxin-video-file` 摘要）字段。
+- 返回值同样附 `xml`（`sxin-video-file` 摘要）字段；`input` 字段原样回显本次调用的输入参数（`recordingId`、`format`、`speed`）。
 
 ### 6.5 `download_recording`
 
@@ -496,58 +498,70 @@ MCP Server 依赖以下服务：
 
 `nvrClockSkewSeconds` 为导出时测得的 NVR 时钟偏差（NVR 时间减服务器时间，秒），用于排查时间对不上问题。该时段无有效录像时返回错误。
 
-### 6.7 `analyze_minio_video`
+### 6.7 `video_understanding`
 
-代理调用 MinIO 视频智能分析服务（`VIDEO_ANALYSIS_API_BASE_URL`，默认 `http://192.168.11.192:8775` 的 `/analyze_minio_video`）：读取视频文件，按抽帧、分段规则做 AI 分析，按提示词输出识别结果。响应原样透传分析服务返回（`code`/`segments` 等字段）。分析耗时分段累计，默认超时 600 秒（`VIDEO_ANALYSIS_TIMEOUT_SECONDS`）。
+代理调用视频理解结果结构化展示服务（`VIDEO_UNDERSTANDING_API_BASE_URL`，默认 `http://192.168.11.192:8775` 的 `POST /api/v1/video-understanding/structure`）：上游先对 MP4 视频做理解分析，再用 DeepSeek 将结果整理为结构化事件（事件名称、时间范围、简要描述、与用户问题的相关性评分），按事件时间范围截取关键帧，并选出与问题最相关的重点事件。响应原样透传（`code`/`message`/`data`，`data` 含 `summary`、`answer_status`、`focus_event`、`events`、`raw_understanding_result` 等字段）。理解 + 结构化 + 截帧耗时较长，默认超时 600 秒（`VIDEO_UNDERSTANDING_TIMEOUT_SECONDS`）。
 
 #### 输入参数
 
 ```json
 {
   "videoUrl": "http://192.168.11.194:9000/public/xxx.mp4",
-  "prompt": "请分析视频中是否有人出现，并描述人员行为",
+  "question": "视频中是否发生了人员跌倒？",
   "fps": 1,
   "segmentSeconds": 60,
-  "maxSegments": 1,
-  "height": 480
+  "maxSegments": 0,
+  "height": 480,
+  "prompt": "请分析视频中的主要人员、物体、行为及异常事件"
 }
 ```
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `videoUrl` | `string` | 是 | 无 | 视频文件内网访问地址（如 MinIO 中的 MP4，可由 `export_recording` 生成）。 |
-| `prompt` | `string` | 是 | 无 | AI 分析指令提示词，自定义分析任务、识别目标、输出要求。 |
-| `fps` | `int` | 否 | `1` | 抽帧帧率（每秒抽取帧数），小于 1 按 1 处理。 |
-| `segmentSeconds` | `int` | 否 | `60` | 分段时长（秒），视频按该时长切割分段分析，小于 1 按 1 处理。 |
-| `maxSegments` | `int` | 否 | `1` | 最大处理分段数，小于 1 按 1 处理。 |
-| `height` | `int` | 否 | `480` | 抽帧图片输出高度，宽度按比例自适应，小于 1 按 1 处理。 |
+| `videoUrl` | `string` | 是 | 无 | MP4 视频文件 URL（如 MinIO 地址，可由 `export_recording` 生成）；上游理解与关键帧截取均使用该地址。 |
+| `question` | `string` | 是 | 无 | 用户问题，用于判断理解结果能否回答问题并选出重点事件。 |
+| `fps` | `int` | 否 | `1` | 上游抽帧频率，小于 1 按 1 处理。 |
+| `segmentSeconds` | `int` | 否 | `60` | 上游长视频切片时长（秒），小于 1 按 1 处理。 |
+| `maxSegments` | `int` | 否 | `0` | 上游最大分析片段数，`0` 表示全部分析，负数按 0 处理。 |
+| `height` | `int` | 否 | `480` | 上游视频压缩高度，小于 1 按 1 处理。 |
+| `prompt` | `string` | 否 | `请分析视频中的主要人员、物体、行为及异常事件` | 发送给上游视频理解接口的提示词，留空用默认值。 |
 
 #### 返回值
 
-透传分析服务响应：
+透传上游响应（结构节选，完整字段见《视频理解接口》文档）：
 
 ```json
 {
   "code": 0,
   "message": "success",
-  "task_id": "d5eab396f868",
-  "video_duration_seconds": 125.0,
-  "segment_seconds": 60,
-  "total_segment_count": 3,
-  "analyzed_segment_count": 1,
-  "total_elapsed_seconds": 6.6,
-  "segments": [
-    {
-      "segment_index": 0,
-      "segment_start_seconds": 0,
-      "segment_end_seconds": 60,
-      "result": {
-        "raw_text": "根据视频画面分析……"
+  "data": {
+    "question": "这个视频里是否有人坐下？",
+    "summary": "视频显示在室内楼梯平台上，绿衣女子几乎全程坐在台阶上休息……",
+    "answer_status": "found",
+    "focus_event": {
+      "event_id": "event_001",
+      "event_name": "绿衣女子坐在台阶上休息",
+      "time_range": { "start_seconds": 0.0, "end_seconds": 29.0, "display_text": "0-29秒" },
+      "description": "绿衣女子在整个视频中坐在楼梯平台的台阶上……",
+      "relevance_score": 10.0,
+      "is_focus": true,
+      "key_frame": {
+        "image_path": "2026-09-10/20260910-163703_875173fdfcdd_1a91e0cf/event_001_14.50s_focus_39c71810.jpg",
+        "image_url": "http://192.168.11.194:29000/video-keyframes/2026-09-10/20260910-163703_875173fdfcdd_1a91e0cf/event_001_14.50s_focus_39c71810.jpg",
+        "image_base64": null,
+        "mime_type": "image/jpeg",
+        "timestamp_seconds": 14.5,
+        "extraction_status": "success",
+        "error_message": null
       }
-    }
-  ]
+    },
+    "events": [],
+    "raw_understanding_result": {}
+  }
 }
 ```
+
+`answer_status` 取值：`found`（可回答）/ `not_found`（无法回答，此时 `focus_event` 为 `null`、`events` 为空数组）/ `uncertain`（不确定）。上游校验或调用失败时按统一错误格式透传（如 `VALIDATION_001`、`UPSTREAM_001`、`LLM_001`、`VIDEO_001`）。
 
 ### 6.8 `upload_face_image`
 
@@ -708,7 +722,7 @@ videoai://recordings/b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22
 
 1. 调用 `list_cameras`，取目标摄像头的 `nvrBinding.nvrTrackId`。
 2. 调用 `export_recording`，传入 `cameraId`（或 `trackId`）和时间段，等待导出（默认走 HCNetSDK 按时间下载，非实时、更快；SDK 不可用时 20 分钟内的白名单 trackId 时段回退 RTSP 抓流，耗时 ≈ 所选时长），得到 MinIO MP4 `videoUrl`。
-3. 调用 `analyze_minio_video`，传入 `videoUrl` 和中文 `prompt`，读取分段分析结论。
+3. 调用 `video_understanding`，传入 `videoUrl` 和中文 `question`（用户问题），读取结构化事件、重点事件与关键帧。
 
 ### 文搜图
 
@@ -735,8 +749,8 @@ VIDEOAI_MCP_PLAYBACK_TTL_SECONDS=1800
 PERSON_API_BASE_URL=http://192.168.11.192:18890
 RETRIEVE_API_BASE_URL=http://192.168.11.194:15011
 RETRIEVE_API_TIMEOUT_SECONDS=120
-VIDEO_ANALYSIS_API_BASE_URL=http://192.168.11.192:8775
-VIDEO_ANALYSIS_TIMEOUT_SECONDS=600
+VIDEO_UNDERSTANDING_API_BASE_URL=http://192.168.11.192:8775
+VIDEO_UNDERSTANDING_TIMEOUT_SECONDS=600
 HIKVISION_NVR_BASE_URL=http://192.168.1.64
 HIKVISION_NVR_USERNAME=admin
 HIKVISION_NVR_PASSWORD=change-me

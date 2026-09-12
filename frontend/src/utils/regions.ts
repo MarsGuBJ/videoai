@@ -28,6 +28,25 @@ export function loadCustomRegions(): string[] {
   }
 }
 
+// 区域管理弹窗增删改后回写 localStorage：统一规整路径并去重。
+export function saveCustomRegions(list: string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  list.forEach((item) => {
+    const path = normalizePath(item);
+    if (path && !seen.has(path)) {
+      seen.add(path);
+      normalized.push(path);
+    }
+  });
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+  } catch {
+    // localStorage 不可用时静默失败，调用方仍拿到规整后的列表
+  }
+  return normalized;
+}
+
 // 由设备 area 列表 + 自定义区域聚合成扁平节点数组：
 // 每条路径的每一级前缀都成为一个节点；child 表示非顶层节点；
 // 顶层节点 count 含子孙，子节点 count 仅统计精确 area 匹配的设备数。

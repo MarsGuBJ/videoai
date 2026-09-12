@@ -36,8 +36,8 @@ class Settings:
     person_api_base_url: str
     retrieve_api_base_url: str
     retrieve_api_timeout_seconds: float
-    video_analysis_api_base_url: str
-    video_analysis_timeout_seconds: float
+    video_understanding_api_base_url: str
+    video_understanding_timeout_seconds: float
     zlm_http_url: str
     zlm_public_http_url: str
     zlm_secret: str
@@ -83,8 +83,8 @@ def load_settings() -> Settings:
         person_api_base_url=_env("PERSON_API_BASE_URL", "http://192.168.11.192:18890").rstrip("/"),
         retrieve_api_base_url=_env("RETRIEVE_API_BASE_URL", "http://192.168.11.194:15011").rstrip("/"),
         retrieve_api_timeout_seconds=float(_env("RETRIEVE_API_TIMEOUT_SECONDS", "120")),
-        video_analysis_api_base_url=_env("VIDEO_ANALYSIS_API_BASE_URL", "http://192.168.11.192:8775").rstrip("/"),
-        video_analysis_timeout_seconds=float(_env("VIDEO_ANALYSIS_TIMEOUT_SECONDS", "600")),
+        video_understanding_api_base_url=_env("VIDEO_UNDERSTANDING_API_BASE_URL", "http://192.168.11.192:8775").rstrip("/"),
+        video_understanding_timeout_seconds=float(_env("VIDEO_UNDERSTANDING_TIMEOUT_SECONDS", "600")),
         zlm_http_url=_env("VIDEOAI_ZLM_HTTP_URL", "http://127.0.0.1:8082").rstrip("/"),
         zlm_public_http_url=_env("VIDEOAI_ZLM_PUBLIC_HTTP_URL", "http://192.168.11.194:9100").rstrip("/"),
         zlm_secret=_env("VIDEOAI_ZLM_SECRET", "TFtkiHhkoFJzgamQXuYY1zACl2XYSnUR"),

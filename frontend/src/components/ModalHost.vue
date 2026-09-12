@@ -4,7 +4,7 @@ import { api } from "../api";
 import type { Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
-import { computeSourceUrl } from "../utils/regions";
+import { computeSourceUrl, loadCustomRegions, normalizePath, saveCustomRegions } from "../utils/regions";
 
 export default {
   name: "ModalHost",
@@ -67,6 +67,11 @@ export default {
       capabilityAlarmIo: false,
       capabilityStrategy: "overwrite",
       capabilitySaving: false,
+      // 区域管理弹窗（增删改 localStorage 中的自定义区域）
+      regionList: [] as string[],
+      regionNew: "",
+      regionEditIndex: -1,
+      regionEditValue: "",
       reviewLlmId: "",
       reviewLlmConfigs: [] as LlmConfig[],
       reviewTypeId: "",
@@ -230,6 +235,11 @@ export default {
         this.initCloudSync();
       } else if (this.modal.type === "mediaCapability") {
         this.initCapabilityForm();
+      } else if (this.modal.type === "mediaRegion") {
+        this.regionList = loadCustomRegions();
+        this.regionNew = "";
+        this.regionEditIndex = -1;
+        this.regionEditValue = "";
       } else if (this.modal.type === "recordDownload") {
         this.initRecordDownloadForm();
       } else if (this.modal.type === "reviewTask") {
@@ -396,6 +406,55 @@ export default {
     },
     toggleDeployArea(name: string) {
       this.deployAreaExpanded[name] = !this.deployAreaExpanded[name];
+    },
+    // --- 区域管理弹窗 ---
+    // 每次变更都规整去重后持久化，并通知页面刷新“所在区域”下拉
+    persistRegions(list: string[]) {
+      this.regionList = saveCustomRegions(list);
+      this.refreshCameras();
+    },
+    addRegion() {
+      const path = normalizePath(this.regionNew);
+      if (!path) {
+        this.showToast("请输入区域名称");
+        return;
+      }
+      if (this.regionList.includes(path)) {
+        this.showToast(`区域「${path}」已存在`);
+        return;
+      }
+      this.persistRegions([...this.regionList, path]);
+      this.regionNew = "";
+      this.showToast(`区域「${path}」已新增`);
+    },
+    startRegionEdit(index: number) {
+      this.regionEditIndex = index;
+      this.regionEditValue = this.regionList[index];
+    },
+    cancelRegionEdit() {
+      this.regionEditIndex = -1;
+      this.regionEditValue = "";
+    },
+    saveRegionEdit(index: number) {
+      const path = normalizePath(this.regionEditValue);
+      if (!path) {
+        this.showToast("区域名称不能为空");
+        return;
+      }
+      if (this.regionList.some((item, i) => i !== index && item === path)) {
+        this.showToast(`区域「${path}」已存在`);
+        return;
+      }
+      const list = this.regionList.slice();
+      list[index] = path;
+      this.persistRegions(list);
+      this.cancelRegionEdit();
+      this.showToast(`区域已修改为「${path}」`);
+    },
+    removeRegion(index: number) {
+      const path = this.regionList[index];
+      this.persistRegions(this.regionList.filter((_item, i) => i !== index));
+      this.showToast(`区域「${path}」已删除`);
     },
     // --- 录像下载弹窗 ---
     initRecordDownloadForm() {
@@ -1127,6 +1186,40 @@ export default {
           </div>
           <div class="modal-form-row"><label>配置策略：</label><select class="select" v-model="capabilityStrategy"><option value="overwrite">覆盖原能力配置</option><option value="append">仅追加新增能力</option><option value="onlineOnly">仅应用到在线设备</option></select></div>
         </template>
+        <template v-if="modal.type === 'mediaRegion'">
+          <p class="modal-hint">维护「所在区域」下拉框中的自定义区域，支持多级路径（用 / 分隔，如：东区 / 一车间）。设备已占用的区域仍会显示在下拉框中。</p>
+          <div class="modal-form-row">
+            <label>新增区域：</label>
+            <div style="display:flex;gap:8px;flex:1;">
+              <input class="input" style="flex:1;" v-model.trim="regionNew" placeholder="请输入区域名称，如：东区 / 一车间" @keyup.enter="addRegion" />
+              <button class="btn primary" @click="addRegion">＋ 新增</button>
+            </div>
+          </div>
+          <div class="modal-table-wrap" style="margin-top:10px;max-height:320px;overflow:auto;">
+            <table class="prototype-table">
+              <thead><tr><th class="left">区域名称</th><th style="width:130px;">操作</th></tr></thead>
+              <tbody>
+                <tr v-for="(region, index) in regionList" :key="region + '_' + index">
+                  <td class="left">
+                    <input v-if="regionEditIndex === index" class="input" v-model.trim="regionEditValue" @keyup.enter="saveRegionEdit(index)" @keyup.esc="cancelRegionEdit" />
+                    <span v-else>{{ region }}</span>
+                  </td>
+                  <td>
+                    <template v-if="regionEditIndex === index">
+                      <button class="link-blue" @click="saveRegionEdit(index)">保存</button>
+                      <button class="link-blue" style="margin-left:10px;" @click="cancelRegionEdit">取消</button>
+                    </template>
+                    <template v-else>
+                      <button class="link-blue" @click="startRegionEdit(index)">编辑</button>
+                      <button class="link-red" style="margin-left:10px;" @click="removeRegion(index)">删除</button>
+                    </template>
+                  </td>
+                </tr>
+                <tr v-if="!regionList.length"><td colspan="2">暂无自定义区域，请在上方新增</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
         <template v-if="modal.type === 'mediaCloud'">
           <div class="modal-form-grid">
             <div class="modal-form-row"><label>云平台：</label><select class="select" v-model="cloudPlatformId" @change="resetCloudSync"><option value="" disabled>请选择云平台</option><option v-for="platform in cloudPlatforms" :key="platform.id" :value="platform.id">{{ platform.name }}（{{ platform.ip }}:{{ platform.port }}）</option></select></div>
@@ -1229,6 +1322,9 @@ export default {
         <template v-else-if="modal.type === 'mediaExport'">
           <button class="btn" @click="$emit('close')">取消</button>
           <button class="btn primary" @click="runExport">导出</button>
+        </template>
+        <template v-else-if="modal.type === 'mediaRegion'">
+          <button class="btn primary" @click="$emit('close')">关闭</button>
         </template>
         <template v-else-if="modal.type === 'mediaCloud'">
           <button class="btn" :disabled="cloudBusy || !cloudPlatformId" @click="runCloudPrecheck">{{ cloudSummary ? '重新预检查' : '预检查' }}</button>
