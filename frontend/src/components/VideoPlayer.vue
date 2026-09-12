@@ -21,6 +21,19 @@
         @click="playVideo"
       ></video>
       <div v-if="message" class="video-message">{{ message }}</div>
+      <div v-if="hevcUnsupported" class="video-hevc-tip">
+        <p>当前浏览器不支持 H.265（HEVC）视频解码，无法播放该摄像头画面。</p>
+        <p>
+          <a :href="hevcStoreLink" target="_blank" rel="noopener">
+            点此打开微软商店，免费安装“HEVC 视频扩展”（安装后刷新本页）
+          </a>
+        </p>
+        <p class="video-hevc-alt">
+          商店无法打开时可用此链接：
+          <a :href="hevcWebLink" target="_blank" rel="noopener">HEVC 视频扩展网页版</a>
+          ；也可换用已支持 HEVC 的电脑/浏览器访问。
+        </p>
+      </div>
     </div>
     <div v-if="showZoomBar" class="ptz-bar" aria-label="数字 PTZ 控制">
       <button title="拉近" @click="zoom(0.2)">＋</button>
@@ -58,6 +71,9 @@ export default defineComponent({
       transform: { zoom: 1, x: 0, y: 0 } as Transform,
       message: '未选择摄像头',
       fallbackUrl: undefined as string | undefined,
+      hevcUnsupported: false,
+      hevcStoreLink: 'ms-windows-store://pdp/?ProductId=9n4wgh0z6vhq',
+      hevcWebLink: 'https://apps.microsoft.com/detail/9n4wgh0z6vhq',
       reloadToken: 0,
       player: null as mpegts.Player | null,
       hls: null as Hls | null,
@@ -124,6 +140,12 @@ export default defineComponent({
     clearMessage() {
       this.message = '';
     },
+    showHevcUnsupported() {
+      // 重试无意义：销毁播放器并固定提示，停止自动重连
+      this.destroy();
+      this.message = '';
+      this.hevcUnsupported = true;
+    },
     markPlaying() {
       this.clearRetry();
       this.clearMessage();
@@ -167,6 +189,7 @@ export default defineComponent({
       }
 
       this.fallbackUrl = undefined;
+      this.hevcUnsupported = false;
       this.message = '正在连接视频流';
 
       video.addEventListener('loadedmetadata', this.clearMessage);
@@ -229,7 +252,19 @@ export default defineComponent({
           ),
         );
         this.player = player;
-        player.on?.('error', (type: string) => {
+        // H.265 passthrough 要求浏览器支持 HEVC MSE；在 media_info 拿到真实编码串后先探测，
+        // 不支持时给中文提示，避免 mpegts.js 抛出 addSourceBuffer 英文原始报错
+        player.on?.('media_info', (info: { videoCodec?: string }) => {
+          const codec = info?.videoCodec || '';
+          if (isHevcCodec(codec) && !canPlayHevc(codec)) {
+            this.showHevcUnsupported();
+          }
+        });
+        player.on?.('error', (type: string, details?: unknown, data?: unknown) => {
+          if (type === 'MediaError' && isHevcError(details, data)) {
+            this.showHevcUnsupported();
+            return;
+          }
           if (type === 'NetworkError' || type === 'MediaError') {
             this.scheduleRetry();
           }
@@ -270,6 +305,10 @@ export default defineComponent({
       video.play().then(() => {
         this.message = '';
       }).catch((error) => {
+        if (isHevcError(error?.message, '')) {
+          this.showHevcUnsupported();
+          return;
+        }
         this.message = `播放失败：${error.message}`;
       });
     },
@@ -292,6 +331,7 @@ export default defineComponent({
     stop() {
       this.teardown();
       this.fallbackUrl = undefined;
+      this.hevcUnsupported = false;
       this.message = '已停止';
     },
     restart() {
@@ -338,6 +378,40 @@ export default defineComponent({
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+/** FLV 视频编码串是否为 H.265/HEVC（如 hvc1.1.1.L150.B0、hev1.2.4.L153.B0）。 */
+function isHevcCodec(codec: string): boolean {
+  return /^(hvc1|hev1|h265|hevc)/i.test(codec.trim());
+}
+
+/** 浏览器 MSE 是否能解码该 HEVC 编码串（依赖操作系统 HEVC 解码器）。 */
+function canPlayHevc(codec: string): boolean {
+  if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported) {
+    return false;
+  }
+  const candidates = [codec, 'hvc1.1.6.L123.00', 'hev1.1.6.L123.00'];
+  return candidates.some((c) => MediaSource.isTypeSupported(`video/mp4; codecs="${c}"`));
+}
+
+/** mpegts.js MediaError 的 details/data 是否为 HEVC 不支持报错。 */
+function isHevcError(details: unknown, data: unknown): boolean {
+  const text = [details, data]
+    .map((item) => {
+      if (!item) {
+        return '';
+      }
+      if (typeof item === 'string') {
+        return item;
+      }
+      try {
+        return JSON.stringify(item);
+      } catch {
+        return String(item);
+      }
+    })
+    .join(' ');
+  return /hvc1|hev1|h265|hevc/i.test(text);
 }
 
 function zoomClass(zoomValue: number) {
@@ -393,6 +467,36 @@ function panClass(axis: 'x' | 'y', value: number) {
   font-size: 13px;
   pointer-events: none;
   white-space: nowrap;
+}
+
+.video-hevc-tip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  max-width: 85%;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.video-hevc-tip p {
+  margin: 4px 0;
+}
+
+.video-hevc-tip a {
+  color: #4da3ff;
+  text-decoration: underline;
+}
+
+.video-hevc-tip .video-hevc-alt {
+  color: #bbb;
+  font-size: 12px;
 }
 
 .ptz-bar {

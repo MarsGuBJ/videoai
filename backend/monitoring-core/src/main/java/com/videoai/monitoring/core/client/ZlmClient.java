@@ -75,6 +75,7 @@ public class ZlmClient {
                 .queryParam("app", app)
                 .queryParam("stream", stream)
                 .queryParam("url", url)
+                .queryParam("rtp_type", 0)
                 .queryParam("enable_rtsp", 1)
                 .queryParam("enable_rtmp", 1)
                 .queryParam("enable_hls", 1)
