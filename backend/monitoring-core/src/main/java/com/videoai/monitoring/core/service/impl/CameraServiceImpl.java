@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -237,12 +238,13 @@ public class CameraServiceImpl implements CameraService {
                 entity.getNvrChannel(),
                 entity.getNvrTrackId(),
                 entity.getNvrStreamType(),
-                entity.getProtocol(),
+                // 历史设备仅落库了拉流地址：协议/IP/端口/凭据缺失时从 sourceUrl 推导，供详情页展示
+                entity.getProtocol() != null ? entity.getProtocol() : protocolFrom(sourceUrl),
                 entity.getVendor(),
-                entity.getIp(),
-                entity.getPort(),
-                entity.getUsername(),
-                entity.getPassword(),
+                entity.getIp() != null ? entity.getIp() : StreamUrls.hostOf(sourceUrl),
+                entity.getPort() != null ? entity.getPort() : portFrom(sourceUrl),
+                entity.getUsername() != null ? entity.getUsername() : credentialFrom(sourceUrl, true),
+                entity.getPassword() != null ? entity.getPassword() : credentialFrom(sourceUrl, false),
                 entity.getDeviceCode(),
                 entity.getSerialNumber(),
                 isDinoCamera(sourceUrl),
@@ -263,5 +265,55 @@ public class CameraServiceImpl implements CameraService {
         }
         String cleaned = value.trim();
         return cleaned.isEmpty() ? null : cleaned;
+    }
+
+    // --- 从拉流地址推导设备接入信息（老数据未落库 protocol/ip/port/username/password 时兜底） ---
+
+    private static String protocolFrom(String sourceUrl) {
+        if (sourceUrl == null) {
+            return null;
+        }
+        String lower = sourceUrl.toLowerCase();
+        if (lower.startsWith("rtsp://")) {
+            return "RTSP 拉流";
+        }
+        if (lower.startsWith("rtmp://")) {
+            return "RTMP 推流";
+        }
+        if (lower.startsWith("http://") || lower.startsWith("https://")) {
+            return "HTTP 拉流";
+        }
+        return null;
+    }
+
+    private static String portFrom(String sourceUrl) {
+        if (sourceUrl == null) {
+            return null;
+        }
+        try {
+            int port = URI.create(sourceUrl).getPort();
+            return port >= 0 ? String.valueOf(port) : null;
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    private static String credentialFrom(String sourceUrl, boolean username) {
+        if (sourceUrl == null) {
+            return null;
+        }
+        try {
+            String userInfo = URI.create(sourceUrl).getUserInfo();
+            if (userInfo == null || userInfo.isEmpty()) {
+                return null;
+            }
+            int colon = userInfo.indexOf(':');
+            if (username) {
+                return colon >= 0 ? userInfo.substring(0, colon) : userInfo;
+            }
+            return colon >= 0 ? userInfo.substring(colon + 1) : null;
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 }

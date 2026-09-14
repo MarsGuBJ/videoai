@@ -110,3 +110,36 @@ export function computeSourceUrl(
   if (protocol === "HTTP 拉流") return `http://${target}/`;
   return null;
 }
+
+// 可通过 IP+端口自动拼装拉流地址的协议
+export function canComputeSourceUrl(protocol?: string | null): boolean {
+  return protocol === "RTSP 拉流" || protocol === "RTMP 推流" || protocol === "HTTP 拉流";
+}
+
+// 设备通道号上限（常见 NVR/DVR 通道上限）
+export const MAX_CHANNEL_NO = 256;
+
+// IPv4 格式校验：四段数字，每段 0-255
+export function isValidIPv4(value?: string | null): boolean {
+  const v = (value || "").trim();
+  if (!v) return false;
+  const parts = v.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255 && String(Number(part)) === part.replace(/^0+(?=\d)/, ""));
+}
+
+// 端口校验：纯数字，1-65535
+export function isValidPort(value?: string | null): boolean {
+  const v = (value || "").trim();
+  if (!/^\d+$/.test(v)) return false;
+  const n = Number(v);
+  return n >= 1 && n <= 65535;
+}
+
+// 通道号校验：纯数字，1-MAX_CHANNEL_NO
+export function isValidChannelNo(value?: string | null): boolean {
+  const v = (value || "").trim();
+  if (!/^\d+$/.test(v)) return false;
+  const n = Number(v);
+  return n >= 1 && n <= MAX_CHANNEL_NO;
+}

@@ -67,8 +67,9 @@ export default {
       capabilityAlarmIo: false,
       capabilityStrategy: "overwrite",
       capabilitySaving: false,
-      // 区域管理弹窗（增删改 localStorage 中的自定义区域）
-      regionList: [] as string[],
+      // 区域管理弹窗：与「所在区域」下拉同源（设备占用区域 + 自定义区域）
+      regionList: [] as { path: string; devices: number }[],
+      regionCustom: [] as string[],
       regionNew: "",
       regionEditIndex: -1,
       regionEditValue: "",
@@ -236,10 +237,10 @@ export default {
       } else if (this.modal.type === "mediaCapability") {
         this.initCapabilityForm();
       } else if (this.modal.type === "mediaRegion") {
-        this.regionList = loadCustomRegions();
         this.regionNew = "";
         this.regionEditIndex = -1;
         this.regionEditValue = "";
+        this.loadRegionList();
       } else if (this.modal.type === "recordDownload") {
         this.initRecordDownloadForm();
       } else if (this.modal.type === "reviewTask") {
@@ -408,10 +409,29 @@ export default {
       this.deployAreaExpanded[name] = !this.deployAreaExpanded[name];
     },
     // --- 区域管理弹窗 ---
-    // 每次变更都规整去重后持久化，并通知页面刷新“所在区域”下拉
-    persistRegions(list: string[]) {
-      this.regionList = saveCustomRegions(list);
+    // 列表与「所在区域」下拉同源：设备已占用区域（来自 cameras.area）+ localStorage 自定义区域；
+    // 修改被设备占用的区域名会同步更新设备 area（含下级区域前缀替换），仅未被占用的区域可删除
+    async loadRegionList() {
+      this.regionCustom = loadCustomRegions();
+      const counts: Record<string, number> = {};
+      try {
+        const cameras = (await api.cameras()) || [];
+        for (const camera of cameras) {
+          const path = normalizePath(camera.area || "");
+          if (path) counts[path] = (counts[path] || 0) + 1;
+        }
+      } catch {
+        // 设备接口不可用时仅展示自定义区域
+      }
+      const paths = Array.from(new Set([...this.regionCustom, ...Object.keys(counts)]))
+        .sort((a, b) => a.localeCompare(b, "zh"));
+      this.regionList = paths.map((path) => ({ path, devices: counts[path] || 0 }));
+    },
+    // 自定义区域规整去重后持久化，并通知页面刷新“所在区域”下拉
+    async persistRegions(list: string[]) {
+      saveCustomRegions(list);
       this.refreshCameras();
+      await this.loadRegionList();
     },
     addRegion() {
       const path = normalizePath(this.regionNew);
@@ -419,42 +439,73 @@ export default {
         this.showToast("请输入区域名称");
         return;
       }
-      if (this.regionList.includes(path)) {
+      if (this.regionList.some((item) => item.path === path)) {
         this.showToast(`区域「${path}」已存在`);
         return;
       }
-      this.persistRegions([...this.regionList, path]);
+      this.persistRegions([...this.regionCustom, path]);
       this.regionNew = "";
       this.showToast(`区域「${path}」已新增`);
     },
     startRegionEdit(index: number) {
       this.regionEditIndex = index;
-      this.regionEditValue = this.regionList[index];
+      this.regionEditValue = this.regionList[index].path;
     },
     cancelRegionEdit() {
       this.regionEditIndex = -1;
       this.regionEditValue = "";
     },
-    saveRegionEdit(index: number) {
+    async saveRegionEdit(index: number) {
+      const entry = this.regionList[index];
+      const oldPath = entry.path;
       const path = normalizePath(this.regionEditValue);
       if (!path) {
         this.showToast("区域名称不能为空");
         return;
       }
-      if (this.regionList.some((item, i) => i !== index && item === path)) {
+      if (path === oldPath) {
+        this.cancelRegionEdit();
+        return;
+      }
+      if (this.regionList.some((item, i) => i !== index && item.path === path)) {
         this.showToast(`区域「${path}」已存在`);
         return;
       }
-      const list = this.regionList.slice();
-      list[index] = path;
-      this.persistRegions(list);
+      try {
+        if (entry.devices > 0) {
+          // 占用该区域的设备同步改名；下级区域按前缀整体替换（东区 → 新区 时东区 / 一车间 → 新区 / 一车间）
+          const cameras = (await api.cameras()) || [];
+          const affected = cameras.filter((camera) => {
+            const area = normalizePath(camera.area || "");
+            return area === oldPath || area.startsWith(oldPath + " / ");
+          });
+          for (const camera of affected) {
+            const area = normalizePath(camera.area || "");
+            await api.updateCamera(camera.id, { area: path + area.slice(oldPath.length) });
+          }
+        }
+        // 自定义区域中的同名及下级路径一并改名
+        const custom = this.regionCustom.map((item) =>
+          item === oldPath || item.startsWith(oldPath + " / ") ? path + item.slice(oldPath.length) : item
+        );
+        saveCustomRegions(custom);
+      } catch (error) {
+        this.showToast(`区域修改失败：${error instanceof Error ? error.message : error}`);
+        return;
+      }
       this.cancelRegionEdit();
+      this.refreshCameras();
+      await this.loadRegionList();
       this.showToast(`区域已修改为「${path}」`);
     },
     removeRegion(index: number) {
-      const path = this.regionList[index];
-      this.persistRegions(this.regionList.filter((_item, i) => i !== index));
-      this.showToast(`区域「${path}」已删除`);
+      const entry = this.regionList[index];
+      if (entry.devices > 0) {
+        this.showToast(`区域「${entry.path}」仍被 ${entry.devices} 台设备占用，请先移动这些设备后再删除`);
+        return;
+      }
+      this.persistRegions(this.regionCustom.filter((item) => item !== entry.path));
+      this.showToast(`区域「${entry.path}」已删除`);
     },
     // --- 录像下载弹窗 ---
     initRecordDownloadForm() {
@@ -1187,7 +1238,7 @@ export default {
           <div class="modal-form-row"><label>配置策略：</label><select class="select" v-model="capabilityStrategy"><option value="overwrite">覆盖原能力配置</option><option value="append">仅追加新增能力</option><option value="onlineOnly">仅应用到在线设备</option></select></div>
         </template>
         <template v-if="modal.type === 'mediaRegion'">
-          <p class="modal-hint">维护「所在区域」下拉框中的自定义区域，支持多级路径（用 / 分隔，如：东区 / 一车间）。设备已占用的区域仍会显示在下拉框中。</p>
+          <p class="modal-hint">与「所在区域」下拉框数据一致（设备已占用区域 + 自定义区域），支持多级路径（用 / 分隔，如：东区 / 一车间）。修改名称会同步更新占用该区域的设备（含下级区域）；仅未被设备占用的区域可删除。</p>
           <div class="modal-form-row">
             <label>新增区域：</label>
             <div style="display:flex;gap:8px;flex:1;">
@@ -1199,10 +1250,10 @@ export default {
             <table class="prototype-table">
               <thead><tr><th class="left">区域名称</th><th style="width:130px;">操作</th></tr></thead>
               <tbody>
-                <tr v-for="(region, index) in regionList" :key="region + '_' + index">
+                <tr v-for="(region, index) in regionList" :key="region.path + '_' + index">
                   <td class="left">
                     <input v-if="regionEditIndex === index" class="input" v-model.trim="regionEditValue" @keyup.enter="saveRegionEdit(index)" @keyup.esc="cancelRegionEdit" />
-                    <span v-else>{{ region }}</span>
+                    <span v-else>{{ region.path }}<span v-if="region.devices" class="hint-text" style="margin-left:6px;">（{{ region.devices }} 台设备）</span></span>
                   </td>
                   <td>
                     <template v-if="regionEditIndex === index">
@@ -1215,7 +1266,7 @@ export default {
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!regionList.length"><td colspan="2">暂无自定义区域，请在上方新增</td></tr>
+                <tr v-if="!regionList.length"><td colspan="2">暂无区域，请在上方新增</td></tr>
               </tbody>
             </table>
           </div>

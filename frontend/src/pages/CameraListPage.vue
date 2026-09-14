@@ -24,7 +24,7 @@
               <thead><tr><th><input type="checkbox" aria-label="全选设备" :checked="allPageSelected" @change="toggleSelectAll" /></th><th class="left">设备名称</th><th>所在区域</th><th>接入协议</th><th>IP地址及端口</th><th>设备编号</th><th>设备序列号</th><th class="left">描述</th><th>密码强度</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="row in pagedCameras" :key="row.id">
-                  <td><input type="checkbox" v-model="selectedIds" :value="row.id" :aria-label="'选择设备' + row.name" /></td><td class="left video-device-name">{{ row.name }}</td><td>{{ row.area }}</td><td>{{ row.protocol }}</td><td>{{ row.address }}</td><td>{{ row.code }}</td><td>{{ row.serial }}</td><td class="left ellipsis">{{ row.desc }}</td><td><span class="password-strength" :class="row.strengthClass">{{ row.strength }}</span></td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td><div class="video-device-row-actions"><button class="link-blue" @click="openCameraDetail(row.raw)">查看</button><button class="link-blue" @click="openCameraEdit(row.raw)">编辑</button><button class="link-blue" @click="toggleStartStop(row)">{{ row.rawStatus === 'RUNNING' ? '下线' : '上线' }}</button><button class="link-red" @click="openModal('mediaDelete', { rows: [row] })">删除</button></div></td>
+                  <td><input type="checkbox" v-model="selectedIds" :value="row.id" :aria-label="'选择设备' + row.name" /></td><td class="left video-device-name">{{ row.name }}</td><td>{{ row.area }}</td><td>{{ row.protocol }}</td><td>{{ row.address }}</td><td>{{ row.code }}</td><td>{{ row.serial }}</td><td class="left ellipsis">{{ row.desc }}</td><td><span class="password-strength" :class="row.strengthClass">{{ row.strength }}</span></td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td><div class="video-device-row-actions"><button class="link-blue" @click="openCameraDetail(row.raw)">查看</button><button class="link-blue" @click="openCameraEdit(row.raw)">编辑</button><button class="link-red" @click="openModal('mediaDelete', { rows: [row] })">删除</button></div></td>
                 </tr>
                 <tr v-if="!pagedCameras.length"><td colspan="11">{{ loading ? '设备列表加载中…' : '暂无符合条件的设备' }}</td></tr>
               </tbody>
@@ -240,21 +240,6 @@ export default defineComponent({
         this.selectedIds = Array.from(new Set([...this.selectedIds, ...pageIds]));
       } else {
         this.selectedIds = this.selectedIds.filter((id: string) => !pageIds.includes(id));
-      }
-    },
-    async toggleStartStop(row: any) {
-      try {
-        if (row.rawStatus === "RUNNING") {
-          await api.stopCamera(row.id);
-          this.showToast(`设备「${row.name}」已下线`);
-        } else {
-          await api.startCamera(row.id);
-          this.showToast(`设备「${row.name}」已上线`);
-        }
-      } catch (error: any) {
-        this.showToast(`操作失败：${error?.message || error}`);
-      } finally {
-        this.loadCameras();
       }
     },
     deleteSelected() {

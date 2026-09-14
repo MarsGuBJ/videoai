@@ -4557,6 +4557,26 @@
       font-size: 10px;
     }
 
+    /* 监控资源树：摄像头名称右侧居左的状态标示 */
+    .media-tree-status {
+      flex: 0 0 auto;
+      margin-left: 6px;
+      font-size: 10px;
+    }
+
+    .media-tree-status.online {
+      color: #12b76a;
+    }
+
+    .media-tree-status.offline {
+      color: #98a2b3;
+    }
+
+    /* 状态居左后，收藏星标仍居右 */
+    .media-preview-page .exact-tree-device .link-blue {
+      margin-left: auto;
+    }
+
     .deploy-tree-camera {
       justify-content: flex-start;
       gap: 6px;
@@ -9216,19 +9236,46 @@
       grid-template-rows: minmax(440px, 1fr);
     }
 
+    /* 9/16 宫格：窗格默认宽高 1:1，行高随列宽确定，
+       总高度超出页面时由 .workspace 出现垂直滚动条 */
     .media-video-grid.grid-9 {
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      grid-template-rows: repeat(2, minmax(210px, 1fr));
+      grid-template-rows: none;
+      grid-auto-rows: auto;
+      align-content: start;
     }
 
     .media-video-grid.grid-16 {
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      grid-template-rows: repeat(1, minmax(160px, 1fr));
+      grid-template-rows: none;
+      grid-auto-rows: auto;
+      align-content: start;
+    }
+
+    .media-video-grid.grid-9 .media-video-tile,
+    .media-video-grid.grid-16 .media-video-tile {
+      aspect-ratio: 1 / 1;
     }
 
     /* “满屏窗口”：视频宫格整体全屏时铺满屏幕 */
     .media-video-grid:fullscreen {
       min-height: 0;
+    }
+
+    /* 全屏时屏幕高度固定无法滚动，窗格改为均分屏幕高度 */
+    .media-video-grid:fullscreen.grid-9 {
+      grid-template-rows: repeat(3, minmax(0, 1fr));
+      align-content: stretch;
+    }
+
+    .media-video-grid:fullscreen.grid-16 {
+      grid-template-rows: repeat(4, minmax(0, 1fr));
+      align-content: stretch;
+    }
+
+    .media-video-grid:fullscreen.grid-9 .media-video-tile,
+    .media-video-grid:fullscreen.grid-16 .media-video-tile {
+      aspect-ratio: auto;
     }
 
     /* 全屏状态下右上角悬浮的取消全屏按钮 */
@@ -9448,12 +9495,15 @@
       min-height: 0;
       padding: 8px;
       background: #07111f;
+      overflow: hidden;
     }
 
     .media-playback-player {
       position: relative;
       flex: 1 1 auto;
-      min-height: 460px;
+      min-width: 480px;
+      max-width: 100%;
+      min-height: 480px;
       overflow: hidden;
       border: 1px solid #18304d;
       border-radius: 6px;
@@ -9560,10 +9610,14 @@
     }
 
     @media (max-width: 780px) {
-      .media-playback-player { min-height: 320px; }
       .media-playback-overlay-controls { grid-template-columns: minmax(148px, auto) 38px minmax(70px, 1fr) 38px 52px; gap: 5px; padding: 0 7px; }
       .media-playback-button-group { gap: 3px; }
       .media-playback-step, .media-playback-toggle { width: 28px; min-width: 28px; }
+    }
+
+    /* 窗口过矮时优先避免出现页面滚动条：最小高度随视口收缩 */
+    @media (max-height: 700px) {
+      .media-playback-player { min-height: calc(100vh - 220px); }
     }
 
     .media-timeline-panel {
@@ -10525,6 +10579,38 @@
       border: 0;
     }
 
+    .exact-i2i-search-panel {
+      margin: 0 0 10px;
+      padding: 10px;
+    }
+
+    .exact-i2i-form-grid {
+      align-items: flex-start;
+    }
+
+    .exact-i2i-filter-area {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .exact-i2i-attribute-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .exact-i2i-attribute-grid .deploy-field {
+      flex: 1 1 calc(50% - 4px);
+      min-width: 0;
+    }
+
+    .exact-i2i-attribute-grid .i2i-actions {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      margin-left: auto;
+    }
+
     .exact-image-search-tab .result-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
@@ -10545,6 +10631,16 @@
       gap: 10px;
       padding-top: 4px;
       border-top: 1px solid #edf0f5;
+    }
+
+    .exact-quick-deploy-tab .exact-deploy-detail-header {
+      grid-template-columns: 1fr;
+      margin-bottom: 10px;
+      padding: 12px 14px;
+    }
+
+    .exact-deploy-task-info {
+      padding: 12px 14px;
     }
 
     .deploy-camera-option {

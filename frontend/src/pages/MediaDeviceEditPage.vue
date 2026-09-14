@@ -29,7 +29,7 @@
 import { defineComponent } from "vue";
 import { api } from "../api";
 import type { Camera } from "../types";
-import { buildRegionTree, loadCustomRegions } from "../utils/regions";
+import { buildRegionTree, isValidIPv4, isValidPort, loadCustomRegions } from "../utils/regions";
 
 export default defineComponent({
   name: "MediaDeviceEditPage",
@@ -42,6 +42,7 @@ export default defineComponent({
   data() {
     return {
       saving: false,
+      cameraAreas: [] as string[],
       form: {
         name: "",
         deviceCode: "",
@@ -59,8 +60,9 @@ export default defineComponent({
     };
   },
   computed: {
+    // 与设备管理页「所在区域」筛选下拉同源：设备已占用区域 + 自定义区域
     areaOptions(): string[] {
-      const options = buildRegionTree([], loadCustomRegions()).map((node) => node.fullPath);
+      const options = buildRegionTree(this.cameraAreas, loadCustomRegions()).map((node) => node.fullPath);
       if (this.form.area && !options.includes(this.form.area)) options.push(this.form.area);
       return options;
     }
@@ -89,6 +91,14 @@ export default defineComponent({
       if (!camera) return;
       if (!this.form.name.trim()) {
         (this as any).showToast("请填写设备名称");
+        return;
+      }
+      if (this.form.ip.trim() && !isValidIPv4(this.form.ip)) {
+        (this as any).showToast("IP地址格式不正确");
+        return;
+      }
+      if (this.form.port.trim() && !isValidPort(this.form.port)) {
+        (this as any).showToast("端口号必须为1-65535的整数");
         return;
       }
       const payload: any = {
@@ -132,6 +142,13 @@ export default defineComponent({
       if (latest) this.fillForm(latest);
     } catch {
       // 拉取最新数据失败时保留列表传入的设备信息
+    }
+    try {
+      // 「所属区域」下拉与设备管理页「所在区域」同源，需要全量设备的区域数据
+      const cameras = await api.cameras();
+      this.cameraAreas = (cameras || []).map((c: Camera) => c.area || "").filter((area: string) => area && area !== "未分配");
+    } catch {
+      // 区域列表加载失败时仅提供自定义区域
     }
   }
 });

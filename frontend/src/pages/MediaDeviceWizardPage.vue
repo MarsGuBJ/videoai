@@ -24,6 +24,7 @@
         <div class="wide-field-row"><label>协议版本：</label><select class="select" v-model="form.protocolVersion"><option>标准协议</option><option>海康 ISUP 5.0</option><option>GB/T 28181-2022</option><option>ONVIF Profile S</option></select></div>
         <div class="wide-field-row"><label>设备名称：</label><input class="input" v-model.trim="form.name" placeholder="请输入设备名称" /></div>
         <div class="wide-field-row"><label>设备编号：</label><input class="input" v-model.trim="form.deviceCode" placeholder="请输入设备编号" /></div>
+        <div class="wide-field-row"><label>设备序列号：</label><input class="input" v-model.trim="form.serialNumber" placeholder="请输入设备序列号" /></div>
         <div class="wide-field-row"><label>IP地址：</label><input class="input" v-model.trim="form.ip" placeholder="192.168.1.64" /></div>
         <div class="wide-field-row"><label>端口号：</label><input class="input" v-model.trim="form.port" placeholder="554" /></div>
         <div class="wide-field-row"><label>用户名：</label><input class="input" v-model.trim="form.username" placeholder="admin" /></div>
@@ -57,7 +58,7 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
-import { buildRegionTree, computeSourceUrl, loadCustomRegions } from "../utils/regions";
+import { buildRegionTree, canComputeSourceUrl, computeSourceUrl, isValidChannelNo, isValidIPv4, isValidPort, loadCustomRegions, MAX_CHANNEL_NO } from "../utils/regions";
 
 export default defineComponent({
   name: "MediaDeviceWizardPage",
@@ -81,6 +82,7 @@ export default defineComponent({
         protocolVersion: "标准协议",
         name: "",
         deviceCode: "",
+        serialNumber: "",
         ip: "",
         port: "",
         username: "",
@@ -118,6 +120,34 @@ export default defineComponent({
         return;
       }
       let sourceUrl = form.sourceUrl.trim();
+      if (!sourceUrl && canComputeSourceUrl(form.protocol)) {
+        // 未手填拉流地址时，IP/端口是自动拼装的必要参数
+        if (!form.ip.trim()) {
+          this.showToast("请填写IP地址");
+          this.wizardStep = 2;
+          return;
+        }
+        if (!form.port.trim()) {
+          this.showToast("请填写端口号");
+          this.wizardStep = 2;
+          return;
+        }
+      }
+      if (form.ip.trim() && !isValidIPv4(form.ip)) {
+        this.showToast("IP地址格式不正确");
+        this.wizardStep = 2;
+        return;
+      }
+      if (form.port.trim() && !isValidPort(form.port)) {
+        this.showToast("端口号必须为1-65535的整数");
+        this.wizardStep = 2;
+        return;
+      }
+      if (!isValidChannelNo(form.nvrChannel)) {
+        this.showToast(`通道号必须为1-${MAX_CHANNEL_NO}的整数`);
+        this.wizardStep = 3;
+        return;
+      }
       if (!sourceUrl) {
         const built = computeSourceUrl(form.protocol, form.ip, form.port, form.username, form.password);
         if (!built) {
@@ -141,6 +171,7 @@ export default defineComponent({
           username: form.username || undefined,
           password: form.password || undefined,
           deviceCode: form.deviceCode || undefined,
+          serialNumber: form.serialNumber || undefined,
           nvrChannel: form.nvrChannel || undefined,
           nvrStreamType: form.nvrStreamType || undefined
         });

@@ -59,7 +59,7 @@
         <div class="exact-dialog-head">
           <div class="exact-mode-tabs exact-analysis-tabs" role="tablist" aria-label="分析结果视图">
             <button class="exact-mode-tab" :class="{ active: activeResultTab === 'summary' }" type="button" role="tab" :aria-selected="activeResultTab === 'summary'" @click="activeResultTab = 'summary'">分析概要</button>
-            <button v-for="tab in resultTabs" :key="tab.key" class="exact-mode-tab" :class="{ active: activeResultTab === tab.key }" type="button" role="tab" :aria-selected="activeResultTab === tab.key" @click="activeResultTab = tab.key">{{ tab.title }}<span class="exact-tab-close" role="button" tabindex="0" :aria-label="'关闭' + tab.title + '标签页'" title="关闭" @click.stop="closeResultTab(tab.key)" @keydown.enter.stop.prevent="closeResultTab(tab.key)">×</span></button>
+            <button v-for="tab in resultTabs" :key="tab.id" class="exact-mode-tab" :class="{ active: activeResultTab === tab.id }" type="button" role="tab" :aria-selected="activeResultTab === tab.id" @click="activeResultTab = tab.id">{{ tab.title }}<span class="exact-tab-close" role="button" tabindex="0" :aria-label="'关闭' + tab.title + '标签页'" title="关闭" @click.stop="closeResultTab(tab.id)" @keydown.enter.stop.prevent="closeResultTab(tab.id)">×</span></button>
           </div>
           <span v-if="activeResultTab === 'summary'" class="status-pill" :class="analyzed ? 'pass' : 'waiting'">{{ analyzed ? '分析完成' : '待分析' }}</span>
         </div>
@@ -86,23 +86,46 @@
             </div>
           </template>
         </div>
-        <div v-else-if="activeResultTab === 'imageSearch'" class="exact-dialog-body exact-image-search-tab" role="tabpanel" aria-label="以图搜图">
-          <div class="result-toolbar exact-i2i-result-toolbar"><div class="result-count">共找到 <b>{{ imageSearchItems.length }}</b> 条相似结果</div></div>
-          <div v-if="imageSearchLoading" class="track-empty">正在搜索相似目标，请稍候...</div>
-          <image-results v-else-if="imageSearchItems.length" :items="imageSearchItems" :show-score="true" :selectable="false" :hide-jump="true" :show-actions="true" @image-action="onImageSearchAction"></image-results>
+        <div v-else-if="activeResultTabObj && activeResultTabObj.type === 'imageSearch'" class="exact-dialog-body exact-image-search-tab" role="tabpanel" aria-label="以图搜图">
+          <div class="panel search-panel i2i-search-panel exact-i2i-search-panel">
+            <input ref="exactImageSearchInput" class="hidden-file-input" type="file" accept="image/*" @change="handleImageSearchUpload" />
+            <div class="i2i-form-grid exact-i2i-form-grid">
+              <button class="i2i-upload-zone" type="button" :title="activeResultTabObj.payload.image ? '点击替换参考图片' : '点击或拖拽图片到此处'" @click="triggerImageSearchUpload" @dragover.prevent @drop.prevent="handleImageSearchUpload">
+                <img v-if="activeResultTabObj.payload.image" :src="activeResultTabObj.payload.image" alt="参考图" />
+                <span v-if="activeResultTabObj.payload.image && activeResultTabObj.payload.crop" class="i2i-crop-box" :style="cropStyleOf(activeResultTabObj.payload.crop)"></span>
+                <span v-if="activeResultTabObj.payload.image" class="i2i-reupload-hint">点击替换图片</span>
+                <span v-if="!activeResultTabObj.payload.image"><span class="upload-mark">☁</span><strong>上传图片</strong><small>点击或拖拽图片到此处</small></span>
+              </button>
+              <div class="exact-i2i-filter-area">
+                <div class="exact-i2i-attribute-grid">
+                  <div class="deploy-field"><date-time-range-picker v-model:start="activeResultTabObj.start" v-model:end="activeResultTabObj.end" /></div>
+                  <div class="deploy-field"><select class="select" v-model="activeResultTabObj.place" aria-label="区域"><option>全部区域</option><option v-for="area in areas" :key="area.name" :value="area.name">{{ area.name }}</option></select></div>
+                  <div class="deploy-field similarity-field"><label>相似度：<b>{{ activeResultTabObj.similarity }}%</b></label><input type="range" min="0" max="100" v-model.number="activeResultTabObj.similarity" /></div>
+                  <div class="i2i-actions"><button class="btn primary" type="button" :disabled="activeResultTabObj.loading" @click="runImageSearchTab(activeResultTabObj)">⌕ 搜索</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="result-toolbar exact-i2i-result-toolbar"><div class="result-count">共找到 <b>{{ activeResultTabObj.items.length }}</b> 条相似结果</div></div>
+          <div v-if="activeResultTabObj.loading" class="track-empty">正在搜索相似目标，请稍候...</div>
+          <image-results v-else-if="activeResultTabObj.items.length" :items="activeResultTabObj.items" :show-score="true" :selectable="false" :hide-jump="true" :show-actions="true" @image-action="onImageSearchAction"></image-results>
           <div v-else class="track-empty">未找到相似目标，可在事件卡片重新框选后再次搜索。</div>
         </div>
-        <div v-else-if="activeResultTab === 'quickDeploy' && activeResultTabPayload" class="exact-dialog-body exact-quick-deploy-tab" role="tabpanel" aria-label="快速布防">
-          <div class="exact-quick-deploy-form">
-            <div class="modal-form-row"><label><span class="required">*</span>任务名称：</label><input class="input" v-model="deployTaskName" placeholder="请输入任务名称" /></div>
+        <div v-else-if="activeResultTabObj && activeResultTabObj.type === 'quickDeploy'" class="exact-dialog-body exact-quick-deploy-tab" role="tabpanel" aria-label="快速布防">
+          <template v-if="activeResultTabObj.savedTask">
+            <div class="detail-header-card exact-deploy-detail-header"><div><h2>{{ activeResultTabObj.savedTask.name }}</h2><p>{{ activeResultTabObj.savedTask.desc }}</p><div class="tags"><span class="tag blue">{{ activeResultTabObj.savedTask.algorithm }}</span><span class="status-pill pass">{{ activeResultTabObj.savedTask.status }}</span><span class="tag">{{ activeResultTabObj.savedTask.area }}</span></div></div></div>
+            <div class="panel search-panel exact-deploy-task-info"><h3 class="form-section-title">任务信息</h3><dl class="info-list"><dt>任务ID</dt><dd>{{ activeResultTabObj.savedTask.id }}</dd><dt>算法类型</dt><dd>{{ activeResultTabObj.savedTask.algorithm }}</dd><dt>布控区域</dt><dd>{{ activeResultTabObj.savedTask.area }}</dd><dt>监控点位</dt><dd>{{ activeResultTabObj.savedTask.points }}</dd><dt>生效时间</dt><dd>{{ activeResultTabObj.savedTask.time }}</dd><dt>相似度</dt><dd>{{ activeResultTabObj.savedTask.threshold }}%</dd><dt>创建人</dt><dd>{{ activeResultTabObj.savedTask.owner }}</dd><dt>创建时间</dt><dd>{{ activeResultTabObj.savedTask.created }}</dd></dl></div>
+          </template>
+          <div v-else class="exact-quick-deploy-form">
+            <div class="modal-form-row"><label><span class="required">*</span>任务名称：</label><input class="input" v-model="activeResultTabObj.deployTaskName" placeholder="请输入任务名称" /></div>
             <div class="modal-form-row"><label><span class="required">*</span>布控点位：</label>
               <div class="exact-tree-select" @click.stop>
-                <button class="exact-tree-trigger" :class="{ open: deployAreaOpen }" type="button" @click="deployAreaOpen = !deployAreaOpen"><span>{{ deployAreaLabel }}</span><span>{{ deployAreaOpen ? '收起' : '展开' }}⌄</span></button>
-                <div v-if="deployAreaOpen" class="exact-tree-dropdown">
+                <button class="exact-tree-trigger" :class="{ open: activeResultTabObj.deployAreaOpen }" type="button" @click="activeResultTabObj.deployAreaOpen = !activeResultTabObj.deployAreaOpen"><span>{{ deployAreaLabel(activeResultTabObj) }}</span><span>{{ activeResultTabObj.deployAreaOpen ? '收起' : '展开' }}⌄</span></button>
+                <div v-if="activeResultTabObj.deployAreaOpen" class="exact-tree-dropdown">
                   <div v-for="area in areas" :key="area.name">
-                    <button class="exact-tree-area-row" type="button" @click="toggleDeployArea(area)"><span>{{ deployAreaExpanded[area.name] ? '⌄' : '›' }} {{ area.name }}</span><span>{{ area.count }} 台设备</span></button>
-                    <div v-if="deployAreaExpanded[area.name]" class="exact-tree-children">
-                      <label v-for="camera in area.cameras" :key="camera.code" class="exact-tree-device deploy-camera-option"><input type="checkbox" :checked="deployCameraSelections.includes(camera.code)" @change="toggleDeployCamera(camera)" /><span>{{ camera.name }}</span><span>{{ camera.status }}</span></label>
+                    <button class="exact-tree-area-row" type="button" @click="toggleDeployArea(activeResultTabObj, area)"><span>{{ activeResultTabObj.deployAreaExpanded[area.name] ? '⌄' : '›' }} {{ area.name }}</span><span>{{ area.count }} 台设备</span></button>
+                    <div v-if="activeResultTabObj.deployAreaExpanded[area.name]" class="exact-tree-children">
+                      <label v-for="camera in area.cameras" :key="camera.code" class="exact-tree-device deploy-camera-option"><input type="checkbox" :checked="activeResultTabObj.deployCameraSelections.includes(camera.code)" @change="toggleDeployCamera(activeResultTabObj, camera)" /><span>{{ camera.name }}</span><span>{{ camera.status }}</span></label>
                     </div>
                   </div>
                   <div v-if="!areas.length" class="exact-tree-empty">暂无监控点数据</div>
@@ -111,32 +134,64 @@
             </div>
             <div class="modal-form-row"><label>布控目标：</label>
               <div class="deploy-target-field">
-                <div v-if="activeResultTabPayload.image" class="deploy-target-preview"><img :src="activeResultTabPayload.image" :alt="activeResultTabPayload.sourceName || '已框选布控目标'" /><span v-if="activeResultTabPayload.crop" class="transferred-crop-box" :style="deployTargetCropStyle"></span></div>
+                <div v-if="activeResultTabObj.payload.image" class="deploy-target-preview"><img :src="activeResultTabObj.payload.image" :alt="activeResultTabObj.payload.sourceName || '已框选布控目标'" /><span v-if="activeResultTabObj.payload.crop" class="transferred-crop-box" :style="cropStyleOf(activeResultTabObj.payload.crop)"></span></div>
                 <span v-else class="hint-text">未带入布控目标图</span>
               </div>
             </div>
             <div class="modal-form-row"><label><span class="required">*</span>布控算法：</label>
-              <select class="select" v-model="deployAlgorithmId"><option value="">请选择布控算法</option><option v-for="item in deployAlgorithmOptions" :key="item.id" :value="item.id">{{ item.name }}</option></select>
+              <select class="select" v-model="activeResultTabObj.deployAlgorithmId"><option value="">请选择布控算法</option><option v-for="item in deployAlgorithmOptions" :key="item.id" :value="item.id">{{ item.name }}</option></select>
             </div>
             <div class="modal-form-row"><label><span class="required">*</span>生效日期：</label>
-              <div class="effective-range"><input class="input" type="date" v-model="deployEffectiveStart" aria-label="生效开始日期" /><span class="range-arrow">→</span><input class="input" type="date" v-model="deployEffectiveEnd" aria-label="生效结束日期" /></div>
+              <div class="effective-range"><input class="input" type="date" v-model="activeResultTabObj.deployEffectiveStart" aria-label="生效开始日期" /><span class="range-arrow">→</span><input class="input" type="date" v-model="activeResultTabObj.deployEffectiveEnd" aria-label="生效结束日期" /></div>
             </div>
             <div class="modal-form-row"><label><span class="required">*</span>循环时段：</label>
-              <div class="effective-range"><input class="input" type="time" v-model="deployCycleStart" aria-label="循环开始时间" /><span class="range-arrow">→</span><input class="input" type="time" v-model="deployCycleEnd" aria-label="循环结束时间" /></div>
+              <div class="effective-range"><input class="input" type="time" v-model="activeResultTabObj.deployCycleStart" aria-label="循环开始时间" /><span class="range-arrow">→</span><input class="input" type="time" v-model="activeResultTabObj.deployCycleEnd" aria-label="循环结束时间" /></div>
             </div>
             <div class="modal-form-row"><label><span class="required">*</span>置信度：</label>
-              <div class="deploy-similarity-field"><input type="range" min="0" max="100" step="1" v-model.number="deploySimilarity" aria-label="置信度" /><output>{{ deploySimilarity }}%</output></div>
+              <div class="deploy-similarity-field"><input type="range" min="0" max="100" step="1" v-model.number="activeResultTabObj.deploySimilarity" aria-label="置信度" /><output>{{ activeResultTabObj.deploySimilarity }}%</output></div>
             </div>
-            <div class="modal-form-row"><label>任务描述：</label><textarea class="textarea" style="height:96px;" v-model="deployDescription" placeholder="请输入任务描述"></textarea></div>
-            <div class="exact-quick-deploy-actions"><button class="btn" type="button" @click="closeResultTab('quickDeploy')">取消</button><button class="btn primary" type="button" :disabled="deploySaving" @click="saveQuickDeploy">保存</button></div>
+            <div class="modal-form-row"><label>任务描述：</label><textarea class="textarea" style="height:96px;" v-model="activeResultTabObj.deployDescription" placeholder="请输入任务描述"></textarea></div>
+            <div class="exact-quick-deploy-actions"><button class="btn" type="button" @click="closeResultTab(activeResultTabObj.id)">取消</button><button class="btn primary" type="button" :disabled="activeResultTabObj.deploySaving" @click="saveQuickDeploy(activeResultTabObj)">保存</button></div>
           </div>
         </div>
-        <div v-else-if="activeResultTab === 'track'" class="exact-dialog-body" role="tabpanel" aria-label="轨迹图">
-          <div v-if="trackLoading" class="track-empty">正在搜索目标轨迹，请稍候...</div>
-          <div v-else-if="trackItems.length" class="track-result-content exact-track-result-content">
-            <div class="metric-row"><span class="metric">总时长：<b>{{ trackDuration }}</b></span><span class="metric">经过点位：<b>{{ trackPointCount }}</b></span><span class="metric">轨迹置信：<b>{{ trackConfidence }}%</b></span></div>
+        <div v-else-if="activeResultTabObj && activeResultTabObj.type === 'track'" class="exact-dialog-body exact-track-tab" role="tabpanel" aria-label="轨迹图">
+          <div class="panel search-panel i2i-search-panel exact-i2i-search-panel exact-track-search-panel">
+            <input ref="exactTrackTargetInput" class="hidden-file-input" type="file" accept="image/*" @change="handleTrackTargetUpload" />
+            <div class="i2i-form-grid exact-i2i-form-grid">
+              <button class="i2i-upload-zone" type="button" :title="activeResultTabObj.payload.image ? '点击替换目标图片' : '点击或拖拽图片到此处'" @click="triggerTrackTargetUpload" @dragover.prevent @drop.prevent="handleTrackTargetUpload">
+                <img v-if="activeResultTabObj.payload.image" :src="activeResultTabObj.payload.image" alt="目标参考图" />
+                <span v-if="activeResultTabObj.payload.image && activeResultTabObj.payload.crop" class="i2i-crop-box" :style="cropStyleOf(activeResultTabObj.payload.crop)"></span>
+                <span v-if="activeResultTabObj.payload.image" class="i2i-reupload-hint">点击替换图片</span>
+                <span v-if="!activeResultTabObj.payload.image"><span class="upload-mark">☁</span><strong>目标参考图</strong><small>点击或拖拽图片到此处</small></span>
+              </button>
+              <div class="exact-i2i-filter-area">
+                <div class="exact-i2i-attribute-grid">
+                  <div class="deploy-field"><date-time-range-picker v-model:start="activeResultTabObj.start" v-model:end="activeResultTabObj.end" /></div>
+                  <div class="deploy-field" @click.stop>
+                    <div class="exact-tree-select">
+                      <button class="exact-tree-trigger" :class="{ open: activeResultTabObj.pointDropdownOpen }" type="button" @click="toggleTrackPointDropdown(activeResultTabObj)"><span>{{ trackSearchPointLabel(activeResultTabObj) }}</span><span>{{ activeResultTabObj.pointDropdownOpen ? '收起' : '展开' }}⌄</span></button>
+                      <div v-if="activeResultTabObj.pointDropdownOpen" class="exact-tree-dropdown">
+                        <div v-for="area in areas" :key="area.name">
+                          <button class="exact-tree-area-row" :class="{ active: activeResultTabObj.searchArea && activeResultTabObj.searchArea.name === area.name }" type="button" @click="toggleTrackSearchArea(activeResultTabObj, area)"><span>{{ activeResultTabObj.expandedAreas[area.name] ? '⌄' : '›' }} {{ area.name }}</span><span>{{ area.count }} 台设备</span></button>
+                          <div v-if="activeResultTabObj.expandedAreas[area.name]" class="exact-tree-children">
+                            <button v-for="camera in area.cameras" :key="camera.code" class="exact-tree-device" :class="{ active: activeResultTabObj.searchCamera && activeResultTabObj.searchCamera.code === camera.code }" type="button" @click="selectTrackSearchCamera(activeResultTabObj, camera, area)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button>
+                          </div>
+                        </div>
+                        <div v-if="!areas.length" class="exact-tree-empty">暂无监控点数据</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="deploy-field similarity-field"><label>相似度阈值：<b>{{ activeResultTabObj.threshold }}%</b></label><input type="range" min="0" max="100" v-model.number="activeResultTabObj.threshold" /></div>
+                  <div class="i2i-actions"><button class="btn primary" type="button" :disabled="activeResultTabObj.loading" @click="runTrackSearch(activeResultTabObj)">⌕ 搜索候选图片</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="activeResultTabObj.loading" class="track-empty">正在搜索目标轨迹，请稍候...</div>
+          <div v-else-if="activeResultTabObj.items.length" class="track-result-content exact-track-result-content">
+            <div class="metric-row"><span class="metric">总时长：<b>{{ trackDurationOf(activeResultTabObj.items) }}</b></span><span class="metric">经过点位：<b>{{ trackPointCountOf(activeResultTabObj.items) }}</b></span><span class="metric">轨迹置信：<b>{{ trackConfidenceOf(activeResultTabObj.items) }}%</b></span></div>
             <div class="timeline">
-              <article class="timeline-card" v-for="item in trackItems" :key="item.title + item.date">
+              <article class="timeline-card" v-for="item in activeResultTabObj.items" :key="item.title + item.date">
                 <div><h4>{{ item.title }}</h4><p>{{ item.desc }}</p><div class="tags"><span class="tag blue">{{ item.location }}</span><span class="tag">相似度 {{ item.score }}%</span></div></div>
                 <div class="timeline-card-controls"><span class="hint-text timeline-card-date">{{ item.date }}</span></div>
                 <button class="timeline-image-button" type="button" title="查看图片详情" @click="openResult(-1, item)"><img :src="item.image" :alt="item.title" /></button>
@@ -350,6 +405,16 @@ function delay(ms: number) {
   });
 }
 
+// "2026-07-12T08:30" -> "2026-07-12 08:30:00" (person-search API format)
+function toPersonApiDateTime(value: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const [date, rawTime = "00:00"] = value.split("T");
+  const time = rawTime.length === 5 ? `${rawTime}:00` : rawTime;
+  return `${date} ${time}`;
+}
+
 // create_time (epoch 秒/毫秒或字符串) -> "YYYY-MM-DD HH:mm:ss"
 function formatCreateTime(value?: number | string): string {
   let d: Date | null = null;
@@ -447,26 +512,10 @@ export default defineComponent({
       activeAnalysisId: null as string | null,
       analysisSnapshotCounter: 0,
       messageDetailSnapshot: null as any,
-      resultTabs: [] as Array<{ key: string; title: string; payload: any }>,
+      resultTabs: [] as any[],
       activeResultTab: "summary",
-      imageSearchItems: [] as any[],
-      imageSearchLoading: false,
-      trackItems: [] as any[],
-      trackLoading: false,
-      personSearchRunId: 0,
-      deployTaskName: "",
-      deployAlgorithmId: "",
+      resultTabSeq: 0,
       deployAlgorithmOptions: [] as any[],
-      deployCameraSelections: [] as string[],
-      deployAreaOpen: false,
-      deployAreaExpanded: {} as Record<string, boolean>,
-      deployEffectiveStart: "",
-      deployEffectiveEnd: "",
-      deployCycleStart: "00:00",
-      deployCycleEnd: "23:59",
-      deploySimilarity: 50,
-      deployDescription: "",
-      deploySaving: false,
       quickQuestions: ["这段视频发生了什么？", "车辆的特征是什么？", "按时间梳理事件", "是否需要布控？"],
       lastQuery: "",
       selectedEventIndex: 0,
@@ -498,45 +547,8 @@ export default defineComponent({
       if (this.selectedArea) return `${(this.selectedArea as any).name} / 请选择监控点`;
       return "请选择区域 / 监控点";
     },
-    activeResultTabPayload() {
-      const tab = this.resultTabs.find(item => item.key === this.activeResultTab);
-      return tab ? tab.payload : null;
-    },
-    deployAreaLabel() {
-      if (!this.deployCameraSelections.length) return "请选择布控点位（可多选摄像机）";
-      const names: string[] = [];
-      (this.areas as any[]).forEach(area => area.cameras.forEach((camera: any) => {
-        if (this.deployCameraSelections.includes(camera.code)) names.push(`${area.name} / ${camera.name}`);
-      }));
-      return names.length <= 2 ? names.join("、") : `已选 ${names.length} 台摄像机`;
-    },
-    deployTargetCropStyle(): Record<string, string> {
-      const payload = this.activeResultTabPayload;
-      const crop = (payload && payload.crop) || { x: 0, y: 0, width: 0, height: 0 };
-      return {
-        left: `${crop.x}%`,
-        top: `${crop.y}%`,
-        width: `${crop.width}%`,
-        height: `${crop.height}%`
-      };
-    },
-    trackDuration(): string {
-      if (this.trackItems.length < 2) return "0min";
-      const parse = (value: string) => new Date(value.replace(" ", "T")).getTime();
-      const first = parse(this.trackItems[0].date);
-      const last = parse(this.trackItems[this.trackItems.length - 1].date);
-      if (Number.isNaN(first) || Number.isNaN(last) || last < first) return "-";
-      const minutes = Math.round((last - first) / 60000);
-      const hours = Math.floor(minutes / 60);
-      return hours > 0 ? `${hours}h ${minutes % 60}min` : `${minutes}min`;
-    },
-    trackPointCount(): number {
-      return new Set(this.trackItems.map(item => item.location)).size;
-    },
-    trackConfidence(): number {
-      if (!this.trackItems.length) return 0;
-      const total = this.trackItems.reduce((sum, item) => sum + (Number(item.score) || 0), 0);
-      return Math.round(total / this.trackItems.length);
+    activeResultTabObj(): any {
+      return this.resultTabs.find(item => item.id === this.activeResultTab) || null;
     },
     processText() {
       if (this.analyzed) return "已完成视频分析，可点击事件卡片定位视频画面";
@@ -773,18 +785,13 @@ export default defineComponent({
       }];
       this.questionInput = "";
       this.questionBusy = false;
-      // 切换视频源后清空分析快照与右侧动态 tab，并作废进行中的检索轮询
+      // 切换视频源后清空分析快照与右侧动态页签（各页签的轮询随页签移除而作废）
       this.analysisSnapshots = [];
       this.activeAnalysisId = null;
       this.analysisSnapshotCounter = 0;
       this.messageDetailSnapshot = null;
       this.resultTabs = [];
       this.activeResultTab = "summary";
-      this.personSearchRunId += 1;
-      this.imageSearchItems = [];
-      this.imageSearchLoading = false;
-      this.trackItems = [];
-      this.trackLoading = false;
     },
     switchVideoView(view) {
       this.videoView = view;
@@ -1152,27 +1159,47 @@ export default defineComponent({
         this.openResultTab(action, { image: item.image, crop, sourceName: item.title });
       }
     },
-    openResultTab(key, payload) {
-      const existing = this.resultTabs.find(tab => tab.key === key);
-      if (existing) existing.payload = payload;
-      else this.resultTabs.push({ key, title: RESULT_TAB_TITLES[key] || key, payload });
-      this.activeResultTab = key;
-      if (key === "imageSearch") this.runImageSearchTab();
-      else if (key === "quickDeploy") this.prepareQuickDeployTab();
-      else if (key === "track") this.runTrackTab();
-    },
-    closeResultTab(key) {
-      this.resultTabs = this.resultTabs.filter(tab => tab.key !== key);
-      if (this.activeResultTab === key) this.activeResultTab = "summary";
-      // 作废该 tab 可能仍在进行的检索轮询
-      this.personSearchRunId += 1;
-      if (key === "imageSearch") {
-        this.imageSearchItems = [];
-        this.imageSearchLoading = false;
-      } else if (key === "track") {
-        this.trackItems = [];
-        this.trackLoading = false;
+    // 页签默认值：以图搜图/轨迹图带检索表单状态，快速布防带布控表单与已存任务
+    resultTabDefaults(type) {
+      if (type === "imageSearch") {
+        return { items: [] as any[], loading: false, runId: 0, fileName: "", start: this.onlineStart || "", end: this.onlineEnd || "", place: "全部区域", similarity: 50 };
       }
+      if (type === "quickDeploy") {
+        return { savedTask: null, deployTaskName: "", deployAlgorithmId: "", deployCameraSelections: [] as string[], deployAreaOpen: false, deployAreaExpanded: {} as Record<string, boolean>, deployEffectiveStart: "", deployEffectiveEnd: "", deployCycleStart: "00:00", deployCycleEnd: "23:59", deploySimilarity: 50, deployDescription: "", deploySaving: false };
+      }
+      const expandedAreas: Record<string, boolean> = {};
+      (this.areas as any[]).forEach((area, index) => { expandedAreas[area.name] = index === 0; });
+      return { items: [] as any[], loading: false, runId: 0, fileName: "", start: "", end: "", threshold: 50, searchArea: null, searchCamera: null, pointDropdownOpen: false, expandedAreas };
+    },
+    // 同类页签可开多个，标题按类型编号（参照原型 openAnalysisTab）
+    openResultTab(type, payload) {
+      this.resultTabSeq += 1;
+      const tab: any = { id: `result-tab-${this.resultTabSeq}`, type, title: RESULT_TAB_TITLES[type] || type, payload, ...this.resultTabDefaults(type) };
+      const count = this.resultTabs.filter(item => item.type === type).length;
+      if (count) tab.title = `${tab.title} ${count + 1}`;
+      if (type === "quickDeploy" && payload && payload.sourceName) tab.deployTaskName = `布控-${payload.sourceName}`;
+      this.resultTabs.push(tab);
+      this.activeResultTab = tab.id;
+      if (type === "imageSearch") this.runImageSearchTab(tab);
+      else if (type === "quickDeploy") this.prepareQuickDeployTab();
+      else if (type === "track") this.runTrackSearch(tab);
+    },
+    closeResultTab(id) {
+      this.resultTabs = this.resultTabs.filter(tab => tab.id !== id);
+      if (this.activeResultTab === id) this.activeResultTab = "summary";
+    },
+    // 页签内轮询的作废判定：页签被关闭，或被同页签发起的新检索顶掉
+    isTabRunStale(tab, runId) {
+      return !this.resultTabs.includes(tab) || tab.runId !== runId;
+    },
+    cropStyleOf(crop) {
+      const value = crop || { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        left: `${value.x}%`,
+        top: `${value.y}%`,
+        width: `${value.width}%`,
+        height: `${value.height}%`
+      };
     },
     // 本地裁剪框选区域并上传为检索图；失败时退回原图 URL + 像素 bbox 模式
     async preparePersonSearchTarget(image: string, crop: ImageCropSelection | null): Promise<{ imageUrl: string; bbox?: PersonSearchBboxPoint[] }> {
@@ -1188,14 +1215,15 @@ export default defineComponent({
       }
       return { imageUrl: image };
     },
-    // 以图搜图/轨迹图共用的行人检索流程：提交任务并轮询结果（参照 TrackPage.runCandidateSearch）；返回 null 表示已被新任务取代
-    async runPersonSearch(image: string, crop: ImageCropSelection | null, runId: number): Promise<SimilarPersonResult[] | null> {
+    // 以图搜图/轨迹图共用的行人检索流程：提交任务并轮询结果（参照 TrackPage.runCandidateSearch）；
+    // stale() 返回 true 表示页签已关闭或任务已被取代，返回 null
+    async runPersonSearch(image: string, crop: ImageCropSelection | null, stale: () => boolean, options: { startTime?: string; endTime?: string; threshold?: number } = {}): Promise<SimilarPersonResult[] | null> {
       const target = await this.preparePersonSearchTarget(image, crop);
-      if (runId !== this.personSearchRunId) return null;
+      if (stale()) return null;
       let bbox = target.bbox;
       if (!bbox) {
         const detectResponse = await api.detectPersons(target.imageUrl);
-        if (runId !== this.personSearchRunId) return null;
+        if (stale()) return null;
         const detected = detectResponse.data?.detected_persons ?? [];
         if (detectResponse.data?.status !== "success" || !detected.length) {
           throw new Error(detectResponse.data?.message || "未检测到目标，请调整框选区域后重试");
@@ -1206,16 +1234,18 @@ export default defineComponent({
         imageUrl: target.imageUrl,
         bbox,
         searchMethod: "reid",
-        similarityThreshold: 0.5,
+        startTime: toPersonApiDateTime(options.startTime || ""),
+        endTime: toPersonApiDateTime(options.endTime || ""),
+        similarityThreshold: (options.threshold ?? 50) / 100,
         topK: 50
       });
-      if (runId !== this.personSearchRunId) return null;
+      if (stale()) return null;
       const taskId = submitResponse.data?.task_id ?? submitResponse.data?.data?.task_id;
       if (!taskId) throw new Error(submitResponse.data?.message || "搜索任务提交失败");
       for (let attempt = 0; attempt < PERSON_SEARCH_POLL_MAX_ATTEMPTS; attempt += 1) {
-        if (runId !== this.personSearchRunId) return null;
+        if (stale()) return null;
         const response = await api.personSearchResult(taskId);
-        if (runId !== this.personSearchRunId) return null;
+        if (stale()) return null;
         const taskStatus = response.data?.status;
         if (taskStatus === "success") {
           const resultPayload = personSearchResultPayload(response);
@@ -1226,23 +1256,72 @@ export default defineComponent({
       }
       throw new Error("搜索任务超时，请稍后重试");
     },
-    async runImageSearchTab() {
-      const payload = this.activeResultTabPayload;
-      if (!payload || !payload.image) return;
-      const runId = ++this.personSearchRunId;
-      this.imageSearchLoading = true;
-      this.imageSearchItems = [];
+    // 按区域客户端过滤检索结果：camera_id/camera_locate 匹配该区域下摄像机
+    filterPersonsByArea(persons, areaName) {
+      if (!areaName || areaName === "全部区域") return persons;
+      const area = (this.areas as any[]).find(item => item.name === areaName);
+      if (!area) return persons;
+      const tokens: string[] = [];
+      area.cameras.forEach((camera: any) => { tokens.push(camera.code, camera.name); });
+      return (persons as any[]).filter(person => tokens.includes(person.camera_id) || tokens.includes(person.camera_locate));
+    },
+    async runImageSearchTab(tab) {
+      if (!tab || !tab.payload || !tab.payload.image) {
+        this.showToast("请先上传参考图片");
+        return;
+      }
+      const runId = ++tab.runId;
+      const stale = () => this.isTabRunStale(tab, runId);
+      tab.loading = true;
+      tab.items = [];
       try {
-        const persons = await this.runPersonSearch(payload.image, payload.crop, runId);
-        if (persons === null || runId !== this.personSearchRunId) return;
-        this.imageSearchItems = persons.map((person, index) => mapSimilarPerson(person, index));
-        this.showToast(this.imageSearchItems.length ? `找到 ${this.imageSearchItems.length} 条相似结果` : "未找到相似目标");
+        let persons = await this.runPersonSearch(tab.payload.image, tab.payload.crop, stale, { startTime: tab.start, endTime: tab.end, threshold: tab.similarity });
+        if (persons === null || stale()) return;
+        persons = this.filterPersonsByArea(persons, tab.place);
+        tab.items = persons.map((person, index) => mapSimilarPerson(person, index));
+        this.showToast(tab.items.length ? `找到 ${tab.items.length} 条相似结果` : "未找到相似目标");
       } catch (error) {
-        if (runId !== this.personSearchRunId) return;
+        if (stale()) return;
         this.showToast(error instanceof Error ? error.message : "以图搜图失败");
       } finally {
-        if (runId === this.personSearchRunId) this.imageSearchLoading = false;
+        if (!stale()) tab.loading = false;
       }
+    },
+    triggerImageSearchUpload() {
+      const input = this.$refs.exactImageSearchInput as HTMLInputElement;
+      if (input) input.click();
+    },
+    triggerTrackTargetUpload() {
+      const input = this.$refs.exactTrackTargetInput as HTMLInputElement;
+      if (input) input.click();
+    },
+    // 页签内替换参考图/目标图：上传到检索服务，清掉原框选（参照原型 handleImageSearchUpload）
+    async handleResultTabImageUpload(event, expectedType) {
+      const input = event.target as HTMLInputElement;
+      const file = input && input.files && input.files[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        this.showToast("请选择图片文件");
+        return;
+      }
+      const tab = this.activeResultTabObj;
+      if (!tab || tab.type !== expectedType) return;
+      try {
+        const uploaded = await api.uploadPersonSearchImage(file);
+        tab.payload = { ...tab.payload, image: assetUrl(uploaded.imageUrl), crop: null };
+        tab.fileName = file.name;
+        this.showToast(expectedType === "track" ? "目标图片已载入" : "参考图已载入，请设置筛选条件后搜索");
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "图片上传失败");
+      } finally {
+        if (input) input.value = "";
+      }
+    },
+    handleImageSearchUpload(event) {
+      this.handleResultTabImageUpload(event, "imageSearch");
+    },
+    handleTrackTargetUpload(event) {
+      this.handleResultTabImageUpload(event, "track");
     },
     // 以图搜图结果卡片上的三个动作：把检索结果规整为事件结构后走同一套裁图流转
     onImageSearchAction(payload) {
@@ -1259,10 +1338,6 @@ export default defineComponent({
       }, -1);
     },
     prepareQuickDeployTab() {
-      const payload = this.activeResultTabPayload;
-      if (!this.deployTaskName) {
-        this.deployTaskName = payload && payload.sourceName ? `布控-${payload.sourceName}` : "";
-      }
       if (this.deployAlgorithmOptions.length) return;
       api.algorithms().then(list => {
         this.deployAlgorithmOptions = (list || []) as any;
@@ -1270,83 +1345,160 @@ export default defineComponent({
         this.showToast("算法列表加载失败");
       });
     },
-    toggleDeployArea(area) {
-      this.deployAreaExpanded = { ...this.deployAreaExpanded, [area.name]: !this.deployAreaExpanded[area.name] };
+    deployAreaLabel(tab) {
+      if (!tab.deployCameraSelections.length) return "请选择布控点位（可多选摄像机）";
+      const names: string[] = [];
+      (this.areas as any[]).forEach(area => area.cameras.forEach((camera: any) => {
+        if (tab.deployCameraSelections.includes(camera.code)) names.push(`${area.name} / ${camera.name}`);
+      }));
+      return names.length <= 2 ? names.join("、") : `已选 ${names.length} 台摄像机`;
     },
-    toggleDeployCamera(camera) {
-      if (this.deployCameraSelections.includes(camera.code)) {
-        this.deployCameraSelections = this.deployCameraSelections.filter(code => code !== camera.code);
+    toggleDeployArea(tab, area) {
+      tab.deployAreaExpanded = { ...tab.deployAreaExpanded, [area.name]: !tab.deployAreaExpanded[area.name] };
+    },
+    toggleDeployCamera(tab, camera) {
+      if (tab.deployCameraSelections.includes(camera.code)) {
+        tab.deployCameraSelections = tab.deployCameraSelections.filter(code => code !== camera.code);
       } else {
-        this.deployCameraSelections = [...this.deployCameraSelections, camera.code];
+        tab.deployCameraSelections = [...tab.deployCameraSelections, camera.code];
       }
     },
-    // 保存布控任务：payload 字段映射参照 App.vue submitDeployTask
-    async saveQuickDeploy() {
-      if (!this.deployTaskName.trim()) {
+    // 保存布控任务：payload 字段映射参照 App.vue submitDeployTask；成功后页签切换为任务详情视图（参照原型 handleQuickDeploySaved）
+    async saveQuickDeploy(tab) {
+      if (!tab.deployTaskName.trim()) {
         this.showToast("请输入任务名称");
         return;
       }
-      if (!this.deployCameraSelections.length) {
+      if (!tab.deployCameraSelections.length) {
         this.showToast("请选择布控点位");
         return;
       }
-      if (!this.deployAlgorithmId) {
+      if (!tab.deployAlgorithmId) {
         this.showToast("请选择布控算法");
         return;
       }
-      if (!this.deployEffectiveStart || !this.deployEffectiveEnd) {
+      if (!tab.deployEffectiveStart || !tab.deployEffectiveEnd) {
         this.showToast("请选择生效日期");
         return;
       }
-      if (this.deploySaving) return;
-      const algorithm = this.deployAlgorithmOptions.find(item => item.id === this.deployAlgorithmId);
-      const areaNames = (this.areas as any[])
-        .filter(area => area.cameras.some((camera: any) => this.deployCameraSelections.includes(camera.code)))
-        .map(area => area.name);
+      if (tab.deploySaving) return;
+      const algorithm = this.deployAlgorithmOptions.find(item => item.id === tab.deployAlgorithmId);
+      const areaNames: string[] = [];
+      const pointNames: string[] = [];
+      (this.areas as any[]).forEach(area => area.cameras.forEach((camera: any) => {
+        if (tab.deployCameraSelections.includes(camera.code)) {
+          if (!areaNames.includes(area.name)) areaNames.push(area.name);
+          pointNames.push(camera.name);
+        }
+      }));
       const body: DeploymentTaskCreate = {
-        name: this.deployTaskName.trim(),
+        name: tab.deployTaskName.trim(),
         pipeline: algorithm ? algorithm.name : "",
         algorithmId: algorithm ? algorithm.id : null,
         algorithmName: algorithm ? algorithm.name : null,
         algorithmCode: algorithm ? algorithm.code : null,
         engineType: algorithm ? algorithm.engineType : null,
-        cameraIds: [...this.deployCameraSelections],
-        desc: this.deployDescription.trim(),
+        cameraIds: [...tab.deployCameraSelections],
+        desc: tab.deployDescription.trim(),
         area: areaNames.length ? areaNames.join("、") : null,
-        areaCount: this.deployCameraSelections.length
+        areaCount: tab.deployCameraSelections.length
       };
-      this.deploySaving = true;
+      tab.deploySaving = true;
       try {
-        await api.createDeploymentTask(body);
+        const created = await api.createDeploymentTask(body);
+        const now = new Date();
+        const createdText = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+        const effectiveDates = `${tab.deployEffectiveStart} ~ ${tab.deployEffectiveEnd}`;
+        const cycle = `${tab.deployCycleStart}~${tab.deployCycleEnd}`;
+        tab.savedTask = {
+          id: (created && (created as any).id) || "-",
+          name: body.name,
+          desc: body.desc || "暂无任务描述",
+          algorithm: algorithm ? algorithm.name : "未选择算法",
+          status: "运行中",
+          area: areaNames.length ? areaNames.join("、") : "全部区域",
+          points: pointNames.length ? pointNames.join("、") : "全部点位",
+          time: [effectiveDates, cycle].filter(Boolean).join(" "),
+          threshold: tab.deploySimilarity,
+          owner: (created && (created as any).owner) || "—",
+          created: createdText
+        };
         this.showToast("布控任务已创建");
-        this.deployTaskName = "";
-        this.deployCameraSelections = [];
-        this.closeResultTab("quickDeploy");
       } catch (error) {
         this.showToast(error instanceof Error ? error.message : "布控任务保存失败");
       } finally {
-        this.deploySaving = false;
+        tab.deploySaving = false;
       }
     },
-    async runTrackTab() {
-      const payload = this.activeResultTabPayload;
-      if (!payload || !payload.image) return;
-      const runId = ++this.personSearchRunId;
-      this.trackLoading = true;
-      this.trackItems = [];
+    trackSearchPointLabel(tab) {
+      if (!tab) return "请选择区域 / 监控点";
+      if (tab.searchArea && tab.searchCamera) return `${tab.searchArea.name} / ${tab.searchCamera.name}`;
+      if (tab.searchArea) return `${tab.searchArea.name} / 请选择监控点`;
+      return "请选择区域 / 监控点";
+    },
+    toggleTrackPointDropdown(tab) {
+      tab.pointDropdownOpen = !tab.pointDropdownOpen;
+    },
+    toggleTrackSearchArea(tab, area) {
+      if (!tab.searchArea || tab.searchArea.name !== area.name) {
+        tab.searchArea = area;
+        tab.searchCamera = null;
+      }
+      tab.expandedAreas = { ...tab.expandedAreas, [area.name]: !tab.expandedAreas[area.name] };
+    },
+    selectTrackSearchCamera(tab, camera, area) {
+      tab.searchArea = area;
+      tab.searchCamera = camera;
+      tab.pointDropdownOpen = false;
+    },
+    async runTrackSearch(tab) {
+      if (!tab || !tab.payload || !tab.payload.image) {
+        this.showToast("请先上传目标参考图");
+        return;
+      }
+      const runId = ++tab.runId;
+      const stale = () => this.isTabRunStale(tab, runId);
+      tab.loading = true;
+      tab.items = [];
       try {
-        const persons = await this.runPersonSearch(payload.image, payload.crop, runId);
-        if (persons === null || runId !== this.personSearchRunId) return;
-        this.trackItems = persons
+        let persons = await this.runPersonSearch(tab.payload.image, tab.payload.crop, stale, { startTime: tab.start, endTime: tab.end, threshold: tab.threshold });
+        if (persons === null || stale()) return;
+        // 选中监控点时按 TrackPage.applyTrackResults 同样方式客户端过滤
+        if (tab.searchCamera) {
+          const { code, name } = tab.searchCamera as any;
+          persons = (persons as any[]).filter(person =>
+            person.camera_id === code || person.camera_id === name ||
+            person.camera_locate === name || person.camera_locate === code
+          ) as SimilarPersonResult[];
+        }
+        tab.items = persons
           .map((person, index) => mapSimilarPerson(person, index))
           .sort((a, b) => a.date.localeCompare(b.date));
-        if (!this.trackItems.length) this.showToast("未匹配到可用于轨迹还原的相似目标");
+        this.showToast(tab.items.length ? "已根据搜索结果生成轨迹图" : "未匹配到可用于轨迹还原的相似目标");
       } catch (error) {
-        if (runId !== this.personSearchRunId) return;
+        if (stale()) return;
         this.showToast(error instanceof Error ? error.message : "轨迹搜索任务失败");
       } finally {
-        if (runId === this.personSearchRunId) this.trackLoading = false;
+        if (!stale()) tab.loading = false;
       }
+    },
+    trackDurationOf(items): string {
+      if (!items || items.length < 2) return "0min";
+      const parse = (value: string) => new Date(value.replace(" ", "T")).getTime();
+      const first = parse(items[0].date);
+      const last = parse(items[items.length - 1].date);
+      if (Number.isNaN(first) || Number.isNaN(last) || last < first) return "-";
+      const minutes = Math.round((last - first) / 60000);
+      const hours = Math.floor(minutes / 60);
+      return hours > 0 ? `${hours}h ${minutes % 60}min` : `${minutes}min`;
+    },
+    trackPointCountOf(items): number {
+      return new Set((items || []).map(item => item.location)).size;
+    },
+    trackConfidenceOf(items): number {
+      if (!items || !items.length) return 0;
+      const total = items.reduce((sum, item) => sum + (Number(item.score) || 0), 0);
+      return Math.round(total / items.length);
     },
     cloneAnalysisData(value) {
       return JSON.parse(JSON.stringify(value));
