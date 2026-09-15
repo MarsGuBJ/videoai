@@ -79,6 +79,8 @@
 - 前端录像回放页 → backend-lite `POST /api/recordings/search|stream|download`（body 均为 `{cameraId, startTime, endTime}`，北京时间）→ MCP `search_recordings-http` / `get_recording_stream-http` / `download_recording-http`（均支持 `cameraId`）。
 - 多 NVR 能力：MCP 按摄像头的 `nvrId`/`nvrTrackId`/`nvrChannel` 定位设备，凭据从摄像头 `sourceUrl`（`rtsp://user:pass@host:554/...`）解析，无需额外配置；ISAPI 检索录像段、HCNetSDK 按时间回放/下载，设备时钟偏差自动测量补偿。
 - 回放链路：SDK 回放 → ffmpeg `-re` 节流 + **libx264 转码**（现场 NVR 多为 smart265/HEVC，浏览器 flv.js 不支持，禁止改回 `-c:v copy`）→ ZLM FLV。等速流不支持倍速与真正的 seek，前端通过按新 startTime 重新起流实现跳转。
+- ISAPI 检索返回的是与查询窗口相交的**整个连续录像块**（海康设备行为，不裁剪）；MCP `search_segments` 会把结果裁剪到用户查询窗口（`clip_segment_to_window`），recordingId 随裁剪后的时间重算，避免不同窗口共享缓存键。
+- SDK 点播回调为**不限速供流**（现场实测约 15MB/s ≈ 35 倍速），远超 ffmpeg 按倍速的消费速率；`PlaybackSession` 用队列高低水位 + `NET_DVR_PLAYPAUSE`/`PLAYRESTART` 做背压（实测该 NVR 支持暂停/续传且数据连续），禁止在队列满时丢块（破坏 PS 连续性 → 花屏或启流 ffmpeg 解复用失败）。`NET_DVR_PLAYSETSPEED` 在该 NVR 回调模式下不限速，不要用它做倍速。`ensure_playback` 起流失败（ffmpeg 偶发启流死亡）会重试至多 3 次。
 - backend-lite 调 MCP 的地址由 compose 注入 `MCP_SERVER_BASE_URL`（默认 `http://mcp-server:8097` 走内网服务名），不要写死现场 IP（历史上默认值 `192.168.11.194:8097` 导致 10.10 现场 502）。
 - 10.10 现场实测：381 路摄像头直连的单通道设备自身均无录像（ISAPI 检索 NO MATCHES）；有录像的是 NVR `10.10.7.252/253`（253 的 track 201 有录像）。回放页只对有录像的 NVR 通道有效，需先把 NVR 通道注册为平台摄像头（sourceUrl 用该 NVR 的管理员凭据）。
 - 验证命令（10.10 现场，摄像头需绑定有录像的 NVR）：
