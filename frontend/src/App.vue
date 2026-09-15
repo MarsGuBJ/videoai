@@ -30,13 +30,19 @@ export default defineComponent({
         prefill: "",
         imageCrop: null as any,
         selectedResultIndexes: [] as any[],
-        camerasVersion: 0
+        camerasVersion: 0,
+        // 录像回放页“切换实况”带入的设备 id；实时预览页消费后清空
+        playCameraId: "",
+        // 即时回放“切至历史录像”带入的回放参数（设备 + 起止时间毫秒）；录像回放页消费后清空
+        playbackQuery: null as { cameraId: string; startMs: number; endMs: number } | null
       },
       selectedVersion: store.versionRows[0],
       selectedDeployTask: store.deployTaskRows[0],
       selectedEvent: store.eventRows[0],
       selectedAlgorithm: null as any,
       selectedCamera: null as any,
+      // 打开编辑设备页时的来源路由：取消时返回来源页（表格/详情）
+      cameraEditOrigin: "media",
       drawer: {
         open: false,
         type: "",
@@ -134,6 +140,8 @@ export default defineComponent({
       if (Object.prototype.hasOwnProperty.call(options, "imageCrop")) this.state.imageCrop = options.imageCrop;
       else if (options.prefill) this.state.imageCrop = null;
       if (options.trackView) this.state.trackView = options.trackView;
+      if (options.playCameraId) this.state.playCameraId = options.playCameraId;
+      if (Object.prototype.hasOwnProperty.call(options, "playbackQuery")) this.state.playbackQuery = options.playbackQuery;
       if (Array.isArray(options.selectedIndexes)) {
         this.state.selectedResultIndexes = [...options.selectedIndexes];
       } else if (route === "track") {
@@ -437,6 +445,7 @@ export default defineComponent({
     },
     openCameraEdit(row: any) {
       this.selectedCamera = row;
+      this.cameraEditOrigin = this.state.route;
       this.setRoute("mediaDeviceEdit");
     },
     refreshCameras() {
@@ -497,7 +506,7 @@ export default defineComponent({
       <app-topbar :route="state.route" :names="store.routeNames"></app-topbar>
       <main class="workspace" id="workspace">
         <div class="workspace-inner">
-          <router-view :key="state.route + '-' + state.routeVersion" :store="store" :state="state" :selected-version="selectedVersion" :selected-deploy-task="selectedDeployTask" :selected-event="selectedEvent" :selected-algorithm="selectedAlgorithm" :selected-camera="selectedCamera"></router-view>
+          <router-view :key="state.route + '-' + state.routeVersion" :store="store" :state="state" :selected-version="selectedVersion" :selected-deploy-task="selectedDeployTask" :selected-event="selectedEvent" :selected-algorithm="selectedAlgorithm" :selected-camera="selectedCamera" :camera-edit-origin="cameraEditOrigin"></router-view>
         </div>
       </main>
     </section>

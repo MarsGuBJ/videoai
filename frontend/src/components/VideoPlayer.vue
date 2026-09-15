@@ -9,6 +9,7 @@
         alt="后端视频流"
         :class="surfaceClassName"
         :style="surfaceStyle"
+        @load="onImageLoad"
       />
       <video
         ref="video"
@@ -75,6 +76,7 @@ export default defineComponent({
       hevcStoreLink: 'ms-windows-store://pdp/?ProductId=9n4wgh0z6vhq',
       hevcWebLink: 'https://apps.microsoft.com/detail/9n4wgh0z6vhq',
       reloadToken: 0,
+      streamToken: 0,
       player: null as mpegts.Player | null,
       hls: null as Hls | null,
       retryTimer: null as number | null,
@@ -119,11 +121,19 @@ export default defineComponent({
       if (this.retryTimer !== null) {
         return;
       }
+      if (!this.player && !this.hls) {
+        // 已销毁的实例不再安排重连
+        return;
+      }
       const delay = Math.min(2000 * Math.pow(2, this.retryCount), 30000);
       this.retryCount += 1;
       this.message = `视频流重连中（第${this.retryCount}次，${Math.round(delay / 1000)}秒后）`;
       this.retryTimer = window.setTimeout(() => {
         this.retryTimer = null;
+        if (!this.player && !this.hls) {
+          // 等待期间实例已销毁，放弃重连
+          return;
+        }
         this.reloadToken += 1;
       }, delay);
     },
@@ -150,18 +160,83 @@ export default defineComponent({
       this.clearRetry();
       this.clearMessage();
     },
+    // 视频元数据就绪后向父组件抛出真实分辨率，供预览窗格按宽高比适配高度
+    emitResolution() {
+      const video = this.videoElement;
+      if (video && video.videoWidth && video.videoHeight) {
+        this.$emit('resolution', { width: video.videoWidth, height: video.videoHeight });
+      }
+    },
+    // mjpeg 图片流无 video 元数据，用图片自然尺寸代替
+    onImageLoad() {
+      const image = this.$refs.image as HTMLImageElement | undefined;
+      if (image && image.naturalWidth && image.naturalHeight) {
+        this.$emit('resolution', { width: image.naturalWidth, height: image.naturalHeight });
+      }
+    },
     destroy() {
       this.cancelRetryTimer();
-      if (this.hls) {
-        this.hls.destroy();
-        this.hls = null;
+      const hls = this.hls;
+      this.hls = null;
+      if (hls) {
+        hls.destroy();
       }
-      if (this.player) {
-        this.player.destroy();
-        this.player = null;
-      }
+      const player = this.player;
+      this.player = null;
       const video = this.videoElement;
-      if (video) {
+      if (player) {
+        // 立即停画面：只暂停 <video>，不经过 mpegts 内部调用
+        if (video) {
+          video.pause();
+        }
+        // mpegts.js 的 Transmuxer 事件投递全部包了一层 Promise.resolve().then(...) 微任务
+        // （_onInitSegment/_onMediaSegment/_onMediaInfo 等，dist 堆栈已确认）。同步执行
+        // unload/destroy 会把 Transmuxer._emitter 置 null，已排队/在途的微任务随即抛
+        // "Cannot read properties of null (reading 'emit')"。因此完整销毁序列
+        // （pause → unload → detachMediaElement → destroy）整体推迟 400ms：
+        // 微任务与在途 IO 回调在 emitter 存活期间落地（本组件 token 守卫使其成为 no-op），
+        // MSE append 在延迟窗口内的异常由 mpegts 内部 try/catch 兜底。
+        const token = this.streamToken;
+        window.setTimeout(() => {
+          try {
+            player.pause();
+          } catch {
+            // 播放器内部状态异常时仍继续销毁
+          }
+          try {
+            player.unload();
+          } catch {
+            // 同上
+          }
+          try {
+            if (video && this.videoElement === video && token === this.streamToken) {
+              // <video> 未被新流接管：走标准 detach（清理元素 src、回收 blob URL、销毁 MSE）
+              player.detachMediaElement();
+            } else {
+              // <video> 已被新流接管（或组件已卸载）：跳过 detachMediaElement 中对元素的
+              // 操作（否则会清掉新流的 src），仅清理旧 MSE 内部状态后放行 destroy
+              const engine = (player as any)._player_engine;
+              if (engine) {
+                try {
+                  engine._mse_controller?.destroy?.();
+                } catch {
+                  // 忽略
+                }
+                engine._mse_controller = null;
+                engine._media_element = null;
+              }
+            }
+          } catch {
+            // 同上
+          }
+          try {
+            player.destroy();
+          } catch {
+            // 已销毁或内部状态异常，忽略
+          }
+        }, 400);
+      } else if (video) {
+        // 非 mpegts 路径（原生 HLS / 直链 mp4）：立即清理元素
         video.srcObject = null;
         video.removeAttribute('src');
         video.load();
@@ -175,6 +250,7 @@ export default defineComponent({
       const video = this.videoElement;
       if (video) {
         video.removeEventListener('loadedmetadata', this.clearMessage);
+        video.removeEventListener('loadedmetadata', this.emitResolution);
         video.removeEventListener('canplay', this.clearMessage);
         video.removeEventListener('playing', this.markPlaying);
       }
@@ -182,6 +258,8 @@ export default defineComponent({
     },
     setupStream() {
       this.teardown();
+      // 令牌递增：旧实例的回调（重连/error/media_info）在销毁后不再生效
+      const token = ++this.streamToken;
       const video = this.videoElement;
       const url = this.url;
       if (!video || !url) {
@@ -193,6 +271,7 @@ export default defineComponent({
       this.message = '正在连接视频流';
 
       video.addEventListener('loadedmetadata', this.clearMessage);
+      video.addEventListener('loadedmetadata', this.emitResolution);
       video.addEventListener('canplay', this.clearMessage);
       video.addEventListener('playing', this.markPlaying);
 
@@ -219,11 +298,13 @@ export default defineComponent({
           );
           this.hls = hls;
           hls.on(Hls.Events.ERROR, (_event, data) => {
+            if (token !== this.streamToken || this.hls !== hls) return;
             if (data.fatal) {
               this.scheduleRetry();
             }
           });
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (token !== this.streamToken || this.hls !== hls) return;
             this.clearRetry();
             video.play().then(this.clearMessage).catch(() => {
               this.message = '点击视频播放后端流';
@@ -255,12 +336,14 @@ export default defineComponent({
         // H.265 passthrough 要求浏览器支持 HEVC MSE；在 media_info 拿到真实编码串后先探测，
         // 不支持时给中文提示，避免 mpegts.js 抛出 addSourceBuffer 英文原始报错
         player.on?.('media_info', (info: { videoCodec?: string }) => {
+          if (token !== this.streamToken || this.player !== player) return;
           const codec = info?.videoCodec || '';
           if (isHevcCodec(codec) && !canPlayHevc(codec)) {
             this.showHevcUnsupported();
           }
         });
         player.on?.('error', (type: string, details?: unknown, data?: unknown) => {
+          if (token !== this.streamToken || this.player !== player) return;
           if (type === 'MediaError' && isHevcError(details, data)) {
             this.showHevcUnsupported();
             return;
@@ -270,6 +353,7 @@ export default defineComponent({
           }
         });
         player.on?.('loading_complete', () => {
+          if (token !== this.streamToken || this.player !== player) return;
           this.scheduleRetry();
         });
         player.attachMediaElement(video);

@@ -27,14 +27,14 @@
         </div>
         <div class="access-certificate-table-wrap">
           <table class="prototype-table access-certificate-table">
-            <thead><tr><th>SIP ID</th><th>SIP 域</th><th>SIP IP</th><th>SIP 端口</th><th>收流端口范围</th><th>是否启用</th><th>更新时间</th><th>操作</th></tr></thead>
+            <thead><tr><th>平台名称</th><th>SIP ID</th><th>SIP 域</th><th>SIP IP</th><th>SIP 端口</th><th>收流端口范围</th><th>是否启用</th><th>更新时间</th><th>状态</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="row in gb28181Entries" :key="row.id">
-                <td>{{ row.sipId }}</td><td>{{ row.sipDomain }}</td><td>{{ row.sipIp }}</td><td>{{ row.sipPort }}</td><td>{{ row.receivePortStart }} ~ {{ row.receivePortEnd }}</td><td>{{ row.enabled ? "开启" : "关闭" }}</td><td>{{ formatDateTime(row.updatedAt) }}</td>
+                <td>{{ row.name || "-" }}</td><td>{{ row.sipId }}</td><td>{{ row.sipDomain }}</td><td>{{ row.sipIp }}</td><td>{{ row.sipPort }}</td><td>{{ row.receivePortStart }} ~ {{ row.receivePortEnd }}</td><td>{{ row.enabled ? "开启" : "关闭" }}</td><td>{{ formatDateTime(row.updatedAt) }}</td><td>{{ onlineStatusLabel(row.onlineStatus) }}</td>
                 <td><span class="access-cert-actions"><button class="link-blue" type="button" @click="openGb28181Dialog('edit', row)">编辑</button><button class="link-red" type="button" @click="removeGb28181Entry(row)">删除</button></span></td>
               </tr>
               <tr v-if="!gb28181Entries.length" class="access-certificate-empty">
-                <td colspan="8"><div class="access-empty-state"><span class="access-empty-icon" aria-hidden="true">&#xf01c;</span><span>暂无数据</span></div></td>
+                <td colspan="10"><div class="access-empty-state"><span class="access-empty-icon" aria-hidden="true">&#xf01c;</span><span>暂无数据</span></div></td>
               </tr>
             </tbody>
           </table>
@@ -71,14 +71,14 @@
         </div>
         <div class="access-certificate-table-wrap">
           <table class="prototype-table access-certificate-table">
-            <thead><tr><th>平台 ID</th><th>平台 IP</th><th>端口</th><th>资源存储路径</th><th>自动接收注册</th><th>是否启用</th><th>更新时间</th><th>操作</th></tr></thead>
+            <thead><tr><th>平台名称</th><th>平台 ID</th><th>平台 IP</th><th>端口</th><th>资源存储路径</th><th>自动接收注册</th><th>是否启用</th><th>更新时间</th><th>状态</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="row in ga1400Entries" :key="row.id">
-                <td>{{ row.platformId }}</td><td>{{ row.platformIp }}</td><td>{{ row.port }}</td><td>{{ row.resourcePath }}</td><td>{{ row.autoRegister ? "开启" : "关闭" }}</td><td>{{ row.enabled ? "开启" : "关闭" }}</td><td>{{ formatDateTime(row.updatedAt) }}</td>
+                <td>{{ row.name || "-" }}</td><td>{{ row.platformId }}</td><td>{{ row.platformIp }}</td><td>{{ row.port }}</td><td>{{ row.resourcePath }}</td><td>{{ row.autoRegister ? "开启" : "关闭" }}</td><td>{{ row.enabled ? "开启" : "关闭" }}</td><td>{{ formatDateTime(row.updatedAt) }}</td><td>{{ onlineStatusLabel(row.onlineStatus) }}</td>
                 <td><span class="access-cert-actions"><button class="link-blue" type="button" @click="openGa1400Dialog('edit', row)">编辑</button><button class="link-red" type="button" @click="removeGa1400Entry(row)">删除</button></span></td>
               </tr>
               <tr v-if="!ga1400Entries.length" class="access-certificate-empty">
-                <td colspan="8"><div class="access-empty-state"><span class="access-empty-icon" aria-hidden="true">&#xf01c;</span><span>暂无数据</span></div></td>
+                <td colspan="10"><div class="access-empty-state"><span class="access-empty-icon" aria-hidden="true">&#xf01c;</span><span>暂无数据</span></div></td>
               </tr>
             </tbody>
           </table>
@@ -150,6 +150,10 @@
             </span>
           </div>
           <label class="access-field">
+            <span class="access-field-label">平台名称</span>
+            <input v-model.trim="gb28181Form.name" class="input" maxlength="64" placeholder="请输入平台名称" aria-label="平台名称" />
+          </label>
+          <label class="access-field">
             <span class="access-field-label required">SIP ID</span>
             <input ref="gb28181SipId" v-model.trim="gb28181Form.sipId" class="input" maxlength="20" aria-label="SIP ID" :aria-invalid="!!gb28181Errors.sipId" :aria-describedby="gb28181Errors.sipId ? 'gb28181-sip-id-error' : null" @input="gb28181Errors.sipId = ''" />
             <span v-if="gb28181Errors.sipId" id="gb28181-sip-id-error" class="access-field-error" role="alert">{{ gb28181Errors.sipId }}</span>
@@ -215,6 +219,10 @@
               <button class="access-choice" :class="{ active: !ga1400Form.enabled }" type="button" :aria-pressed="!ga1400Form.enabled" @click="ga1400Form.enabled = false">关闭</button>
             </span>
           </div>
+          <label class="access-field">
+            <span class="access-field-label">平台名称</span>
+            <input v-model.trim="ga1400Form.name" class="input" maxlength="64" placeholder="请输入平台名称" aria-label="平台名称" />
+          </label>
           <label class="access-field">
             <span class="access-field-label required">平台 ID</span>
             <input ref="ga1400PlatformId" v-model.trim="ga1400Form.platformId" class="input" maxlength="20" aria-label="平台 ID" :aria-invalid="!!ga1400Errors.platformId" :aria-describedby="ga1400Errors.platformId ? 'ga1400-platform-id-error' : null" @input="ga1400Errors.platformId = ''" />
@@ -299,6 +307,7 @@ export default defineComponent({
       gb28181DialogMode: "add" as "add" | "edit",
       gb28181Form: {
         enabled: true,
+        name: "",
         sipId: "",
         sipDomain: "",
         sipIp: "",
@@ -314,6 +323,7 @@ export default defineComponent({
       ga1400DialogMode: "add" as "add" | "edit",
       ga1400Form: {
         enabled: true,
+        name: "",
         platformId: "",
         platformIp: "",
         port: "",
@@ -371,6 +381,11 @@ export default defineComponent({
       const text = String(value == null ? "" : value).trim();
       const port = Number(text);
       return /^\d+$/.test(text) && Number.isInteger(port) && port >= 1 && port <= 65535;
+    },
+    onlineStatusLabel(status: any) {
+      if (status === "ONLINE") return "在线";
+      if (status === "OFFLINE") return "离线";
+      return "未知";
     },
     syncGb28181EntriesToStore() {
       (this as any).store.accessConfig.gb28181Entries = this.gb28181Entries.map(item => ({ ...item }));
@@ -471,6 +486,7 @@ export default defineComponent({
       this.editingGb28181Id = mode === "edit" && row ? row.id : null;
       this.gb28181Form = mode === "edit" && row ? {
         enabled: !!row.enabled,
+        name: row.name || "",
         sipId: row.sipId || "",
         sipDomain: row.sipDomain || "",
         sipIp: row.sipIp || "",
@@ -481,6 +497,7 @@ export default defineComponent({
         receivePortEnd: row.receivePortEnd || ""
       } : {
         enabled: true,
+        name: "",
         sipId: "",
         sipDomain: "",
         sipIp: "",
@@ -534,6 +551,7 @@ export default defineComponent({
       }
       const payload = {
         enabled: this.gb28181Form.enabled,
+        name: this.gb28181Form.name.trim(),
         sipId: this.gb28181Form.sipId.trim(),
         sipDomain: this.gb28181Form.sipDomain.trim(),
         sipIp: this.gb28181Form.sipIp,
@@ -574,6 +592,7 @@ export default defineComponent({
       this.editingGa1400Id = mode === "edit" && row ? row.id : null;
       this.ga1400Form = mode === "edit" && row ? {
         enabled: !!row.enabled,
+        name: row.name || "",
         platformId: row.platformId || "",
         platformIp: row.platformIp || "",
         port: row.port || "",
@@ -582,6 +601,7 @@ export default defineComponent({
         autoRegister: !!row.autoRegister
       } : {
         enabled: true,
+        name: "",
         platformId: "",
         platformIp: "",
         port: "",
@@ -627,6 +647,7 @@ export default defineComponent({
       }
       const payload = {
         enabled: this.ga1400Form.enabled,
+        name: this.ga1400Form.name.trim(),
         platformId: this.ga1400Form.platformId.trim(),
         platformIp: this.ga1400Form.platformIp,
         port: this.ga1400Form.port.trim(),

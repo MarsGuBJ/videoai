@@ -27,6 +27,7 @@
 import { defineComponent } from "vue";
 import { api } from "../api";
 import type { CloudPlatform } from "../types";
+import { isValidIPv4, isValidPort } from "../utils/regions";
 
 function pad2(n: number) {
   return n.toString().padStart(2, "0");
@@ -104,6 +105,14 @@ export default defineComponent({
         this.showToast("请完整填写平台名称、类型、Key、密钥、IP 和端口");
         return;
       }
+      if (!isValidIPv4(form.ip)) {
+        this.showToast("IP 地址格式不正确，请输入合法的 IPv4 地址");
+        return;
+      }
+      if (!isValidPort(form.port)) {
+        this.showToast("端口号格式不正确，请输入 1-65535 之间的数字");
+        return;
+      }
       if (this.saving) return;
       this.saving = true;
       try {
@@ -123,6 +132,7 @@ export default defineComponent({
       }
     },
     async remove(row: CloudPlatform) {
+      if (!window.confirm(`确认删除云平台「${row.name}」？`)) return;
       try {
         await api.deleteCloudPlatform(row.id);
         this.showToast(`已删除云平台：${row.name}`);

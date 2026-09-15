@@ -1,13 +1,39 @@
 <script lang="ts">
 import * as XLSX from "xlsx";
 import { api } from "../api";
+import type { RecordingSegment } from "../api";
 import type { Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
 import { computeSourceUrl, loadCustomRegions, normalizePath, saveCustomRegions } from "../utils/regions";
+import VideoPlayer from "./VideoPlayer.vue";
+
+// 即时回放：与录像回放页同一口径，时间均按本地时区（北京时间）ISO 秒格式
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function toLocalIsoSeconds(ms: number): string {
+  const date = new Date(ms);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+}
+
+function parseLocalMs(value?: string): number {
+  const ms = value ? new Date(value).getTime() : NaN;
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+function formatMmSs(totalSeconds: number): string {
+  const value = Math.max(0, Math.floor(totalSeconds));
+  return `${pad2(Math.floor(value / 60))}:${pad2(value % 60)}`;
+}
+
+// 即时回放固定检索窗口：最近 30 分钟（规避 NVR 最新录像段落盘/索引延迟导致窄窗口检索为空）
+const QUICK_REPLAY_SEARCH_WINDOW_MS = 30 * 60 * 1000;
 
 export default {
   name: "ModalHost",
+  components: { VideoPlayer },
   props: ["modal", "store", "state"],
   emits: ["close", "submit"],
   // Aliased injection + same-named method wrapper for `showToast` (used in the
@@ -94,7 +120,19 @@ export default {
       recordDownloadEnd: "",
       recordDownloadBusy: false,
       recordDownloadUrl: "",
-      recordDownloadError: ""
+      recordDownloadError: "",
+      // 即时回放弹窗（上下文来自实时预览页 openModal('quickReplay', { camera })）
+      quickReplayUrl: undefined as string | undefined,
+      quickReplayError: "",
+      quickReplayLoading: false,
+      quickReplayCurrent: 0,
+      quickReplayDuration: 0,
+      quickReplayStartedAt: 0,
+      // 即时回放实际起流的时间段（毫秒）：「切至历史录像」带入录像回放页直接播放
+      quickReplayStartMs: 0,
+      quickReplayEndMs: 0,
+      quickReplayTimer: null as number | null,
+      quickReplaySeq: 0
     };
   },
   computed: {
@@ -190,6 +228,12 @@ export default {
     },
     recordDownloadCamera(): any {
       return (this.modal.item && this.modal.item.camera) || null;
+    },
+    quickReplayCamera(): any {
+      return (this.modal.item && this.modal.item.camera) || null;
+    },
+    quickReplayProgressText(): string {
+      return `正在回放 ${formatMmSs(this.quickReplayCurrent)} / ${formatMmSs(this.quickReplayDuration)}`;
     }
   },
   watch: {
@@ -197,6 +241,10 @@ export default {
     "modal.type"(type: string) {
       if (type === "videoConfig") this.videoSettings = loadPlayerSettings();
       if (type === "quickReplay") this.quickReplaySeconds = loadPlayerSettings().instantReplaySec;
+    },
+    // 弹窗打开状态下切换回放时长：按新时长重新查询并起流
+    quickReplaySeconds() {
+      if (this.modal.open && this.modal.type === "quickReplay") this.initQuickReplay();
     },
     moveArea(value: string) {
       // 批量设备移动：把选定的目标区域写回 modal.item，App.submitModal 的
@@ -212,6 +260,8 @@ export default {
       if (!open) {
         // 关闭上传复核任务弹窗时重置表单并释放图片预览 URL
         if (this.modal.type === "reviewTask") this.resetReviewTaskForm();
+        // 关闭即时回放：停止进度计时并卸载回放流（v-if 卸载 VideoPlayer 自动 teardown）
+        if (this.modal.type === "quickReplay") this.teardownQuickReplay();
         return;
       }
       if (this.modal.type === "algorithm") {
@@ -243,6 +293,8 @@ export default {
         this.loadRegionList();
       } else if (this.modal.type === "recordDownload") {
         this.initRecordDownloadForm();
+      } else if (this.modal.type === "quickReplay") {
+        this.initQuickReplay();
       } else if (this.modal.type === "reviewTask") {
         this.resetReviewTaskForm();
         if (!this.reviewLlmConfigs.length) {
@@ -931,9 +983,115 @@ export default {
       this.$emit("close");
     },
     goPlayback() {
+      // 带上即时回放的查询参数：录像回放页按设备 + 时间段直接检索并播放同一录像片段
+      const camera = this.quickReplayCamera;
+      const playbackQuery = camera && this.quickReplayStartMs && this.quickReplayEndMs
+        ? { cameraId: camera.id, startMs: this.quickReplayStartMs, endMs: this.quickReplayEndMs }
+        : null;
       this.$emit("close");
-      this.setRoute("mediaPlayback");
+      this.setRoute("mediaPlayback", { playbackQuery });
+    },
+    // --- 即时回放：复用录像检索/回放流链路，回看当前窗口设备最近 N 秒 ---
+    stopQuickReplayTimer() {
+      if (this.quickReplayTimer) window.clearInterval(this.quickReplayTimer);
+      this.quickReplayTimer = null;
+    },
+    startQuickReplayTimer() {
+      this.stopQuickReplayTimer();
+      // 墙钟计时：进度 ≈ 起流时刻 + 已播放秒数（1 倍速），仅展示不可拖拽
+      this.quickReplayTimer = window.setInterval(() => {
+        const elapsed = Math.floor((Date.now() - this.quickReplayStartedAt) / 1000);
+        this.quickReplayCurrent = Math.max(0, Math.min(this.quickReplayDuration, elapsed));
+        if (this.quickReplayCurrent >= this.quickReplayDuration) this.stopQuickReplayTimer();
+      }, 1000);
+    },
+    teardownQuickReplay() {
+      // 递增序号：作废旧请求的迟到响应（含关闭弹窗后的在途 initQuickReplay）
+      this.quickReplaySeq += 1;
+      this.stopQuickReplayTimer();
+      this.quickReplayUrl = undefined;
+      this.quickReplayError = "";
+      this.quickReplayLoading = false;
+      this.quickReplayStartMs = 0;
+      this.quickReplayEndMs = 0;
+    },
+    async initQuickReplay() {
+      // 序号守卫：切换回放时长/重复打开时，旧请求的迟到响应不得覆盖新状态
+      this.teardownQuickReplay();
+      const seq = this.quickReplaySeq;
+      this.quickReplayCurrent = 0;
+      this.quickReplayDuration = 0;
+      const camera = this.quickReplayCamera;
+      if (!camera || !camera.id) {
+        this.quickReplayError = "未传入设备，请从实时预览页选择一路视频后打开即时回放";
+        return;
+      }
+      const now = Date.now();
+      const startMs = now - Number(this.quickReplaySeconds) * 1000;
+      // 检索窗口与回放窗口解耦：NVR 最新录像段存在落盘/索引延迟，进行中或刚结束的段
+      // 用 15/30/60 秒窄窗口检索不到（现场实测 60s 内 0 段），故固定用最近 30 分钟宽窗口检索
+      const searchStartMs = now - QUICK_REPLAY_SEARCH_WINDOW_MS;
+      this.quickReplayLoading = true;
+      try {
+        const result = await api.searchRecordings({ cameraId: camera.id, startTime: toLocalIsoSeconds(searchStartMs), endTime: toLocalIsoSeconds(now) });
+        if (seq !== this.quickReplaySeq) return;
+        const segments: RecordingSegment[] = (result && result.data) || [];
+        // 优先取覆盖回放窗口起点（now - N秒）的段；NVR 索引延迟导致覆盖段检索不到时，
+        // 回退取最晚一段（其 endTime 一定早于 startMs，起流时从段起点 clamp）
+        const segment = segments.find((item) => parseLocalMs(item.endTime) >= startMs) || segments[segments.length - 1] || null;
+        if (!segment) return; // 宽窗口也无段：模板显示「该设备近期无录像」
+        const segStartMs = parseLocalMs(segment.startTime);
+        const segEndMs = parseLocalMs(segment.endTime) || now;
+        // 起流范围 clamp 进该段实际覆盖区间，进度总长也按实际可播内容计算
+        const streamEndMs = Math.min(now, segEndMs);
+        let baseStartMs = Math.max(segStartMs, startMs);
+        if (baseStartMs >= streamEndMs) {
+          // 段整体早于回放窗口（索引延迟场景）：回放该段最后 N 秒
+          baseStartMs = Math.max(segStartMs, streamEndMs - Number(this.quickReplaySeconds) * 1000);
+        }
+        // 现场海康 NVR 对「最近约 60 秒内」的回放起点返回 404 该时段无录像（分片未落盘），
+        // 实测 now-75s/now-60s 起流正常；因此 404 时按 30 秒步长逐步回退起点重试
+        let stream = null as any;
+        let usedStartMs = baseStartMs;
+        let lastError: any = null;
+        for (const backoffMs of [0, 30000, 60000, 90000]) {
+          const tryStartMs = Math.max(segStartMs, baseStartMs - backoffMs);
+          if (tryStartMs >= streamEndMs) break;
+          try {
+            stream = await api.startRecordingStream({
+              cameraId: camera.id,
+              startTime: toLocalIsoSeconds(tryStartMs),
+              endTime: toLocalIsoSeconds(streamEndMs),
+              speed: 1
+            });
+            usedStartMs = tryStartMs;
+            break;
+          } catch (error) {
+            if (seq !== this.quickReplaySeq) return;
+            lastError = error;
+            const message = error instanceof Error ? error.message : String(error);
+            if (!/无录像|404/.test(message)) throw error; // 非「无录像」错误（如 400 反查失败）不重试
+          }
+        }
+        if (seq !== this.quickReplaySeq) return;
+        if (!stream) throw lastError || new Error("回放流启动失败");
+        this.quickReplayDuration = Math.max(1, Math.round((streamEndMs - usedStartMs) / 1000));
+        this.quickReplayStartedAt = Date.now();
+        this.quickReplayStartMs = usedStartMs;
+        this.quickReplayEndMs = streamEndMs;
+        this.quickReplayUrl = stream.url;
+        this.startQuickReplayTimer();
+      } catch (error) {
+        if (seq !== this.quickReplaySeq) return;
+        // 404 无录像 / 400 反查失败等：错误消息直接展示在弹窗内
+        this.quickReplayError = error instanceof Error ? error.message : String(error);
+      } finally {
+        if (seq === this.quickReplaySeq) this.quickReplayLoading = false;
+      }
     }
+  },
+  beforeUnmount() {
+    this.stopQuickReplayTimer();
   }
 };
 </script>
@@ -1343,8 +1501,17 @@ export default {
           </div>
         </template>
         <template v-if="modal.type === 'quickReplay'">
-          <p class="modal-hint">无需配置录像存储，直接回看当前预览时间点前 15 秒画面。</p>
-          <div class="modal-replay-preview"><span>真实黄区球机_通道_1</span><b>正在回放 00:00:11 / 00:00:15</b></div>
+          <p class="modal-hint">回放当前窗口设备{{ quickReplayCamera ? `「${quickReplayCamera.name}」` : '' }}最近 {{ quickReplaySeconds }} 秒的录像画面。</p>
+          <div class="modal-replay-preview">
+            <div v-if="quickReplayUrl" style="height:260px;"><video-player :url="quickReplayUrl" :show-zoom-bar="false" /></div>
+            <template v-else>
+              <span>{{ (quickReplayCamera && quickReplayCamera.name) || '未选择设备' }}</span>
+              <b v-if="quickReplayLoading">正在查询录像…</b>
+              <b v-else-if="quickReplayError">{{ quickReplayError }}</b>
+              <b v-else>该设备近期无录像</b>
+            </template>
+          </div>
+          <p v-if="quickReplayUrl" class="modal-hint">{{ quickReplayProgressText }}</p>
           <div class="modal-form-row"><label>回放时长：</label><select class="select" v-model.number="quickReplaySeconds"><option :value="15">前15秒</option><option :value="30">前30秒</option><option :value="60">前60秒</option></select></div>
         </template>
         <template v-if="modal.type === 'recordDownload'">

@@ -6,37 +6,56 @@
     </div>
     <div class="media-wall-config-grid" style="margin-top:0;">
       <section class="panel" style="padding:18px 22px;">
-        <h3 class="form-section-title">基础信息</h3>
+        <h3 class="form-section-title">设备类型</h3>
         <div class="event-detail-grid" style="grid-template-columns:1fr;gap:12px;margin-bottom:0;">
-          <dl class="event-detail-field"><dt>设备名称</dt><dd>{{ camera.name || '-' }}</dd></dl>
-          <dl class="event-detail-field"><dt>所在区域</dt><dd>{{ camera.area || '未分配' }}</dd></dl>
-          <dl class="event-detail-field"><dt>接入协议</dt><dd>{{ camera.protocol || '-' }}</dd></dl>
-          <dl class="event-detail-field"><dt>IP地址及端口</dt><dd>{{ address }}</dd></dl>
-          <dl class="event-detail-field"><dt>设备编号</dt><dd>{{ camera.deviceCode || '-' }}</dd></dl>
-          <dl class="event-detail-field"><dt>设备序列号</dt><dd>{{ camera.serialNumber || '-' }}</dd></dl>
-          <dl class="event-detail-field"><dt>密码强度</dt><dd><span class="password-strength" :class="strength.cls">{{ strength.label }}</span></dd></dl>
-          <dl class="event-detail-field"><dt>描述</dt><dd>{{ camera.description || '-' }}</dd></dl>
+          <dl class="event-detail-field"><dt>设备类别</dt><dd>{{ camera.deviceCategory || '-' }}</dd></dl>
+          <dl class="event-detail-field"><dt>设备类型</dt><dd>{{ camera.deviceType || '-' }}</dd></dl>
+          <dl class="event-detail-field"><dt>厂商类型</dt><dd>{{ camera.vendor || '其他' }}</dd></dl>
         </div>
       </section>
       <section class="panel" style="padding:18px 22px;">
-        <h3 class="form-section-title">连接与能力</h3>
+        <h3 class="form-section-title">通道信息</h3>
         <div class="event-detail-grid" style="grid-template-columns:1fr;gap:12px;margin-bottom:0;">
-          <dl class="event-detail-field"><dt>连接状态</dt><dd><span class="status-pill" :class="statusClass(statusText)">{{ statusText }}</span></dd></dl>
-          <dl class="event-detail-field"><dt>最近更新</dt><dd>{{ updatedAt }}</dd></dl>
-          <dl class="event-detail-field"><dt>来源</dt><dd>手动添加</dd></dl>
-          <dl class="event-detail-field"><dt>厂商</dt><dd>{{ camera.vendor || '其他' }}</dd></dl>
-          <dl class="event-detail-field"><dt>拉流地址</dt><dd class="ellipsis">{{ camera.sourceUrl || '-' }}</dd></dl>
-          <dl class="event-detail-field"><dt>回放地址</dt><dd class="ellipsis">{{ camera.playbackUrl || '-' }}</dd></dl>
+          <dl class="event-detail-field"><dt>通道号</dt><dd>{{ camera.nvrChannel || '-' }}</dd></dl>
+          <dl class="event-detail-field"><dt>通道名称</dt><dd>{{ camera.channelName || '-' }}</dd></dl>
+          <dl class="event-detail-field"><dt>码流类型</dt><dd>{{ camera.nvrStreamType || '-' }}</dd></dl>
         </div>
       </section>
     </div>
     <div class="panel" style="padding:18px 22px;margin-top:12px;">
-      <h3 class="form-section-title">接入信息</h3>
+      <h3 class="form-section-title">基本信息</h3>
+      <div class="event-detail-grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-bottom:0;">
+        <dl class="event-detail-field"><dt>设备名称</dt><dd>{{ camera.name || '-' }}</dd></dl>
+        <dl class="event-detail-field"><dt>设备编号</dt><dd>{{ camera.deviceCode || '-' }}</dd></dl>
+        <dl class="event-detail-field"><dt>设备序列号</dt><dd>{{ camera.serialNumber || '-' }}</dd></dl>
+        <dl class="event-detail-field"><dt>接入方式</dt><dd>{{ camera.protocol || '-' }}</dd></dl>
+        <dl class="event-detail-field"><dt>协议版本</dt><dd>{{ camera.protocolVersion || '-' }}</dd></dl>
+        <dl class="event-detail-field"><dt>IP地址及端口</dt><dd>{{ address }}</dd></dl>
+        <dl class="event-detail-field"><dt>用户名</dt><dd>{{ camera.username || '-' }}</dd></dl>
+        <dl class="event-detail-field"><dt>密码强度</dt><dd><span class="password-strength" :class="strength.cls">{{ strength.label }}</span></dd></dl>
+        <dl class="event-detail-field"><dt>所属区域</dt><dd>{{ camera.area || '未分配' }}</dd></dl>
+        <dl class="event-detail-field"><dt>设备能力</dt><dd>{{ capabilityText }}</dd></dl>
+        <dl class="event-detail-field" style="grid-column:1 / -1;"><dt>描述</dt><dd>{{ camera.description || '-' }}</dd></dl>
+      </div>
+    </div>
+    <div class="panel" style="padding:18px 22px;margin-top:12px;">
+      <h3 class="form-section-title">高级配置</h3>
       <div class="event-detail-grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-bottom:0;">
         <dl class="event-detail-field"><dt>拉流地址</dt><dd class="ellipsis">{{ camera.sourceUrl || '-' }}</dd></dl>
+        <dl class="event-detail-field"><dt>回放地址</dt><dd class="ellipsis">{{ camera.playbackUrl || '-' }}</dd></dl>
+        <dl class="event-detail-field"><dt>注册有效期</dt><dd>{{ registerExpireText }}</dd></dl>
+        <dl class="event-detail-field"><dt>心跳周期</dt><dd>{{ heartbeatText }}</dd></dl>
+        <dl class="event-detail-field"><dt>国标域编码</dt><dd>{{ camera.gbCode || '-' }}</dd></dl>
+      </div>
+    </div>
+    <div class="panel" style="padding:18px 22px;margin-top:12px;">
+      <h3 class="form-section-title">连接与状态</h3>
+      <div class="event-detail-grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-bottom:0;">
+        <dl class="event-detail-field"><dt>连接状态</dt><dd><span class="status-pill" :class="statusClass(statusText)">{{ statusText }}</span></dd></dl>
+        <dl class="event-detail-field"><dt>最近更新</dt><dd>{{ updatedAt }}</dd></dl>
+        <dl class="event-detail-field"><dt>来源</dt><dd>手动添加</dd></dl>
         <dl class="event-detail-field"><dt>流应用 / 流名称</dt><dd>{{ streamInfo }}</dd></dl>
         <dl class="event-detail-field"><dt>NVR 标识</dt><dd>{{ camera.nvrId || '-' }}</dd></dl>
-        <dl class="event-detail-field"><dt>通道号 / 码流类型</dt><dd>{{ channelInfo }}</dd></dl>
       </div>
     </div>
   </section>
@@ -101,10 +120,21 @@ export default defineComponent({
       if (!app && !name) return "-";
       return `${app || "-"}/${name || "-"}`;
     },
-    channelInfo(): string {
-      const channel = this.camera.nvrChannel || "-";
-      const streamType = this.camera.nvrStreamType || "-";
-      return `${channel} / ${streamType}`;
+    // 与编辑页「设备能力」勾选项一致：视频/音频/云台/对讲/警告输入输出
+    capabilityText(): string {
+      const items: string[] = [];
+      if (this.camera.videoPreviewEnabled) items.push("视频");
+      if (this.camera.audioEnabled) items.push("音频");
+      if (this.camera.ptzEnabled) items.push("云台");
+      if (this.camera.talkbackEnabled) items.push("对讲");
+      if (this.camera.alarmIoEnabled) items.push("警告输入输出");
+      return items.length ? items.join("、") : "-";
+    },
+    registerExpireText(): string {
+      return this.camera.registerExpire != null ? String(this.camera.registerExpire) : "-";
+    },
+    heartbeatText(): string {
+      return this.camera.heartbeat != null ? String(this.camera.heartbeat) : "-";
     }
   },
   methods: {

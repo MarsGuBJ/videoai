@@ -42,7 +42,7 @@ import { defineComponent } from "vue";
 import { api } from "../api";
 import type { Camera } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
-import { buildRegionTree, loadCustomRegions, passwordStrength } from "../utils/regions";
+import { buildRegionTree, loadCustomRegions, normalizePath, passwordStrength } from "../utils/regions";
 import type { RegionNode } from "../utils/regions";
 
 function guessProtocol(sourceUrl: string): string {
@@ -117,8 +117,7 @@ export default defineComponent({
         { key: "online", label: "在线", count: rows.filter((row: any) => row.status === "在线").length },
         { key: "offline", label: "离线", count: rows.filter((row: any) => row.status === "离线").length },
         { key: "never", label: "从未连接成功", count: rows.filter((row: any) => row.status === "未成功连接").length },
-        { key: "weak", label: "弱密码", count: rows.filter((row: any) => row.strength === "弱").length },
-        { key: "disabled", label: "停用", count: rows.filter((row: any) => row.status === "停用").length }
+        { key: "weak", label: "弱密码", count: rows.filter((row: any) => row.strength === "弱").length }
       ];
     },
     filteredCameras(): any[] {
@@ -135,8 +134,7 @@ export default defineComponent({
           || (this.activeQuickTab === "online" && row.status === "在线")
           || (this.activeQuickTab === "offline" && row.status === "离线")
           || (this.activeQuickTab === "never" && row.status === "未成功连接")
-          || (this.activeQuickTab === "weak" && row.strength === "弱")
-          || (this.activeQuickTab === "disabled" && row.status === "停用");
+          || (this.activeQuickTab === "weak" && row.strength === "弱");
         return matchesQuery && matchesProtocol && matchesStatus && matchesVendor && matchesArea && matchesQuick;
       });
     },
@@ -174,7 +172,7 @@ export default defineComponent({
       return this.pagedCameras.length > 0 && this.pagedCameras.every((row: any) => this.selectedIds.includes(row.id));
     },
     filterKey(): string {
-      return [this.nameQuery, this.protocolFilter, this.statusFilter, this.vendorFilter, this.activeArea, this.includeChildren, this.activeQuickTab, this.pageSize].join("|");
+      return [this.nameQuery, this.protocolFilter, this.statusFilter, this.vendorFilter, this.areaFilter, this.includeChildren, this.activeQuickTab, this.pageSize].join("|");
     }
   },
   watch: {
@@ -202,7 +200,7 @@ export default defineComponent({
       return {
         id: camera.id,
         name: camera.name,
-        area: camera.area || "未分配",
+        area: normalizePath(camera.area) || "未分配",
         protocol: camera.protocol || guessProtocol(camera.sourceUrl),
         address: camera.ip ? `${camera.ip}${camera.port ? `:${camera.port}` : ""}` : extractAddress(camera.sourceUrl),
         code: camera.deviceCode || "-",

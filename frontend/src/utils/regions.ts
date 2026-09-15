@@ -143,3 +143,9 @@ export function isValidChannelNo(value?: string | null): boolean {
   const n = Number(v);
   return n >= 1 && n <= MAX_CHANNEL_NO;
 }
+
+// 国标域编码校验：20 位数字（GB/T 28181 编码）
+export function isValidGbCode(value?: string | null): boolean {
+  const v = (value || "").trim();
+  return /^\d{20}$/.test(v);
+}

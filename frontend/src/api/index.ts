@@ -63,6 +63,13 @@ type CameraPayload = {
   ptzEnabled?: boolean;
   smartAnalysisEnabled?: boolean;
   alarmIoEnabled?: boolean;
+  deviceCategory?: string;
+  deviceType?: string;
+  protocolVersion?: string;
+  registerExpire?: number;
+  heartbeat?: number;
+  gbCode?: string;
+  channelName?: string;
 };
 
 type CloudPlatformPayload = {
@@ -483,16 +490,16 @@ export const api = {
 
   accessConfig: () => request<AccessConfig>('/api/access-config'),
   gb28181Entries: () => request<AccessGb28181Entry[]>('/api/access-config/gb28181/entries'),
-  createGb28181Entry: (payload: { enabled: boolean; sipId: string; sipDomain: string; sipIp: string; sipPort: string; password: string; parentPort: string; receivePortStart: string; receivePortEnd: string }) =>
+  createGb28181Entry: (payload: { enabled: boolean; name?: string; sipId: string; sipDomain: string; sipIp: string; sipPort: string; password: string; parentPort: string; receivePortStart: string; receivePortEnd: string }) =>
     request<AccessGb28181Entry>('/api/access-config/gb28181/entries', { method: 'POST', body: JSON.stringify(payload) }),
-  updateGb28181Entry: (id: string, payload: { enabled: boolean; sipId: string; sipDomain: string; sipIp: string; sipPort: string; password: string; parentPort: string; receivePortStart: string; receivePortEnd: string }) =>
+  updateGb28181Entry: (id: string, payload: { enabled: boolean; name?: string; sipId: string; sipDomain: string; sipIp: string; sipPort: string; password: string; parentPort: string; receivePortStart: string; receivePortEnd: string }) =>
     request<AccessGb28181Entry>(`/api/access-config/gb28181/entries/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteGb28181Entry: (id: string) =>
     request<void>(`/api/access-config/gb28181/entries/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   ga1400Entries: () => request<AccessGa1400Entry[]>('/api/access-config/ga1400/entries'),
-  createGa1400Entry: (payload: { enabled: boolean; platformId: string; platformIp: string; port: string; password: string; resourcePath: string; autoRegister: boolean }) =>
+  createGa1400Entry: (payload: { enabled: boolean; name?: string; platformId: string; platformIp: string; port: string; password: string; resourcePath: string; autoRegister: boolean }) =>
     request<AccessGa1400Entry>('/api/access-config/ga1400/entries', { method: 'POST', body: JSON.stringify(payload) }),
-  updateGa1400Entry: (id: string, payload: { enabled: boolean; platformId: string; platformIp: string; port: string; password: string; resourcePath: string; autoRegister: boolean }) =>
+  updateGa1400Entry: (id: string, payload: { enabled: boolean; name?: string; platformId: string; platformIp: string; port: string; password: string; resourcePath: string; autoRegister: boolean }) =>
     request<AccessGa1400Entry>(`/api/access-config/ga1400/entries/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteGa1400Entry: (id: string) =>
     request<void>(`/api/access-config/ga1400/entries/${encodeURIComponent(id)}`, { method: 'DELETE' }),

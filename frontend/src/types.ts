@@ -31,6 +31,13 @@ export type Camera = {
   smartAnalysisEnabled?: boolean;
   alarmIoEnabled?: boolean;
   subStreamName?: string | null;
+  deviceCategory?: string | null;
+  deviceType?: string | null;
+  protocolVersion?: string | null;
+  registerExpire?: number | null;
+  heartbeat?: number | null;
+  gbCode?: string | null;
+  channelName?: string | null;
 };
 
 export type CloudPlatform = {
@@ -471,6 +478,7 @@ export type AccessGb28181Config = {
 
 export type AccessGb28181Entry = {
   id: string;
+  name?: string;
   enabled: boolean;
   sipId: string;
   sipDomain: string;
@@ -480,6 +488,8 @@ export type AccessGb28181Entry = {
   parentPort: string;
   receivePortStart: string;
   receivePortEnd: string;
+  onlineStatus?: "ONLINE" | "OFFLINE" | "UNKNOWN";
+  lastCheckAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -496,6 +506,7 @@ export type AccessGa1400Config = {
 
 export type AccessGa1400Entry = {
   id: string;
+  name?: string;
   enabled: boolean;
   platformId: string;
   platformIp: string;
@@ -503,6 +514,8 @@ export type AccessGa1400Entry = {
   password: string;
   resourcePath: string;
   autoRegister: boolean;
+  onlineStatus?: "ONLINE" | "OFFLINE" | "UNKNOWN";
+  lastCheckAt?: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -1340,19 +1340,22 @@
       font-size: 12px;
     }
 
-    .track-target-upload {
+    /* 提高特异性覆盖 .upload-card 的 140x140 固定尺寸：横向占满，高度按比例 */
+    .track-target-upload.upload-card {
       position: relative;
       width: 100%;
+      height: auto;
       min-height: 120px;
       overflow: hidden;
       padding: 0;
       cursor: zoom-in;
     }
 
-    .track-target-upload img {
+    .track-target-upload.upload-card img {
       display: block;
       width: 100%;
       height: auto;
+      object-fit: contain;
     }
 
     .track-target-upload-wrap {
@@ -9059,6 +9062,64 @@
       margin-top: 10px;
     }
 
+    /* 实时预览页：监控资源树占满左侧面板剩余高度，避免窗口下方留白；
+       面板高度不超过窗口显示区（与 media-console-grid 的 min-height 口径一致），
+       资源树超出时在列表内部出现垂直滚动条 */
+    .media-preview-page .media-resource-panel {
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 132px);
+    }
+
+    .media-preview-page .media-resource-panel .media-playback-tree {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .media-preview-page .media-resource-panel .media-playback-tree-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
+    }
+
+    /* 收藏 / 场景页签列表同样占满剩余高度 */
+    .media-preview-page .media-resource-panel .media-resource-list,
+    .media-preview-page .media-resource-panel .media-plan-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      align-content: start;
+    }
+
+    /* 录像回放页：录像资源树加高占满左侧面板剩余高度；
+       左侧面板整体不超出窗口显示区，资源树超出时列表内部垂直滚动 */
+    .media-playback-page .media-resource-panel {
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 132px);
+    }
+
+    .media-playback-page .media-resource-panel .media-playback-tree {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .media-playback-page .media-resource-panel .media-playback-tree-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
+    }
+
+    /* 录像段查询结果限高滚动，避免把左侧面板顶出视口 */
+    .media-playback-page .media-record-query .media-plan-list {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
     .media-resource-tabs,
     .media-section-tabs {
       display: flex;
@@ -9254,6 +9315,19 @@
 
     .media-video-grid.grid-9 .media-video-tile,
     .media-video-grid.grid-16 .media-video-tile {
+      aspect-ratio: 1 / 1;
+    }
+
+    /* 实时预览：原始比例模式下视频加载后（fit-video），窗格宽度适应容器宽度、
+       高度按视频真实宽高比收缩（内联 aspect-ratio 覆盖）；未加载视频的窗格保持 1:1。
+       无 fit-video 时维持默认布局：高度填充窗口显示区 */
+    .media-video-grid.fit-video {
+      grid-template-rows: none;
+      grid-auto-rows: auto;
+      align-content: start;
+    }
+
+    .media-video-grid.fit-video .media-video-tile {
       aspect-ratio: 1 / 1;
     }
 
@@ -9508,6 +9582,14 @@
       border: 1px solid #18304d;
       border-radius: 6px;
       background: #050c16;
+    }
+
+    /* 回放视频加载后：播放器宽度占满面板，高度按视频真实宽高比（内联 aspect-ratio）
+       收缩；宽高比导致过高时按视口高度封顶，画面 contain 适配不出黑边外溢出 */
+    .media-playback-player.fit-video {
+      flex: 0 0 auto;
+      min-height: 0;
+      max-height: calc(100vh - 220px);
     }
 
     .media-playback-player > img {

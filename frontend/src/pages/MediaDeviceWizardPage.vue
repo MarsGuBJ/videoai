@@ -29,16 +29,16 @@
         <div class="wide-field-row"><label>端口号：</label><input class="input" v-model.trim="form.port" placeholder="554" /></div>
         <div class="wide-field-row"><label>用户名：</label><input class="input" v-model.trim="form.username" placeholder="admin" /></div>
         <div class="wide-field-row"><label>密码：</label><input class="input" type="password" v-model="form.password" placeholder="请输入设备密码" /></div>
-        <div class="wide-field-row"><label>所属区域：</label><select class="select" v-model="form.area"><option value="">未分配</option><option v-for="area in areaOptions" :key="area" :value="area">{{ area }}</option></select></div>
+        <div class="wide-field-row"><label>所属区域：</label><select class="select" v-model="form.area"><option value="" disabled>请选择区域</option><option v-for="area in areaOptions" :key="area" :value="area">{{ area }}</option></select></div>
         <div class="wide-field-row"><label>设备能力：</label><span style="display:flex;gap:16px;flex-wrap:wrap;align-self:center;"><label class="video-device-include"><input type="checkbox" checked />视频</label><label class="video-device-include"><input type="checkbox" checked />音频</label><label class="video-device-include"><input type="checkbox" checked />云台</label><label class="video-device-include"><input type="checkbox" />对讲</label><label class="video-device-include"><input type="checkbox" />警告输入输出</label></span></div>
       </div>
       <div class="wide-field-row"><label>描述：</label><textarea class="textarea" style="height:80px;" v-model.trim="form.description" placeholder="请输入设备描述"></textarea></div>
       <h3 class="form-section-title">高级配置</h3>
       <div class="form-grid-2">
         <div class="wide-field-row"><label>拉流地址：</label><input class="input" v-model.trim="form.sourceUrl" placeholder="rtsp://user:pass@ip:port/stream" /></div>
-        <div class="wide-field-row"><label>注册有效期：</label><input class="input" value="3600" /></div>
-        <div class="wide-field-row"><label>心跳周期：</label><input class="input" value="60" /></div>
-        <div class="wide-field-row"><label>国标域编码：</label><input class="input" placeholder="请输入 20 位国标编码" /></div>
+        <div class="wide-field-row"><label>注册有效期：</label><input class="input" v-model.trim="form.registerExpire" placeholder="3600" /></div>
+        <div class="wide-field-row"><label>心跳周期：</label><input class="input" v-model.trim="form.heartbeat" placeholder="60" /></div>
+        <div class="wide-field-row"><label>国标域编码：</label><input class="input" v-model.trim="form.gbCode" placeholder="请输入 20 位国标编码" /></div>
       </div>
       <div class="button-row"><button class="btn" @click="wizardStep = 1">上一步</button><button class="btn primary" @click="wizardStep = 3">下一步</button><button class="btn" @click="setRoute('media')">取消</button></div>
     </div>
@@ -58,7 +58,8 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
-import { buildRegionTree, canComputeSourceUrl, computeSourceUrl, isValidChannelNo, isValidIPv4, isValidPort, loadCustomRegions, MAX_CHANNEL_NO } from "../utils/regions";
+import { buildRegionTree, canComputeSourceUrl, computeSourceUrl, isValidChannelNo, isValidGbCode, isValidIPv4, isValidPort, loadCustomRegions, MAX_CHANNEL_NO } from "../utils/regions";
+import type { Camera } from "../types";
 
 export default defineComponent({
   name: "MediaDeviceWizardPage",
@@ -74,6 +75,7 @@ export default defineComponent({
     return {
       wizardStep: 1,
       saving: false,
+      cameraAreas: [] as string[],
       form: {
         deviceCategory: "编码设备",
         deviceType: "IPC",
@@ -90,6 +92,9 @@ export default defineComponent({
         area: "",
         description: "",
         sourceUrl: "",
+        registerExpire: "3600",
+        heartbeat: "60",
+        gbCode: "",
         nvrChannel: "1",
         channelName: "",
         nvrStreamType: "主码流"
@@ -97,8 +102,9 @@ export default defineComponent({
     };
   },
   computed: {
+    // 与设备管理页「所在区域」筛选下拉同源：设备已占用区域 + 自定义区域
     areaOptions(): string[] {
-      return buildRegionTree([], loadCustomRegions()).map((node) => node.fullPath);
+      return buildRegionTree(this.cameraAreas, loadCustomRegions()).map((node) => node.fullPath);
     }
   },
   methods: {
@@ -143,6 +149,11 @@ export default defineComponent({
         this.wizardStep = 2;
         return;
       }
+      if (form.gbCode.trim() && !isValidGbCode(form.gbCode)) {
+        this.showToast("国标域编码必须为20位数字");
+        this.wizardStep = 2;
+        return;
+      }
       if (!isValidChannelNo(form.nvrChannel)) {
         this.showToast(`通道号必须为1-${MAX_CHANNEL_NO}的整数`);
         this.wizardStep = 3;
@@ -159,6 +170,27 @@ export default defineComponent({
       }
       this.saving = true;
       try {
+        // 注册有效期/心跳周期解析为整数；空串视为未填写
+        let registerExpire: number | undefined;
+        if (form.registerExpire.trim()) {
+          const parsed = parseInt(form.registerExpire, 10);
+          if (Number.isNaN(parsed)) {
+            this.showToast("注册有效期必须为整数");
+            this.wizardStep = 2;
+            return;
+          }
+          registerExpire = parsed;
+        }
+        let heartbeat: number | undefined;
+        if (form.heartbeat.trim()) {
+          const parsed = parseInt(form.heartbeat, 10);
+          if (Number.isNaN(parsed)) {
+            this.showToast("心跳周期必须为整数");
+            this.wizardStep = 2;
+            return;
+          }
+          heartbeat = parsed;
+        }
         await api.createCamera({
           name: form.name.trim(),
           sourceUrl,
@@ -173,7 +205,14 @@ export default defineComponent({
           deviceCode: form.deviceCode || undefined,
           serialNumber: form.serialNumber || undefined,
           nvrChannel: form.nvrChannel || undefined,
-          nvrStreamType: form.nvrStreamType || undefined
+          nvrStreamType: form.nvrStreamType || undefined,
+          deviceCategory: form.deviceCategory || undefined,
+          deviceType: form.deviceType || undefined,
+          protocolVersion: form.protocolVersion || undefined,
+          registerExpire,
+          heartbeat,
+          gbCode: form.gbCode || undefined,
+          channelName: form.channelName || undefined
         });
         this.showToast("新设备已保存，已加入设备管理列表");
         this.refreshCameras();
@@ -183,6 +222,15 @@ export default defineComponent({
       } finally {
         this.saving = false;
       }
+    }
+  },
+  async mounted() {
+    try {
+      // 「所属区域」下拉与设备管理页「所在区域」同源，需要全量设备的区域数据
+      const cameras = await api.cameras();
+      this.cameraAreas = (cameras || []).map((c: Camera) => c.area || "").filter((area: string) => area && area !== "未分配");
+    } catch {
+      // 区域列表加载失败时仅提供自定义区域
     }
   }
 });

@@ -27,7 +27,7 @@
       <div class="panel exact-left-workspace">
       <div class="exact-video-panel">
         <div class="exact-player" ref="exactPlayer">
-          <div class="exact-player-media"><video v-if="selectedSource.videoUrl" ref="exactVideo" :src="selectedSource.videoUrl" muted playsinline @timeupdate="syncVideoTime" @loadedmetadata="syncVideoTime" @ended="playerPlaying = false"></video><img v-else :src="selectedSource.image" :alt="selectedSource.name" /></div>
+          <div class="exact-player-media"><video v-if="selectedSource.videoUrl" ref="exactVideo" :src="selectedSource.videoUrl" muted playsinline @timeupdate="syncVideoTime" @loadedmetadata="syncVideoTime" @ended="playerPlaying = false"></video><video-player v-else-if="selectedSource.streamUrl" ref="exactStreamPlayer" :url="selectedSource.streamUrl"></video-player><img v-else :src="selectedSource.image" :alt="selectedSource.name" /></div>
           <button class="exact-fullscreen-btn" type="button" :title="playerFullscreen ? '退出全屏' : '全屏播放'" :aria-label="playerFullscreen ? '退出全屏' : '全屏播放'" @click="togglePlayerFullscreen">
             <svg v-if="!playerFullscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
             <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
@@ -226,7 +226,7 @@
       </div>
     </section>
   </div>
-  <div v-if="searching || analyzing || uploadingVideo" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>{{ uploadingVideo ? '正在上传视频到分析服务，请稍候...' : (analyzing ? '正在分析视频，请稍候...' : (preparingRecording ? '正在从 NVR 导出录像，时长较长时请耐心等待...' : '正在搜索回放，请稍候...')) }}</p></div></div>
+  <div v-if="searching || analyzing || uploadingVideo || preparingRecording" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>{{ uploadingVideo ? '正在上传视频到分析服务，请稍候...' : (analyzing ? '正在分析视频，请稍候...' : (preparingRecording ? '正在从 NVR 导出录像，时长较长时请耐心等待...' : '正在搜索回放，请稍候...')) }}</p></div></div>
 </template>
 
 <script lang="ts">
@@ -234,6 +234,7 @@ import { defineComponent } from "vue";
 import ImageCropDialog from "../components/ImageCropDialog.vue";
 import ImageResults from "../components/ImageResults.vue";
 import DateTimeRangePicker from "../components/DateTimeRangePicker.vue";
+import VideoPlayer from "../components/VideoPlayer.vue";
 import { api, assetUrl, videoAnalysisFrameUrl } from "../api";
 import type { PersonSearchBboxPoint, SimilarPersonResult } from "../api";
 import type { DeploymentTaskCreate } from "../types";
@@ -329,6 +330,18 @@ function findAnalysisEvents(node: any, depth = 0): any[] {
 
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
+}
+
+// 录像接口时间与 datetime-local 输入均按本地时区解析："YYYY-MM-DD HH:mm:ss" / "YYYY-MM-DDTHH:mm" -> epoch ms
+function parseLocalMs(value?: string): number {
+  const ms = value ? new Date(String(value).trim().replace(" ", "T")).getTime() : NaN;
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+// epoch ms -> "YYYY-MM-DD HH:mm:ss"（与 getRecordingFileUrl/startRecordingStream 入参格式一致）
+function toLocalDateTimeSeconds(ms: number): string {
+  const date = new Date(ms);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
 }
 
 // MinIO 视频分析服务实际响应：{ code, segments: [{ segment_index, segment_start_seconds, raw_text, result }] }
@@ -461,7 +474,7 @@ declare module "vue" {
 export default defineComponent({
   name: "ExactSearchPage",
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
-  components: { ImageCropDialog, ImageResults, DateTimeRangePicker },
+  components: { ImageCropDialog, ImageResults, DateTimeRangePicker, VideoPlayer },
   inject: {
     showToast: { from: "showToast", default: (m: string) => {} },
     openResult: { from: "openResult", default: (index: number, item?: any) => {} },
@@ -486,6 +499,8 @@ export default defineComponent({
       onlineSources: [],
       searching: false,
       preparingRecording: false,
+      streamBusy: false,
+      pendingStreamOffset: null as number | null,
       analyzing: false,
       onlineStart: "",
       onlineEnd: "",
@@ -700,9 +715,13 @@ export default defineComponent({
       }
       if (this.searching) return;
       const selectedCamera = this.selectedCamera as any;
-      let analysisUrl = analysisUrlFor(selectedCamera);
+      const analysisUrl = analysisUrlFor(selectedCamera);
+      let streamUrl = "";
+      let recordingParams = null as any;
+      let durationSeconds = 200;
       if (!analysisUrl) {
-        // 摄像头只有流地址（flv/rtsp）时，通过后端从 NVR 导出所选时段的录像 MP4
+        // 摄像头只有流地址（flv/rtsp）时：先起 NVR 回放流即时播放（与录像回放页一致），
+        // 录像 MP4 的导出推迟到首个视频问答提示词发送时再进行
         if (!selectedCamera.nvrTrackId) {
           this.showToast("该点位暂无可分析的视频文件地址");
           return;
@@ -711,27 +730,35 @@ export default defineComponent({
           this.showToast("请先填写开始时间和结束时间");
           return;
         }
+        const startTime = this.onlineStart.trim().replace("T", " ");
+        const endTime = this.onlineEnd.trim().replace("T", " ");
+        const startMs = parseLocalMs(startTime);
+        const endMs = parseLocalMs(endTime);
+        if (!startMs || !endMs || endMs <= startMs) {
+          this.showToast("开始时间必须早于结束时间");
+          return;
+        }
+        durationSeconds = Math.max(1, Math.round((endMs - startMs) / 1000));
         this.searching = true;
-        this.preparingRecording = true;
         try {
-          const exported = await api.getRecordingFileUrl({
+          const stream = await api.startRecordingStream({
             cameraId: selectedCamera.code,
-            startTime: this.onlineStart.trim().replace("T", " "),
-            endTime: this.onlineEnd.trim().replace("T", " ")
+            startTime,
+            endTime,
+            speed: 1
           });
-          analysisUrl = exported.videoUrl || "";
+          streamUrl = stream.url || "";
         } catch (error: any) {
           this.searching = false;
-          this.preparingRecording = false;
-          this.showToast(`录像导出失败：${(error && error.message) || "请稍后重试"}`);
+          this.showToast(`回放流启动失败：${(error && error.message) || "请稍后重试"}`);
           return;
         }
-        this.preparingRecording = false;
-        if (!analysisUrl) {
+        if (!streamUrl) {
           this.searching = false;
-          this.showToast("该时段未导出有效录像");
+          this.showToast("该时段未获取到回放流地址");
           return;
         }
+        recordingParams = { cameraId: selectedCamera.code, startTime, endTime };
       }
       this.searching = true;
       window.setTimeout(() => {
@@ -747,11 +774,13 @@ export default defineComponent({
           time: this.onlineStart + " - " + this.onlineEnd,
           clipTime: this.onlineStart + " - " + this.onlineEnd,
           duration: "03:20",
-          durationSeconds: 200,
+          durationSeconds,
           image: selectedCamera.image,
           sourceType: "在线监控",
           analysisUrl,
-          videoUrl: isPlayableFileUrl(analysisUrl) ? analysisUrl : undefined
+          videoUrl: isPlayableFileUrl(analysisUrl) ? analysisUrl : undefined,
+          streamUrl: streamUrl || undefined,
+          recordingParams
         };
         this.onlineSources = [source];
         if (this.sourceConfirmed) {
@@ -777,6 +806,66 @@ export default defineComponent({
       this.currentTime = 0;
       this.playerDuration = source.durationSeconds || 200;
       this.seedQuestionMessages();
+      if ((source as any).streamUrl) {
+        // 流模式：VideoPlayer 自动起播，进度用墙钟 × 倍速模拟
+        this.playerPlaying = true;
+        this.startPlayTimer();
+      }
+    },
+    // 无原生 <video> 时的进度模拟：每秒按倍速推进，到顶停止
+    startPlayTimer() {
+      if (this.playTimer) window.clearInterval(this.playTimer);
+      this.playTimer = window.setInterval(() => {
+        this.currentTime += this.playbackRate;
+        if (this.currentTime >= this.playerDuration) {
+          this.currentTime = this.playerDuration;
+          this.stopSimulation();
+        }
+      }, 1000);
+    },
+    // 流模式（NVR 推送流无法原生 seek）：定位/倍速 = 以「开始时间 + 偏移」为新起点重新起流。
+    // 拖动进度条会连续触发：起流期间只记录最新目标位置，完成后补一次，避免打满 NVR
+    async restartStreamAt(offsetSeconds) {
+      const selectedSource = this.selectedSource as any;
+      const params = selectedSource && selectedSource.recordingParams;
+      if (!params || !selectedSource.streamUrl) return;
+      const offset = Math.max(0, Math.min(Math.max(this.playerDuration - 1, 0), Math.round(offsetSeconds)));
+      this.currentTime = offset;
+      if (this.streamBusy) {
+        this.pendingStreamOffset = offset;
+        return;
+      }
+      const startMs = parseLocalMs(params.startTime) + offset * 1000;
+      this.streamBusy = true;
+      try {
+        const result = await api.startRecordingStream({
+          cameraId: params.cameraId,
+          startTime: toLocalDateTimeSeconds(startMs),
+          endTime: params.endTime,
+          speed: Number(this.playbackRate)
+        });
+        this.currentTime = offset;
+        this.playerPlaying = true;
+        this.startPlayTimer();
+        if (selectedSource.streamUrl === result.url) {
+          // URL 相同不会触发 VideoPlayer 的 watch，先卸载再在下一帧重建流
+          selectedSource.streamUrl = undefined;
+          this.$nextTick(() => {
+            if (this.selectedSource === selectedSource) selectedSource.streamUrl = result.url;
+          });
+        } else {
+          selectedSource.streamUrl = result.url;
+        }
+      } catch (error) {
+        this.showToast(`回放流启动失败：${error instanceof Error ? error.message : error}`);
+      } finally {
+        this.streamBusy = false;
+        if (this.pendingStreamOffset !== null) {
+          const pending = this.pendingStreamOffset;
+          this.pendingStreamOffset = null;
+          this.restartStreamAt(pending);
+        }
+      }
     },
     seedQuestionMessages() {
       this.questionMessages = [{
@@ -904,7 +993,7 @@ export default defineComponent({
         this.showToast("请输入需要检索的内容");
         return;
       }
-      if (this.analyzing || this.uploadingVideo) return;
+      if (this.analyzing || this.uploadingVideo || this.preparingRecording) return;
       // 本地视频：首次分析前上传到 MinIO，换取分析服务可拉取的 videoUrl
       if (selectedSource.sourceType === "本地上传" && !selectedSource.analysisUrl) {
         if (!this.localVideoFile) {
@@ -920,6 +1009,27 @@ export default defineComponent({
           return;
         } finally {
           this.uploadingVideo = false;
+        }
+      }
+      // 在线监控仅有流地址时：首个问答提示词发出后才从 NVR 导出录像 MP4，
+      // 导出成功后播放器切换为该文件；后续对话复用同一 analysisUrl，不再重复导出
+      if (selectedSource.sourceType === "在线监控" && !selectedSource.analysisUrl && selectedSource.recordingParams) {
+        this.preparingRecording = true;
+        try {
+          const exported = await api.getRecordingFileUrl(selectedSource.recordingParams);
+          selectedSource.analysisUrl = exported.videoUrl || "";
+          if (exported.videoUrl && isPlayableFileUrl(exported.videoUrl)) {
+            this.stopSimulation();
+            selectedSource.streamUrl = undefined;
+            selectedSource.videoUrl = exported.videoUrl;
+            this.currentTime = 0;
+            if (exported.durationSeconds) this.playerDuration = exported.durationSeconds;
+          }
+        } catch (error: any) {
+          this.showToast(`录像导出失败：${(error && error.message) || "请稍后重试"}`);
+          return;
+        } finally {
+          this.preparingRecording = false;
         }
       }
       if (!selectedSource.analysisUrl) {
@@ -998,9 +1108,19 @@ export default defineComponent({
     },
     seekVideo(value) {
       const next = typeof value === "number" ? value : Number(value.target.value);
-      this.currentTime = next;
       const video = this.$refs.exactVideo as HTMLVideoElement;
-      if (video) video.currentTime = next;
+      if (video) {
+        this.currentTime = next;
+        video.currentTime = next;
+        return;
+      }
+      const selectedSource = this.selectedSource as any;
+      if (selectedSource && selectedSource.streamUrl) {
+        // 流模式：拖动进度 = 以新起点重新起流
+        this.restartStreamAt(next);
+        return;
+      }
+      this.currentTime = next;
     },
     // 播放器全屏：对整个播放器容器（含控制条）调用 Fullscreen API
     togglePlayerFullscreen() {
@@ -1026,28 +1146,44 @@ export default defineComponent({
         }
         return;
       }
+      const selectedSource = this.selectedSource as any;
+      if (selectedSource && selectedSource.streamUrl) {
+        // 流模式：暂停即停流（进度停留）；连续推送流无法续播，从当前位置重新起流
+        if (this.playerPlaying) {
+          this.stopSimulation();
+          return;
+        }
+        if (this.currentTime >= this.playerDuration) this.currentTime = 0;
+        this.restartStreamAt(this.currentTime);
+        return;
+      }
       if (this.playerPlaying) this.stopSimulation();
       else {
         this.playerPlaying = true;
-        this.playTimer = window.setInterval(() => {
-          this.currentTime += this.playbackRate;
-          if (this.currentTime >= this.playerDuration) {
-            this.currentTime = this.playerDuration;
-            this.stopSimulation();
-          }
-        }, 1000);
+        this.startPlayTimer();
       }
     },
     stopSimulation() {
       if (this.playTimer) window.clearInterval(this.playTimer);
       this.playTimer = null;
       this.playerPlaying = false;
+      this.pendingStreamOffset = null;
       const video = this.$refs.exactVideo as HTMLVideoElement;
       if (video && !video.paused) video.pause();
+      const streamPlayer = this.$refs.exactStreamPlayer as any;
+      if (streamPlayer && streamPlayer.stop) streamPlayer.stop();
     },
     changePlaybackRate() {
       const video = this.$refs.exactVideo as HTMLVideoElement;
-      if (video) video.playbackRate = this.playbackRate;
+      if (video) {
+        video.playbackRate = this.playbackRate;
+        return;
+      }
+      const selectedSource = this.selectedSource as any;
+      if (selectedSource && selectedSource.streamUrl && this.playerPlaying) {
+        // 流模式：倍速随重新起流生效
+        this.restartStreamAt(this.currentTime);
+      }
     },
     selectEvent(index) {
       const event = this.events[index];
