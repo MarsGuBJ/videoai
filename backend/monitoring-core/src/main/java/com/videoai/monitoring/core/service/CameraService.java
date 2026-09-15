@@ -37,4 +37,7 @@ public interface CameraService {
 
     /** camera_with_runtime_flags: objectDetectionEnabled is derived from the source host. */
     boolean isDinoCamera(String sourceUrl);
+
+    /** 引用计数：删除云平台前的保护检查（TC-YPT-007）。 */
+    long countByCloudPlatformId(UUID cloudPlatformId);
 }

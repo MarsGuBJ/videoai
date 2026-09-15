@@ -253,6 +253,7 @@ public class AccessConfigServiceImpl implements AccessConfigService {
         entity.setPassword(request.password());
         entity.setResourcePath(request.resourcePath());
         entity.setAutoRegister(request.autoRegister());
+        entity.setName(request.name() == null ? null : request.name().trim());
     }
 
     private Ga1400EntryResponse toGa1400EntryResponse(Ga1400AccessConfigEntity entity) {
@@ -266,7 +267,10 @@ public class AccessConfigServiceImpl implements AccessConfigService {
                 entity.getResourcePath(),
                 Boolean.TRUE.equals(entity.getAutoRegister()),
                 entity.getCreatedAt(),
-                entity.getUpdatedAt()
+                entity.getUpdatedAt(),
+                entity.getName(),
+                entity.getOnlineStatus(),
+                entity.getLastCheckAt()
         );
     }
 
@@ -280,6 +284,7 @@ public class AccessConfigServiceImpl implements AccessConfigService {
         entity.setParentPort(request.parentPort());
         entity.setReceivePortStart(request.receivePortStart().trim());
         entity.setReceivePortEnd(request.receivePortEnd().trim());
+        entity.setName(request.name() == null ? null : request.name().trim());
     }
 
     private Gb28181EntryResponse toGb28181EntryResponse(Gb28181AccessConfigEntity entity) {
@@ -295,7 +300,10 @@ public class AccessConfigServiceImpl implements AccessConfigService {
                 entity.getReceivePortStart(),
                 entity.getReceivePortEnd(),
                 entity.getCreatedAt(),
-                entity.getUpdatedAt()
+                entity.getUpdatedAt(),
+                entity.getName(),
+                entity.getOnlineStatus(),
+                entity.getLastCheckAt()
         );
     }
 }

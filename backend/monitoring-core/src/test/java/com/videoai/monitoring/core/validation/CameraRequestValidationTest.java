@@ -33,17 +33,27 @@ class CameraRequestValidationTest {
     }
 
     private static CameraCreateRequest createRequest(String ip, String port, String nvrChannel) {
+        return createRequestWithGbCode(ip, port, nvrChannel, null);
+    }
+
+    private static CameraCreateRequest createRequestWithGbCode(String ip, String port, String nvrChannel, String gbCode) {
         return new CameraCreateRequest(
                 "测试设备", "rtsp://127.0.0.1:554/", null, null, null, nvrChannel, null, null,
                 "RTSP 拉流", null, ip, port, null, null, null, null,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null,
+                null, null, null, null, null, gbCode, null);
     }
 
     private static CameraUpdateRequest updateRequest(String ip, String port, String nvrChannel) {
+        return updateRequestWithGbCode(ip, port, nvrChannel, null);
+    }
+
+    private static CameraUpdateRequest updateRequestWithGbCode(String ip, String port, String nvrChannel, String gbCode) {
         return new CameraUpdateRequest(
                 null, null, null, null, null, nvrChannel, null, null,
                 null, null, ip, port, null, null, null, null,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null,
+                null, null, null, null, null, gbCode, null);
     }
 
     @Test
@@ -81,5 +91,20 @@ class CameraRequestValidationTest {
         assertFalse(validator.validate(createRequest(null, null, "99999")).isEmpty());
         assertFalse(validator.validate(createRequest(null, null, "abc")).isEmpty());
         assertFalse(validator.validate(updateRequest(null, null, "0")).isEmpty());
+    }
+
+    @Test
+    void gbCodeOptionalAndAllowsEmptyOr20Digits() {
+        assertTrue(validator.validate(createRequestWithGbCode(null, null, null, null)).isEmpty());
+        assertTrue(validator.validate(createRequestWithGbCode(null, null, null, "")).isEmpty());
+        assertTrue(validator.validate(createRequestWithGbCode(null, null, null, "11000000000000000001")).isEmpty());
+        assertTrue(validator.validate(updateRequestWithGbCode(null, null, null, "11000000000000000001")).isEmpty());
+    }
+
+    @Test
+    void invalidGbCodeRejected() {
+        assertFalse(validator.validate(createRequestWithGbCode(null, null, null, "12345")).isEmpty());
+        assertFalse(validator.validate(createRequestWithGbCode(null, null, null, "1100000000000000000a")).isEmpty());
+        assertFalse(validator.validate(updateRequestWithGbCode(null, null, null, "123")).isEmpty());
     }
 }

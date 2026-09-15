@@ -66,7 +66,8 @@ class AccessConfigServiceTest {
                 "8080",
                 "secret",
                 "/viid",
-                true
+                true,
+                null
         );
     }
 
@@ -80,7 +81,8 @@ class AccessConfigServiceTest {
                 "12345678",
                 "5061",
                 "30000",
-                "30100"
+                "30100",
+                null
         );
     }
 
@@ -210,26 +212,26 @@ class AccessConfigServiceTest {
 
     @Test
     void ga1400EntryPlatformIdMustBe20Digits() {
-        Ga1400EntryRequest request = new Ga1400EntryRequest(true, "123", "192.168.1.20", "8080", "s", "/viid", true);
+        Ga1400EntryRequest request = new Ga1400EntryRequest(true, "123", "192.168.1.20", "8080", "s", "/viid", true, null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGa1400Entry(request));
 
         Ga1400EntryRequest letters = new Ga1400EntryRequest(true, "3402000000200000000a", "192.168.1.20",
-                "8080", "s", "/viid", true);
+                "8080", "s", "/viid", true, null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGa1400Entry(letters));
     }
 
     @Test
     void ga1400EntryPortOutOfRangeRejected() {
         Ga1400EntryRequest zero = new Ga1400EntryRequest(true, "34020000002000000001", "192.168.1.20",
-                "0", "s", "/viid", true);
+                "0", "s", "/viid", true, null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGa1400Entry(zero));
 
         Ga1400EntryRequest tooBig = new Ga1400EntryRequest(true, "34020000002000000001", "192.168.1.20",
-                "65536", "s", "/viid", true);
+                "65536", "s", "/viid", true, null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGa1400Entry(tooBig));
 
         Ga1400EntryRequest notANumber = new Ga1400EntryRequest(true, "34020000002000000001", "192.168.1.20",
-                "abc", "s", "/viid", true);
+                "abc", "s", "/viid", true, null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGa1400Entry(notANumber));
     }
 
@@ -269,7 +271,7 @@ class AccessConfigServiceTest {
     @Test
     void createGa1400EntryRejectsInvalidRequest() {
         Ga1400AccessConfigDao dao = mock(Ga1400AccessConfigDao.class);
-        Ga1400EntryRequest request = new Ga1400EntryRequest(true, "bad", "192.168.1.20", "8080", "s", "/viid", true);
+        Ga1400EntryRequest request = new Ga1400EntryRequest(true, "bad", "192.168.1.20", "8080", "s", "/viid", true, null);
 
         assertThrows(IllegalArgumentException.class, () -> newService(dao).createGa1400Entry(request));
         verify(dao, never()).insert(any(Ga1400AccessConfigEntity.class));
@@ -280,12 +282,12 @@ class AccessConfigServiceTest {
         Ga1400AccessConfigDao dao = mock(Ga1400AccessConfigDao.class);
         UUID id = UUID.randomUUID();
         Ga1400EntryRequest stored = new Ga1400EntryRequest(true, "34020000002000000001", "192.168.1.20",
-                "8080", "old", "/viid", false);
+                "8080", "old", "/viid", false, null);
         Ga1400AccessConfigEntity entity = ga1400Entity(id, stored);
         when(dao.selectById(id)).thenReturn(entity);
 
         Ga1400EntryRequest request = new Ga1400EntryRequest(false, "34020000002000000002", "192.168.1.21",
-                "9090", "new", "/viid2", true);
+                "9090", "new", "/viid2", true, null);
         Ga1400EntryResponse updated = newService(dao).updateGa1400Entry(id, request);
 
         verify(dao).updateById(any(Ga1400AccessConfigEntity.class));
@@ -308,7 +310,7 @@ class AccessConfigServiceTest {
     void updateGa1400EntryRejectsInvalidRequest() {
         Ga1400AccessConfigDao dao = mock(Ga1400AccessConfigDao.class);
         Ga1400EntryRequest request = new Ga1400EntryRequest(true, "34020000002000000001", "192.168.1.20",
-                "70000", "s", "/viid", true);
+                "70000", "s", "/viid", true, null);
 
         assertThrows(IllegalArgumentException.class,
                 () -> newService(dao).updateGa1400Entry(UUID.randomUUID(), request));
@@ -355,48 +357,48 @@ class AccessConfigServiceTest {
     @Test
     void gb28181EntrySipIdMustBe20Digits() {
         Gb28181EntryRequest request = new Gb28181EntryRequest(true, "12345", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30100");
+                "192.168.1.10", "5060", "pw", "5061", "30000", "30100", null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(request));
 
         Gb28181EntryRequest letters = new Gb28181EntryRequest(true, "3402000000200000000a", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30100");
+                "192.168.1.10", "5060", "pw", "5061", "30000", "30100", null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(letters));
     }
 
     @Test
     void gb28181EntrySipDomainMustBe10Digits() {
         Gb28181EntryRequest request = new Gb28181EntryRequest(true, "34020000002000000001", "34020000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30100");
+                "192.168.1.10", "5060", "pw", "5061", "30000", "30100", null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(request));
     }
 
     @Test
     void gb28181EntryPortOutOfRangeRejected() {
         Gb28181EntryRequest zero = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "0", "pw", "5061", "30000", "30100");
+                "192.168.1.10", "0", "pw", "5061", "30000", "30100", null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(zero));
 
         Gb28181EntryRequest tooBig = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "65536", "pw", "5061", "30000", "30100");
+                "192.168.1.10", "65536", "pw", "5061", "30000", "30100", null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(tooBig));
 
         Gb28181EntryRequest notANumber = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "abc", "pw", "5061", "30000", "30100");
+                "192.168.1.10", "abc", "pw", "5061", "30000", "30100", null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(notANumber));
     }
 
     @Test
     void gb28181EntryReceivePortRangeRejected() {
         Gb28181EntryRequest startAfterEnd = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30100", "30000");
+                "192.168.1.10", "5060", "pw", "5061", "30100", "30000", null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(startAfterEnd));
 
         Gb28181EntryRequest outOfRange = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "65536");
+                "192.168.1.10", "5060", "pw", "5061", "30000", "65536", null);
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(outOfRange));
 
         Gb28181EntryRequest equal = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30000");
+                "192.168.1.10", "5060", "pw", "5061", "30000", "30000", null);
         assertDoesNotThrow(() -> AccessConfigService.validateGb28181Entry(equal));
     }
 
@@ -439,7 +441,7 @@ class AccessConfigServiceTest {
     void createGb28181EntryRejectsInvalidRequest() {
         Gb28181AccessConfigDao dao = mock(Gb28181AccessConfigDao.class);
         Gb28181EntryRequest request = new Gb28181EntryRequest(true, "bad", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30100");
+                "192.168.1.10", "5060", "pw", "5061", "30000", "30100", null);
 
         assertThrows(IllegalArgumentException.class,
                 () -> newService(mock(Ga1400AccessConfigDao.class), dao).createGb28181Entry(request));
@@ -451,12 +453,12 @@ class AccessConfigServiceTest {
         Gb28181AccessConfigDao dao = mock(Gb28181AccessConfigDao.class);
         UUID id = UUID.randomUUID();
         Gb28181EntryRequest stored = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "5060", "old", "5061", "30000", "30100");
+                "192.168.1.10", "5060", "old", "5061", "30000", "30100", null);
         Gb28181AccessConfigEntity entity = gb28181Entity(id, stored);
         when(dao.selectById(id)).thenReturn(entity);
 
         Gb28181EntryRequest request = new Gb28181EntryRequest(false, "34020000002000000002", "3402000001",
-                "192.168.1.11", "5062", "new", "5063", "31000", "31100");
+                "192.168.1.11", "5062", "new", "5063", "31000", "31100", null);
         Gb28181EntryResponse updated = newService(mock(Ga1400AccessConfigDao.class), dao)
                 .updateGb28181Entry(id, request);
 
@@ -481,7 +483,7 @@ class AccessConfigServiceTest {
     void updateGb28181EntryRejectsInvalidRequest() {
         Gb28181AccessConfigDao dao = mock(Gb28181AccessConfigDao.class);
         Gb28181EntryRequest request = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "70000", "pw", "5061", "30000", "30100");
+                "192.168.1.10", "70000", "pw", "5061", "30000", "30100", null);
 
         assertThrows(IllegalArgumentException.class,
                 () -> newService(mock(Ga1400AccessConfigDao.class), dao).updateGb28181Entry(UUID.randomUUID(), request));

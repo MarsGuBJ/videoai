@@ -13,6 +13,7 @@ public record Gb28181EntryRequest(
         String password,
         String parentPort,
         String receivePortStart,
-        String receivePortEnd
+        String receivePortEnd,
+        String name
 ) {
 }

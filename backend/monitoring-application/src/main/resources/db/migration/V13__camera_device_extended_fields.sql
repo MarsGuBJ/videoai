@@ -1,0 +1,8 @@
+ALTER TABLE cameras
+    ADD COLUMN IF NOT EXISTS device_category TEXT,
+    ADD COLUMN IF NOT EXISTS device_type TEXT,
+    ADD COLUMN IF NOT EXISTS protocol_version TEXT,
+    ADD COLUMN IF NOT EXISTS register_expire INTEGER,
+    ADD COLUMN IF NOT EXISTS heartbeat INTEGER,
+    ADD COLUMN IF NOT EXISTS gb_code TEXT,
+    ADD COLUMN IF NOT EXISTS channel_name TEXT;

@@ -35,6 +35,14 @@
             ptz_enabled = #{ptzEnabled},
             smart_analysis_enabled = #{smartAnalysisEnabled},
             alarm_io_enabled = #{alarmIoEnabled},
+            cloud_platform_id = #{cloudPlatformId},
+            device_category = #{deviceCategory},
+            device_type = #{deviceType},
+            protocol_version = #{protocolVersion},
+            register_expire = #{registerExpire},
+            heartbeat = #{heartbeat},
+            gb_code = #{gbCode},
+            channel_name = #{channelName},
             updated_at = now()
         WHERE id = #{id}
     </update>
@@ -47,11 +55,17 @@
         INSERT INTO cameras (id, name, source_url, stream_app, stream_name, ffmpeg_key,
                              description, area, status, created_at, updated_at,
                              nvr_id, nvr_channel, nvr_track_id, nvr_stream_type,
-                             protocol, vendor, ip, port, username, password, device_code, serial_number)
+                             protocol, vendor, ip, port, username, password, device_code, serial_number,
+                             cloud_platform_id,
+                             device_category, device_type, protocol_version,
+                             register_expire, heartbeat, gb_code, channel_name)
         VALUES (#{id}, #{name}, #{sourceUrl}, #{streamApp}, #{streamName}, #{ffmpegKey},
                 #{description}, #{area}, #{status}, #{createdAt}, #{updatedAt},
                 #{nvrId}, #{nvrChannel}, #{nvrTrackId}, #{nvrStreamType},
-                #{protocol}, #{vendor}, #{ip}, #{port}, #{username}, #{password}, #{deviceCode}, #{serialNumber})
+                #{protocol}, #{vendor}, #{ip}, #{port}, #{username}, #{password}, #{deviceCode}, #{serialNumber},
+                #{cloudPlatformId},
+                #{deviceCategory}, #{deviceType}, #{protocolVersion},
+                #{registerExpire}, #{heartbeat}, #{gbCode}, #{channelName})
         ON CONFLICT (id) DO NOTHING
     </insert>
 

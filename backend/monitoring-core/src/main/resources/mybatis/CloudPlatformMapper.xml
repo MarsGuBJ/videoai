@@ -6,6 +6,14 @@
         SELECT * FROM cloud_platforms ORDER BY created_at DESC
     </select>
 
+    <select id="selectByName" resultType="com.videoai.monitoring.core.entity.CloudPlatformEntity">
+        SELECT * FROM cloud_platforms WHERE name = #{name}
+    </select>
+
+    <select id="selectByKey" resultType="com.videoai.monitoring.core.entity.CloudPlatformEntity">
+        SELECT * FROM cloud_platforms WHERE key = #{key}
+    </select>
+
     <update id="updateCloudPlatform" parameterType="com.videoai.monitoring.core.entity.CloudPlatformEntity">
         UPDATE cloud_platforms
         SET name = #{name},

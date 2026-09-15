@@ -13,6 +13,7 @@ import com.videoai.monitoring.core.dao.CloudPlatformDao;
 import com.videoai.monitoring.core.entity.CloudPlatformEntity;
 import com.videoai.monitoring.core.service.impl.CloudPlatformServiceImpl;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.OffsetDateTime;
@@ -112,12 +113,86 @@ class CloudPlatformServiceTest {
         verify(dao, never()).deleteById(id);
     }
 
+    @Test
+    void createThrowsConflictWhenNameExists() {
+        when(dao.selectByName("平台A")).thenReturn(List.of(entity(UUID.randomUUID())));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> service.create(
+                new CloudPlatformCreateRequest("平台A", "GA1400", "new-key", "app-secret", "192.168.1.10", "8080")));
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals("云平台名称已存在", exception.getReason());
+        verify(dao, never()).insert(any(CloudPlatformEntity.class));
+    }
+
+    @Test
+    void createThrowsConflictWhenKeyExists() {
+        when(dao.selectByKey("app-key")).thenReturn(List.of(entity(UUID.randomUUID())));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> service.create(
+                new CloudPlatformCreateRequest("平台B", "GA1400", "app-key", "app-secret", "192.168.1.10", "8080")));
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals("云平台 Key 已存在", exception.getReason());
+        verify(dao, never()).insert(any(CloudPlatformEntity.class));
+    }
+
+    @Test
+    void updateAllowsSameNameAndKeyForSelf() {
+        UUID id = UUID.randomUUID();
+        CloudPlatformEntity existing = entity(id);
+        when(dao.selectById(id)).thenReturn(existing);
+        when(dao.selectByName("平台A")).thenReturn(List.of(existing));
+        when(dao.selectByKey("app-key")).thenReturn(List.of(existing));
+
+        service.update(id, new CloudPlatformUpdateRequest("平台A", "GA1400", "app-key", "app-secret",
+                "192.168.1.10", "8080"));
+
+        verify(dao).updateCloudPlatform(any(CloudPlatformEntity.class));
+    }
+
+    @Test
+    void updateThrowsConflictWhenNameTakenByOther() {
+        UUID id = UUID.randomUUID();
+        when(dao.selectById(id)).thenReturn(entity(id));
+        when(dao.selectByName("平台A")).thenReturn(List.of(entity(UUID.randomUUID())));
+
+        assertThrows(ResponseStatusException.class, () -> service.update(id,
+                new CloudPlatformUpdateRequest("平台A", "GA1400", "new-key", "app-secret", "192.168.1.10", "8080")));
+        verify(dao, never()).updateCloudPlatform(any());
+    }
+
+    @Test
+    void deleteThrowsConflictWhenReferencedByCameras() {
+        UUID id = UUID.randomUUID();
+        when(dao.selectById(id)).thenReturn(entity(id));
+        when(cameraService.countByCloudPlatformId(id)).thenReturn(3L);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> service.delete(id));
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals("该平台已被 3 台设备引用，无法删除", exception.getReason());
+        verify(dao, never()).deleteById(any(UUID.class));
+    }
+
+    @Test
+    void deleteRemovesWhenNoCameraReferences() {
+        UUID id = UUID.randomUUID();
+        when(dao.selectById(id)).thenReturn(entity(id));
+        when(cameraService.countByCloudPlatformId(id)).thenReturn(0L);
+
+        service.delete(id);
+
+        verify(dao).deleteById(id);
+    }
+
     private static CameraResponse camera(UUID id, String ip) {
         return new CameraResponse(
                 id, "本地-" + ip, "rtsp://" + ip + "/stream", "live", "s-" + ip, null, null, "办公楼",
                 "RUNNING", null, OffsetDateTime.now(), OffsetDateTime.now(),
                 null, null, null, null, null, null, ip, "554",
-                null, null, null, null, false, true, false, false, false, false, false, null);
+                null, null, null, null, false, true, false, false, false, false, false, null, null,
+                null, null, null, null, null, null, null);
     }
 
     private static CloudDeviceItem cloudDevice(String name, String ip) {

@@ -71,6 +71,7 @@ public class CloudPlatformServiceImpl implements CloudPlatformService {
     @Override
     @Transactional
     public CloudPlatformResponse create(CloudPlatformCreateRequest request) {
+        ensureUnique(request.name(), request.key(), null);
         UUID id = UUID.randomUUID();
         CloudPlatformEntity entity = new CloudPlatformEntity();
         entity.setId(id);
@@ -88,6 +89,7 @@ public class CloudPlatformServiceImpl implements CloudPlatformService {
     @Transactional
     public CloudPlatformResponse update(UUID id, CloudPlatformUpdateRequest request) {
         get(id);
+        ensureUnique(request.name(), request.key(), id);
         CloudPlatformEntity entity = new CloudPlatformEntity();
         entity.setId(id);
         entity.setName(request.name());
@@ -103,7 +105,28 @@ public class CloudPlatformServiceImpl implements CloudPlatformService {
     @Override
     @Transactional
     public void delete(UUID id) {
-        find(id).ifPresent(platform -> cloudPlatformDao.deleteById(id));
+        find(id).ifPresent(platform -> {
+            long references = cameraService.countByCloudPlatformId(id);
+            if (references > 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "该平台已被 " + references + " 台设备引用，无法删除");
+            }
+            cloudPlatformDao.deleteById(id);
+        });
+    }
+
+    /** 名称与 Key 全局唯一（不加 DB 唯一约束，避免现场历史重复数据阻塞迁移）。 */
+    private void ensureUnique(String name, String key, UUID excludeId) {
+        boolean nameTaken = cloudPlatformDao.selectByName(name).stream()
+                .anyMatch(existing -> excludeId == null || !excludeId.equals(existing.getId()));
+        if (nameTaken) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "云平台名称已存在");
+        }
+        boolean keyTaken = cloudPlatformDao.selectByKey(key).stream()
+                .anyMatch(existing -> excludeId == null || !excludeId.equals(existing.getId()));
+        if (keyTaken) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "云平台 Key 已存在");
+        }
     }
 
     @Override
@@ -154,7 +177,9 @@ public class CloudPlatformServiceImpl implements CloudPlatformService {
                         ip,
                         clean(item.port()),
                         null, null, null, null,
-                        null, null, null, null, null, null
+                        null, null, null, null, null, null,
+                        id,
+                        null, null, null, null, null, null, null
                 ));
                 created++;
             } else if (overwrite) {
@@ -169,7 +194,9 @@ public class CloudPlatformServiceImpl implements CloudPlatformService {
                         ip,
                         clean(item.port()),
                         null, null, null, null,
-                        null, null, null, null, null, null
+                        null, null, null, null, null, null,
+                        id,
+                        null, null, null, null, null, null, null
                 ));
                 updated++;
             } else {

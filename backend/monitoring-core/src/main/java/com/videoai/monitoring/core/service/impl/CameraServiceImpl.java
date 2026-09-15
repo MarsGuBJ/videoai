@@ -1,5 +1,6 @@
 package com.videoai.monitoring.core.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.videoai.monitoring.common.dto.CameraCreateRequest;
 import com.videoai.monitoring.common.dto.CameraUpdateRequest;
 import com.videoai.monitoring.common.vo.CameraResponse;
@@ -105,6 +106,14 @@ public class CameraServiceImpl implements CameraService {
         entity.setPtzEnabled(request.ptzEnabled() != null ? request.ptzEnabled() : Boolean.FALSE);
         entity.setSmartAnalysisEnabled(request.smartAnalysisEnabled() != null ? request.smartAnalysisEnabled() : Boolean.FALSE);
         entity.setAlarmIoEnabled(request.alarmIoEnabled() != null ? request.alarmIoEnabled() : Boolean.FALSE);
+        entity.setCloudPlatformId(request.cloudPlatformId());
+        entity.setDeviceCategory(clean(request.deviceCategory()));
+        entity.setDeviceType(clean(request.deviceType()));
+        entity.setProtocolVersion(clean(request.protocolVersion()));
+        entity.setRegisterExpire(request.registerExpire());
+        entity.setHeartbeat(request.heartbeat());
+        entity.setGbCode(clean(request.gbCode()));
+        entity.setChannelName(clean(request.channelName()));
         cameraDao.insert(entity);
         return get(id);
     }
@@ -146,6 +155,14 @@ public class CameraServiceImpl implements CameraService {
         entity.setPtzEnabled(request.ptzEnabled() != null ? request.ptzEnabled() : old.ptzEnabled());
         entity.setSmartAnalysisEnabled(request.smartAnalysisEnabled() != null ? request.smartAnalysisEnabled() : old.smartAnalysisEnabled());
         entity.setAlarmIoEnabled(request.alarmIoEnabled() != null ? request.alarmIoEnabled() : old.alarmIoEnabled());
+        entity.setCloudPlatformId(request.cloudPlatformId() != null ? request.cloudPlatformId() : old.cloudPlatformId());
+        entity.setDeviceCategory(request.deviceCategory() != null ? clean(request.deviceCategory()) : old.deviceCategory());
+        entity.setDeviceType(request.deviceType() != null ? clean(request.deviceType()) : old.deviceType());
+        entity.setProtocolVersion(request.protocolVersion() != null ? clean(request.protocolVersion()) : old.protocolVersion());
+        entity.setRegisterExpire(request.registerExpire() != null ? request.registerExpire() : old.registerExpire());
+        entity.setHeartbeat(request.heartbeat() != null ? request.heartbeat() : old.heartbeat());
+        entity.setGbCode(request.gbCode() != null ? clean(request.gbCode()) : old.gbCode());
+        entity.setChannelName(request.channelName() != null ? clean(request.channelName()) : old.channelName());
         cameraDao.updateCamera(entity);
         if (!newSourceUrl.equals(old.sourceUrl()) || !streamName.equals(old.streamName())) {
             previewRelayManager.stopStream(old.streamName());
@@ -194,6 +211,12 @@ public class CameraServiceImpl implements CameraService {
     @Override
     public Map<String, Object> mediaList() {
         return zlmClient.mediaList();
+    }
+
+    @Override
+    public long countByCloudPlatformId(UUID cloudPlatformId) {
+        return cameraDao.selectCount(
+                new LambdaQueryWrapper<CameraEntity>().eq(CameraEntity::getCloudPlatformId, cloudPlatformId));
     }
 
     /** camera_with_runtime_flags: objectDetectionEnabled is derived from the source host. */
@@ -255,7 +278,15 @@ public class CameraServiceImpl implements CameraService {
                 Boolean.TRUE.equals(entity.getSmartAnalysisEnabled()),
                 Boolean.TRUE.equals(entity.getAlarmIoEnabled()),
                 // 子码流流名由 sourceUrl 按厂商约定推导；无法推导的设备为 null（前端禁用切换）
-                StreamUrls.deriveSubSourceUrl(sourceUrl) != null ? StreamUrls.subStreamName(stream) : null
+                StreamUrls.deriveSubSourceUrl(sourceUrl) != null ? StreamUrls.subStreamName(stream) : null,
+                entity.getCloudPlatformId(),
+                entity.getDeviceCategory(),
+                entity.getDeviceType(),
+                entity.getProtocolVersion(),
+                entity.getRegisterExpire(),
+                entity.getHeartbeat(),
+                entity.getGbCode(),
+                entity.getChannelName()
         );
     }
 

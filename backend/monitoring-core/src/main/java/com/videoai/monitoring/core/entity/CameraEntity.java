@@ -45,4 +45,12 @@ public class CameraEntity {
     private Boolean ptzEnabled;
     private Boolean smartAnalysisEnabled;
     private Boolean alarmIoEnabled;
+    private UUID cloudPlatformId;
+    private String deviceCategory;
+    private String deviceType;
+    private String protocolVersion;
+    private Integer registerExpire;
+    private Integer heartbeat;
+    private String gbCode;
+    private String channelName;
 }

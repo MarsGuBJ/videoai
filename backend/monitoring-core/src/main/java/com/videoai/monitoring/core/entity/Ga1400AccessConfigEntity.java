@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-/** Row of the {@code ga1400_access_configs} table (V9). */
+/** Row of the {@code ga1400_access_configs} table (V9 + V12). */
 @Data
 @TableName("ga1400_access_configs")
 public class Ga1400AccessConfigEntity {
@@ -21,6 +21,9 @@ public class Ga1400AccessConfigEntity {
     private String password;
     private String resourcePath;
     private Boolean autoRegister;
+    private String name;
+    private String onlineStatus;
+    private OffsetDateTime lastCheckAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

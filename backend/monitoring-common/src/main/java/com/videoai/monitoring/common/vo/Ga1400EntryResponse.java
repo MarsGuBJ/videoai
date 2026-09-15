@@ -13,6 +13,9 @@ public record Ga1400EntryResponse(
         String resourcePath,
         boolean autoRegister,
         OffsetDateTime createdAt,
-        OffsetDateTime updatedAt
+        OffsetDateTime updatedAt,
+        String name,
+        String onlineStatus,
+        OffsetDateTime lastCheckAt
 ) {
 }

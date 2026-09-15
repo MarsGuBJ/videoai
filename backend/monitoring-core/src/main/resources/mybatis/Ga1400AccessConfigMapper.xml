@@ -6,4 +6,11 @@
         SELECT * FROM ga1400_access_configs ORDER BY created_at DESC
     </select>
 
+    <update id="updateOnlineStatus">
+        UPDATE ga1400_access_configs
+        SET online_status = #{onlineStatus},
+            last_check_at = #{lastCheckAt}
+        WHERE id = #{id}
+    </update>
+
 </mapper>

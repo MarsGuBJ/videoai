@@ -15,6 +15,9 @@ public record Gb28181EntryResponse(
         String receivePortStart,
         String receivePortEnd,
         OffsetDateTime createdAt,
-        OffsetDateTime updatedAt
+        OffsetDateTime updatedAt,
+        String name,
+        String onlineStatus,
+        OffsetDateTime lastCheckAt
 ) {
 }

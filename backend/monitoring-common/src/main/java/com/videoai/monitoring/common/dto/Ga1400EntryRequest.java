@@ -11,6 +11,7 @@ public record Ga1400EntryRequest(
         String port,
         String password,
         String resourcePath,
-        boolean autoRegister
+        boolean autoRegister,
+        String name
 ) {
 }

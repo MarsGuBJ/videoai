@@ -3,6 +3,8 @@ package com.videoai.monitoring.common.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
+import java.util.UUID;
+
 public record CameraCreateRequest(
         @NotBlank String name,
         @NotBlank String sourceUrl,
@@ -25,6 +27,14 @@ public record CameraCreateRequest(
         Boolean talkbackEnabled,
         Boolean ptzEnabled,
         Boolean smartAnalysisEnabled,
-        Boolean alarmIoEnabled
+        Boolean alarmIoEnabled,
+        UUID cloudPlatformId,
+        String deviceCategory,
+        String deviceType,
+        String protocolVersion,
+        Integer registerExpire,
+        Integer heartbeat,
+        @Pattern(regexp = "^$|^\\d{20}$", message = "必须为空或20位数字") String gbCode,
+        String channelName
 ) {
 }

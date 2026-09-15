@@ -35,6 +35,14 @@ public record CameraResponse(
         boolean ptzEnabled,
         boolean smartAnalysisEnabled,
         boolean alarmIoEnabled,
-        String subStreamName
+        String subStreamName,
+        UUID cloudPlatformId,
+        String deviceCategory,
+        String deviceType,
+        String protocolVersion,
+        Integer registerExpire,
+        Integer heartbeat,
+        String gbCode,
+        String channelName
 ) {
 }

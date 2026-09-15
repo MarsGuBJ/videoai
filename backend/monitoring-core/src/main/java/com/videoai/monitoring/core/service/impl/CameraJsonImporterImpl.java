@@ -87,7 +87,29 @@ public class CameraJsonImporterImpl implements CameraJsonImporter {
         entity.setPassword(text(node, "password", null));
         entity.setDeviceCode(text(node, "deviceCode", null));
         entity.setSerialNumber(text(node, "serialNumber", null));
+        entity.setDeviceCategory(text(node, "deviceCategory", null));
+        entity.setDeviceType(text(node, "deviceType", null));
+        entity.setProtocolVersion(text(node, "protocolVersion", null));
+        entity.setRegisterExpire(integer(node, "registerExpire"));
+        entity.setHeartbeat(integer(node, "heartbeat"));
+        entity.setGbCode(text(node, "gbCode", null));
+        entity.setChannelName(text(node, "channelName", null));
         cameraDao.insertIgnore(entity);
+    }
+
+    private Integer integer(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+        if (value.isNumber()) {
+            return value.asInt();
+        }
+        try {
+            return Integer.valueOf(value.asText().trim());
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private String text(JsonNode node, String field, String fallback) {
