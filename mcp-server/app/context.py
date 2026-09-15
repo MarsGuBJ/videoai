@@ -63,6 +63,7 @@ hcnetsdk_playback = HcNetSdkPlaybackProxy(
     settings.zlm_rtmp_push_base,
     settings.playback_ttl_seconds,
     settings.request_timeout_seconds,
+    max_live_sessions=settings.hcnetsdk_max_live_sessions,
 )
 # 按摄像头绑定的多 NVR 设备回放代理注册表（凭据来自摄像头 sourceUrl，按设备主机缓存）
 nvr_devices = NvrDeviceRegistry(
@@ -72,6 +73,7 @@ nvr_devices = NvrDeviceRegistry(
     settings.zlm_rtmp_push_base,
     settings.playback_ttl_seconds,
     settings.request_timeout_seconds,
+    max_live_sessions=settings.hcnetsdk_max_live_sessions,
 )
 # 已知 NVR 主机集合：摄像头 sourceUrl 指向它们时按 NVR 直连解析；否则视为直连 IPC，
 # 通过 channel_lookup 反查其所属 NVR 与通道（平台 nvrTrackId 对直连 IPC 可能是脏数据）
@@ -95,6 +97,7 @@ hcnetsdk_downloaders = {
         settings.zlm_rtmp_push_base,
         settings.playback_ttl_seconds,
         settings.request_timeout_seconds,
+        max_live_sessions=settings.hcnetsdk_max_live_sessions,
     )
     for host in settings.hcnetsdk_download_nvr_hosts
 }

@@ -197,6 +197,7 @@ class NvrDeviceRegistry:
         ttl_seconds: int,
         timeout: float = 15,
         sdk_port: int | None = None,
+        max_live_sessions: int = 0,
     ) -> None:
         self.zlm_http_url = zlm_http_url
         self.zlm_public_http_url = zlm_public_http_url
@@ -205,6 +206,7 @@ class NvrDeviceRegistry:
         self.ttl_seconds = ttl_seconds
         self.timeout = timeout
         self.sdk_port = sdk_port
+        self.max_live_sessions = max_live_sessions
         self._proxies: dict[str, HcNetSdkPlaybackProxy] = {}
         self._lock = threading.Lock()
 
@@ -232,6 +234,7 @@ class NvrDeviceRegistry:
                     self.zlm_rtmp_push_base,
                     self.ttl_seconds,
                     self.timeout,
+                    max_live_sessions=self.max_live_sessions,
                 )
                 self._proxies[credentials.host] = proxy
             return proxy
@@ -270,7 +273,41 @@ async def search_segments(
         ) from exc
     except httpx.HTTPError as exc:
         raise NvrDeviceError(f"NVR {credentials.host} is unreachable: {type(exc).__name__}") from exc
-    return parse_segment_matches(response.text, camera, credentials, limit)
+    segments = parse_segment_matches(response.text, camera, credentials, limit)
+    # 海康 ISAPI 返回的是与窗口相交的整个连续录像块（不裁剪到查询窗口），
+    # 裁剪到用户查询窗口，避免搜一小时却列出数小时的录像段
+    return [
+        clipped
+        for segment in segments
+        if (clipped := clip_segment_to_window(segment, start_time, end_time)) is not None
+    ]
+
+
+def clip_segment_to_window(
+    segment: RecordingSegment,
+    start_time: datetime,
+    end_time: datetime,
+) -> RecordingSegment | None:
+    """Clip one segment to the query window; ``None`` when there is no overlap.
+
+    recordingId 随裁剪后的时间重算：同一录像块在不同查询窗口下裁剪结果不同，
+    不重算会共享缓存键导致回放取到别的窗口。
+    """
+    clipped_start = max(segment.startTime, start_time)
+    clipped_end = min(segment.endTime, end_time)
+    if clipped_end <= clipped_start:
+        return None
+    if clipped_start == segment.startTime and clipped_end == segment.endTime:
+        return segment
+    segment.startTime = clipped_start
+    segment.endTime = clipped_end
+    segment.recordingId = segment_recording_id(
+        str(segment.metadata.get("deviceHost") or ""),
+        segment.trackId,
+        clipped_start,
+        clipped_end,
+    )
+    return segment
 
 
 def parse_segment_matches(
@@ -327,7 +364,5 @@ def segment_from_match(
 
 def segment_recording_id(host: str, track_id: str, start_time: datetime, end_time: datetime) -> str:
     """Return a deterministic 32-char recording id for a host/track/time-range tuple."""
-    digest = hashlib.sha256(
-        f"{host}|{track_id}|{start_time.isoformat()}|{end_time.isoformat()}".encode()
-    ).hexdigest()
+    digest = hashlib.sha256(f"{host}|{track_id}|{start_time.isoformat()}|{end_time.isoformat()}".encode()).hexdigest()
     return digest[:32]

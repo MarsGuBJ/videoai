@@ -1,10 +1,15 @@
 import asyncio
+import queue
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from app.hcnetsdk_playback import (
+    NET_DVR_PLAYPAUSE,
+    NET_DVR_PLAYRESTART,
+    PLAYBACK_QUEUE_HIGH_WATERMARK,
     HcNetSdkLibrary,
     HcNetSdkPlaybackProxy,
     PlaybackSession,
@@ -131,6 +136,7 @@ def test_start_playback_keeps_one_existing_live_session(monkeypatch):
 
 def test_start_playback_evicts_only_oldest_session_when_at_limit(monkeypatch):
     proxy = make_proxy()
+    proxy._max_live_sessions = 2
     proxy._sessions = {
         "old-1": FakeSession("old-1", "http://zlm/live/old-1.live.flv"),
         "old-2": FakeSession("old-2", "http://zlm/live/old-2.live.flv"),
@@ -219,6 +225,117 @@ def test_ffmpeg_args_slow_motion_stretches_timestamps():
     assert args[args.index("-vf") + 1] == "setpts=PTS/0.5,fps=25"
 
 
+def make_flow_session(commands: list[int]) -> PlaybackSession:
+    """带假 SDK 的回放会话：记录 PlayBackControl_V40 命令，playback_handle 置为有效。"""
+
+    class FakeSdkLib:
+        def __init__(self) -> None:
+            self.sdk = SimpleNamespace(
+                NET_DVR_PlayBackControl_V40=lambda handle, cmd, ib, il, ob, ov: commands.append(cmd) or True
+            )
+
+        def last_error(self) -> int:
+            return 0
+
+    session = make_playback_session()
+    session.sdk = FakeSdkLib()
+    session.playback_handle = 99
+    return session
+
+
+def wait_for(predicate, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_queue_put_pauses_device_stream_at_high_watermark():
+    """队列到高水位时暂停设备供流（背压），不丢块、不置 failed。"""
+    commands: list[int] = []
+    session = make_flow_session(commands)
+
+    for _ in range(PLAYBACK_QUEUE_HIGH_WATERMARK):
+        session.queue_put(b"x")
+
+    # 暂停经异步线程下发，等待命令落地
+    assert wait_for(lambda: commands)
+    assert commands == [NET_DVR_PLAYPAUSE]
+    assert session.failed == ""
+
+
+def test_queue_put_waits_when_full_instead_of_dropping():
+    """队列满时等待消费端腾出空位，不丢数据（丢块会破坏 PS 流连续性导致花屏）。"""
+    session = make_flow_session([])
+    session.queue = queue.Queue(maxsize=2)
+    session.queue_put(b"a")
+    session.queue_put(b"b")
+
+    def consumer():
+        time.sleep(0.2)
+        session.queue.get()
+
+    thread = threading.Thread(target=consumer, daemon=True)
+    thread.start()
+    session.queue_put(b"c")
+    thread.join()
+
+    assert session.failed == ""
+    assert session.queue.get() == b"b"
+    assert session.queue.get() == b"c"
+
+
+def test_queue_put_returns_after_stop():
+    """会话停止后，阻塞中的 queue_put 立即返回而不是死等。"""
+    session = make_flow_session([])
+    session.queue = queue.Queue(maxsize=1)
+    session.queue_put(b"a")
+
+    def stopper():
+        time.sleep(0.2)
+        session._stopped = True
+
+    thread = threading.Thread(target=stopper, daemon=True)
+    thread.start()
+    session.queue_put(b"b")
+    thread.join()
+
+    assert session.queue.get() == b"a"
+
+
+def test_set_flow_paused_sends_pause_then_restart():
+    """流控命令幂等：暂停→恢复各下发一次。"""
+    commands: list[int] = []
+    session = make_flow_session(commands)
+
+    session._set_flow_paused(True)
+    session._set_flow_paused(True)
+    session._set_flow_paused(False)
+
+    assert commands == [NET_DVR_PLAYPAUSE, NET_DVR_PLAYRESTART]
+
+
+def test_writer_resumes_paused_flow_after_drain():
+    """写入线程排空队列到低水位（含排空为空）后续传设备供流，避免互等死锁。"""
+    commands: list[int] = []
+    session = make_flow_session(commands)
+    session._paused = True
+    stdin = SimpleNamespace(write=lambda b: None, flush=lambda: None, close=lambda: None, closed=False)
+    session.ffmpeg = SimpleNamespace(stdin=stdin)
+    session.queue.put(b"x")
+
+    thread = threading.Thread(target=session._write_ffmpeg_stdin, daemon=True)
+    thread.start()
+    try:
+        assert wait_for(lambda: NET_DVR_PLAYRESTART in commands)
+    finally:
+        session._stopped = True
+        thread.join(timeout=5)
+    assert commands == [NET_DVR_PLAYRESTART]
+
+
 def test_speed_change_restarts_session_with_new_speed(monkeypatch):
     """同一段录像倍速变化时停掉旧会话并以新倍速起流。"""
     proxy = make_proxy()
@@ -235,9 +352,7 @@ def test_speed_change_restarts_session_with_new_speed(monkeypatch):
 
     def fake_start_session(recording, speed=1.0):
         calls.append(("start", recording.recordingId, speed))
-        return FakeSession(
-            "new-1", "http://zlm/live/new-1.live.flv", recording_id=recording.recordingId, speed=speed
-        )
+        return FakeSession("new-1", "http://zlm/live/new-1.live.flv", recording_id=recording.recordingId, speed=speed)
 
     monkeypatch.setattr(proxy, "_cleanup_expired_locked", fake_cleanup)
     monkeypatch.setattr(proxy, "_stop_session", fake_stop_session)

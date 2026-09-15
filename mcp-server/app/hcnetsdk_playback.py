@@ -43,9 +43,19 @@ from .models import RecordingSegment
 logger = logging.getLogger(__name__)
 
 NET_DVR_PLAYSTART = 1
+NET_DVR_PLAYPAUSE = 3
+NET_DVR_PLAYRESTART = 4
 NET_DVR_PLAYBACK_BY_TIME = "hikvision_hcnetsdk_playback"
 NET_DVR_DOWNLOAD_BY_TIME = "hikvision_hcnetsdk_download"
 PLAYBACK_CALLBACK = CFUNCTYPE(None, c_long, c_uint32, POINTER(c_ubyte), c_uint32, c_void_p)
+
+
+# SDK 点播回调为不限速取流（现场实测约 15MB/s ≈ 35 倍速），远高于 ffmpeg 按倍速的消费速率。
+# 队列到高水位时通过 NET_DVR_PLAYPAUSE 暂停设备供流（背压），排空到低水位再 PLAYRESTART 续传；
+# 直接丢块会破坏 PS 流连续性，导致花屏或 ffmpeg 解复用失败。
+PLAYBACK_QUEUE_MAXSIZE = 256
+PLAYBACK_QUEUE_HIGH_WATERMARK = 192
+PLAYBACK_QUEUE_LOW_WATERMARK = 64
 
 
 class HcNetSdkError(RuntimeError):
@@ -257,6 +267,7 @@ class HcNetSdkPlaybackProxy:
         zlm_rtmp_push_base: str,
         ttl_seconds: int,
         timeout: float = 15,
+        max_live_sessions: int = 0,
     ) -> None:
         self.host = host
         self.port = port
@@ -271,11 +282,10 @@ class HcNetSdkPlaybackProxy:
         self.timeout = timeout
         self._semaphore = asyncio.Semaphore(1)
         self._sessions: dict[str, PlaybackSession] = {}
-        self._max_live_sessions = 2
+        # 0 表示不限制；仅特定部署环境（如 NVR 回放并发受限的 demo 环境）才设上限
+        self._max_live_sessions = max_live_sessions
 
-    def build_recording(
-        self, start_time: datetime, end_time: datetime, channel: int | None = None
-    ) -> RecordingSegment:
+    def build_recording(self, start_time: datetime, end_time: datetime, channel: int | None = None) -> RecordingSegment:
         """Build a playback recording descriptor bound to this proxy's device.
 
         Args:
@@ -323,8 +333,9 @@ class HcNetSdkPlaybackProxy:
     async def ensure_playback(self, recording: RecordingSegment, speed: float = 1.0) -> str:
         """Reuse the live session for the recording, or start one with oldest-first eviction.
 
-        NVR 回放并发数有限：达到上限或新建失败（会话数/带宽限制）时逐出最早建立的会话，
-        保证新请求总能拿到流。同一段录像倍速变化时先停掉旧会话再以新倍速起流。
+        默认不限制并发会话数；配置上限后达到上限时逐出最早建立的会话。新建失败
+        （NVR 会话数/带宽限制）时也会逐出最老会话后重试，保证新请求总能拿到流。
+        同一段录像倍速变化时先停掉旧会话再以新倍速起流。
         """
         async with self._semaphore:
             await self._cleanup_expired_locked()
@@ -336,17 +347,17 @@ class HcNetSdkPlaybackProxy:
                     self._sessions.pop(stream_name)
                     await asyncio.to_thread(self._stop_session, session)
             last_error: Exception | None = None
-            attempts = len(self._sessions) + 1
+            # 会话数为 0 时也要重试：ffmpeg 启流偶发死亡（设备供流抖动）与 NVR 会话占用无关
+            attempts = max(len(self._sessions) + 1, 3)
             for _ in range(attempts):
-                while len(self._sessions) >= self._max_live_sessions:
+                while self._max_live_sessions > 0 and len(self._sessions) >= self._max_live_sessions:
                     await self._stop_oldest_locked()
                 try:
                     session = await asyncio.to_thread(self._start_session, recording, speed)
                 except (HcNetSdkError, TimeoutError) as exc:
                     last_error = exc
-                    if not self._sessions:
-                        break
-                    await self._stop_oldest_locked()
+                    if self._sessions:
+                        await self._stop_oldest_locked()
                     continue
                 self._sessions[session.stream_name] = session
                 return session.playback_url
@@ -726,9 +737,12 @@ class PlaybackSession:
         self.playback_handle = -1
         self.ffmpeg: subprocess.Popen[bytes] | None = None
         self.callback: Any = None
-        self.queue: queue.Queue[bytes | None] = queue.Queue(maxsize=256)
+        self.queue: queue.Queue[bytes | None] = queue.Queue(maxsize=PLAYBACK_QUEUE_MAXSIZE)
         self.writer: threading.Thread | None = None
         self.failed = ""
+        self._paused = False
+        self._flow_lock = threading.Lock()
+        self._stopped = False
 
     def _ffmpeg_args(self) -> list[str]:
         # ffmpeg 可执行文件由部署环境 PATH 提供，参数均为内部构造
@@ -804,10 +818,10 @@ class PlaybackSession:
 
     def stop(self) -> None:
         """Stop SDK playback, drain the writer thread and terminate ffmpeg."""
+        self._stopped = True
         if self.playback_handle >= 0:
             self.sdk.sdk.NET_DVR_StopPlayBack(self.playback_handle)
             self.playback_handle = -1
-        self.queue_put(None)
         if self.writer is not None:
             self.writer.join(timeout=5)
         if self.ffmpeg is not None:
@@ -840,11 +854,50 @@ class PlaybackSession:
         self.queue_put(string_at(buffer, int(size)))
 
     def queue_put(self, item: bytes | None) -> None:
-        """Enqueue one playback data chunk; mark the session failed when the queue is full."""
-        try:
-            self.queue.put(item, timeout=1)
-        except queue.Full:
-            self.failed = "HCNetSDK callback queue is full"
+        """Enqueue one playback data chunk; backpressure pauses the device stream instead of dropping data.
+
+        SDK 回调供流（约 15MB/s）远快于 ffmpeg 按倍速消费：队列满时暂停设备供流并等待空位，
+        由写入线程排空到低水位后续传。丢块会破坏 PS 流连续性（花屏/启流解复用失败），禁止。
+        """
+        while not self._stopped:
+            try:
+                self.queue.put(item, timeout=1)
+            except queue.Full:
+                self._pause_flow_async()
+                continue
+            if item is not None and self.queue.qsize() >= PLAYBACK_QUEUE_HIGH_WATERMARK:
+                self._pause_flow_async()
+            return
+
+    def _pause_flow_async(self) -> None:
+        """Dispatch a device-side pause without blocking the SDK callback thread."""
+        if self._paused or self.playback_handle < 0:
+            return
+        threading.Thread(target=self._set_flow_paused, args=(True,), daemon=True).start()
+
+    def _set_flow_paused(self, paused: bool) -> None:
+        """Pause/resume device-side streaming; SDK errors are logged only (下个事件会重试)。"""
+        with self._flow_lock:
+            if self._paused == paused or self.playback_handle < 0:
+                return
+            command = NET_DVR_PLAYPAUSE if paused else NET_DVR_PLAYRESTART
+            out_size = c_uint32(0)
+            try:
+                ok = self.sdk.sdk.NET_DVR_PlayBackControl_V40(
+                    self.playback_handle, command, None, 0, None, byref(out_size)
+                )
+            except Exception:  # noqa: BLE001  # ctypes 调用异常类型不定，流控失败不阻断回放
+                logger.exception("playback flow control failed on %s", self.stream_name)
+                return
+            if ok:
+                self._paused = paused
+            else:
+                logger.warning(
+                    "playback flow control (paused=%s) failed on %s: sdk error %s",
+                    paused,
+                    self.stream_name,
+                    self.sdk.last_error(),
+                )
 
     def _write_ffmpeg_stdin(self) -> None:
         if self.ffmpeg is None:
@@ -853,10 +906,18 @@ class PlaybackSession:
         if stdin is None:
             self.failed = "ffmpeg stdin is not available"
             return
-        while True:
-            item = self.queue.get()
+        while not self._stopped:
+            try:
+                item = self.queue.get(timeout=1)
+            except queue.Empty:
+                # 队列排空后设备可能仍处于暂停状态，此时也必须续传，否则双方互等死锁
+                if self._paused and self.queue.qsize() <= PLAYBACK_QUEUE_LOW_WATERMARK:
+                    self._set_flow_paused(False)
+                continue
             if item is None:
                 break
+            if self._paused and self.queue.qsize() <= PLAYBACK_QUEUE_LOW_WATERMARK:
+                self._set_flow_paused(False)
             try:
                 stdin.write(item)
                 stdin.flush()

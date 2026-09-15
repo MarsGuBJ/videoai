@@ -89,6 +89,7 @@ MCP Server 依赖以下服务：
 | `VIDEOAI_ZLM_SECRET` | 项目默认 secret | ZLMediaKit API secret。 |
 | `VIDEOAI_ZLM_RTMP_PUSH_BASE` | `rtmp://127.0.0.1:1945/live` | 转推历史回放流的 RTMP 目标前缀。 |
 | `VIDEOAI_MCP_RECORDING_FALLBACK_FILE` | 空 | NVR 返回 `453 Not Enough Bandwidth` 时用于生成演示回放流的本地录像文件路径（容器内路径）。 |
+| `VIDEOAI_MCP_PUBLIC_BASE_URL` | `http://192.168.11.194:8097` | 生成 `/recording-live` 动态播放链接的对外基址，必须与客户端实际可访问的 MCP 地址一致。 |
 | `HIKVISION_NVR_BASE_URL` | 空 | 海康 NVR 地址，例如 `http://192.168.1.64`。 |
 | `HIKVISION_NVR_USERNAME` | 空 | 海康 NVR 用户名。 |
 | `HIKVISION_NVR_PASSWORD` | 空 | 海康 NVR 密码。 |
@@ -97,6 +98,7 @@ MCP Server 依赖以下服务：
 | `HCNETSDK_USERNAME` | `admin` | HCNetSDK 登录用户名。 |
 | `HCNETSDK_PASSWORD` | `cisdi123` | HCNetSDK 登录密码。 |
 | `HCNETSDK_CHANNEL` | `1` | 默认录像通道。 |
+| `HCNETSDK_MAX_LIVE_SESSIONS` | `0` | 每台设备同时保持的 SDK 回放会话上限；`0` 表示不限制。仅为 NVR 回放并发受限的特定部署环境（如 demo 环境）设置，例如 `2`。 |
 | `HCNETSDK_DEVICE_PORT` | `8000` | cameraId 多 NVR 路径下各摄像头绑定设备的 HCNetSDK 端口。 |
 | `HCNETSDK_DOWNLOAD_NVR_HOSTS` | `10.10.7.252,10.10.7.253` | `download_recording` 允许选择的 NVR 名称/IP，使用逗号分隔。 |
 | `HCNETSDK_DOWNLOAD_PORT` | `8000` | 录像下载设备的 HCNetSDK 端口。 |
@@ -114,6 +116,8 @@ MCP Server 依赖以下服务：
 | `VIDEOAI_MCP_HOST` | `0.0.0.0` | MCP Server 容器内监听地址；宿主机只绑定 `192.168.11.194:8097`，不对公网开放。 |
 | `VIDEOAI_MCP_PORT` | `8097` | MCP Server 监听端口。 |
 | `VIDEOAI_MCP_TRANSPORT` | `streamable-http` | MCP 传输方式。 |
+| `CAMERA_IMPORT_USERNAME` | 空 | 摄像头批量导入 CLI（`camera_import`）使用的平台账号，非 MCP tool 运行时路径。 |
+| `CAMERA_IMPORT_PASSWORD` | 空 | 摄像头批量导入 CLI 使用的平台密码，未配置时导入工具报 `camera import credentials are not configured`。 |
 
 ## 5. 摄像头 NVR 绑定字段
 
@@ -318,8 +322,8 @@ MCP Server 依赖以下服务：
 #### 已知限制
 
 - 动态链接的对外基址由 `VIDEOAI_MCP_PUBLIC_BASE_URL` 决定（默认 `http://192.168.11.194:8097`），必须与客户端实际可访问的 MCP 地址一致。
-- SDK 回放同时最多保持 2 路会话，超出时逐出最早建立的会话；新建会话失败（如 NVR 会话数/带宽限制）也会逐出最老会话后重试。回放会话有效期为 `VIDEOAI_MCP_PLAYBACK_TTL_SECONDS`（默认 1800 秒）。
-- NVR 以高于实时的速度吐回调数据，而代理用 `ffmpeg -re` 实时节流；回调队列打满（`HCNetSDK callback queue is full`）会导致会话失败，表现为本次调用报错，需重试。
+- SDK 回放会话数默认不限制；仅在特定部署环境（如 NVR 回放并发受限的 demo 环境）通过 `HCNETSDK_MAX_LIVE_SESSIONS` 设置上限（如 `2`，cameraId 多 NVR 路径下每台 NVR 各建一个回放代理，各自独立计数），超出时逐出该设备最早建立的会话。新建会话失败（如 NVR 会话数/带宽限制）也会逐出最老会话后重试。回放会话有效期为 `VIDEOAI_MCP_PLAYBACK_TTL_SECONDS`（默认 1800 秒）。
+- NVR 以高于实时的速度吐回调数据，而代理用 `ffmpeg -re` 实时节流；回调队列打满时会自动暂停设备供流，待队列腾出空位后恢复（背压机制，禁止丢块），不再因此导致会话失败。
 - MCP 容器必须包含 `ffmpeg`，否则无法生成代理流。
 
 ### 6.3.1 `GET /recording-live`
@@ -361,6 +365,7 @@ MCP Server 依赖以下服务：
 | --- | --- | --- | --- | --- |
 | `recordingId` | `string` | 是 | 无 | `search_recordings` 返回的录像 ID。 |
 | `format` | `"flv"`/`"hls"` | 否 | `flv` | 播放地址格式。 |
+| `speed` | `float` | 否 | `1.0` | 回放倍速，支持 `0.25`/`0.5`/`1`/`2`/`4`/`8`/`16`/`32`；仅 SDK 回放源生效，RTSP 转发源忽略；非法值报 `unsupported playback speed`。 |
 
 #### 返回值
 
@@ -496,7 +501,7 @@ MCP Server 依赖以下服务：
 }
 ```
 
-`nvrClockSkewSeconds` 为导出时测得的 NVR 时钟偏差（NVR 时间减服务器时间，秒），用于排查时间对不上问题。该时段无有效录像时返回错误。
+`nvrClockSkewSeconds` 为导出时测得的 NVR 时钟偏差（NVR 时间减服务器时间，秒），用于排查时间对不上问题。该时段无有效录像时返回错误。SDK 按时间下载路径（含 cameraId 路径与白名单 SDK 路径）返回额外包含 `exportMethod: "hcnetsdk_download"` 字段；RTSP 兜底路径无此字段。
 
 ### 6.7 `video_understanding`
 
@@ -615,11 +620,11 @@ MCP Server 依赖以下服务：
 | Tool | 输入 | 上游接口 |
 | --- | --- | --- |
 | `text_search_images` | `{"message":"穿红衣服的人","startTime":"2026-08-31 09:00","endTime":"2026-08-31 10:00","location":"园区南门","page":1,"pageSize":10}` | `POST {RETRIEVE_API_BASE_URL}/v1/retrieve/query` |
-| `search_person_by_image` | `{"imageUrl":"http://.../query.jpg","bbox":[{"x":550,"y":198}],"searchMethod":"reid","similarityThreshold":0.6,"topK":10,"waitTimeoutSeconds":120}` | 组合调用 detectPersons → searchPersonByBbox → searchPersonResult |
+| `search_person_by_image` | `{"imageUrl":"http://.../query.jpg","bbox":[{"x":550,"y":198}],"searchMethod":"reid","startTime":"2024-12-12 07:51:15","endTime":"2026-12-12 08:50:17","similarityThreshold":0.6,"topK":10,"waitTimeoutSeconds":120}` | 组合调用 detectPersons → searchPersonByBbox → searchPersonResult |
 
 `text_search_images`（文搜图）：按自然语言描述检索人员/车辆图片，`message` 必填；`startTime`/`endTime`/`location` 可空；`pageSize` 上限 100。返回值透传检索服务响应（`data.items` 为命中图片及属性）。
 
-`search_person_by_image`（图搜图）：一站式以图搜人。未传 `bbox` 时先调用 `detect_persons` 取第一个人形框；随后提交搜索任务并每 2 秒轮询，直到任务成功（返回含 `similar_persons` 的最终结果）或失败/超时（`waitTimeoutSeconds` 默认 120 秒）。已传 `bbox` 时跳过检测直接提交。
+`search_person_by_image`（图搜图）：一站式以图搜人。未传 `bbox` 时先调用 `detect_persons` 取第一个人形框；随后提交搜索任务并每 2 秒轮询，直到任务成功（返回含 `similar_persons` 的最终结果）或失败/超时（`waitTimeoutSeconds` 默认 120 秒）。已传 `bbox` 时跳过检测直接提交。`startTime`/`endTime` 可选，透传给上游 `searchPersonByBbox` 限定检索时间范围；提交任务失败时报 `搜索任务提交失败`。
 
 ### 6.10 图搜人和步态识别 tools
 
@@ -643,7 +648,7 @@ MCP Server 依赖以下服务：
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `faceId` | `string` | 否 | 空 | 指定人脸 ID 时只返回该人脸的匹配事件；为空时返回全部人脸的最新事件。 |
-| `limit` | `int` | 否 | `10` | 返回条数上限。 |
+| `limit` | `int` | 否 | `10` | 返回条数上限，最大 10，超出按 10 处理。 |
 
 返回 `{"data": [...], "count": N}`，`data` 为匹配事件数组。
 
@@ -691,15 +696,17 @@ videoai://recordings/b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22
 | `endTime <= startTime` | `endTime must be later than startTime`。 |
 | 未配置 `HIKVISION_NVR_BASE_URL` | `HIKVISION_NVR_BASE_URL is not configured`。 |
 | 未配置 NVR 用户名或密码 | `Hikvision NVR credentials are not configured`。 |
-| 摄像头未绑定 `nvrTrackId` 或 `nvrChannel` | `Camera {cameraId} is not bound to a Hikvision track/channel`。 |
+| 摄像头未绑定 `nvrTrackId` 或 `nvrChannel` | `camera {cameraId} is not bound to an NVR: nvrTrackId/nvrChannel is missing`。 |
 | `recordingId` 不存在或过期 | `recordingId is unknown or expired; call search_recordings again`。 |
 | FFmpeg/ZLMediaKit 转推失败 | 返回的播放 URL 不可用，需要检查 MCP 日志和 ZLMediaKit 流列表。 |
-| SDK 回放回调队列打满 | `HCNetSDK playback failed: HCNetSDK callback queue is full`，重试即可。 |
+| SDK 回放会话失败 | `HCNetSDK playback failed`（附具体会话/ffmpeg 错误细节），重试即可；回调队列打满时已改为背压暂停供流，不再报错。 |
+| `get_recording_stream` 倍速不支持 | `unsupported playback speed: {speed}; supported: ...`，改用支持的档位（0.25/0.5/1/2/4/8/16/32）。 |
 | `export_recording` 时段无录像 | `该时段无可用录像`。 |
 | `export_recording` 跨度超限 | `export duration must not exceed 7200 seconds`。 |
 | `export_recording` 抓流停滞超时 | 自动用已抓到的部分出片；内容不足时报 `该时段无可用录像`。 |
 | `text_search_images` 描述为空 | `message is required`。 |
 | `search_person_by_image` 图片中无人 | `未检测到人，请重新上传`。 |
+| `search_person_by_image` 任务提交失败 | `搜索任务提交失败`。 |
 | `search_person_by_image` 任务失败/超时 | `搜索任务失败` / `搜索任务超时，请稍后重试`。 |
 | 上游 4xx 业务响应 | 响应体包含 `upstreamStatusCode` 字段（人员检索/文搜图/视频分析类 tools）。 |
 
@@ -759,6 +766,7 @@ HCNETSDK_PORT=8000
 HCNETSDK_USERNAME=admin
 HCNETSDK_PASSWORD=cisdi123
 HCNETSDK_CHANNEL=1
+HCNETSDK_MAX_LIVE_SESSIONS=0
 HCNETSDK_DOWNLOAD_NVR_HOSTS=10.10.7.252,10.10.7.253
 HCNETSDK_DOWNLOAD_PORT=8000
 HCNETSDK_DOWNLOAD_USERNAME=admin

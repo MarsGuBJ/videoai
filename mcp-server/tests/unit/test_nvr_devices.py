@@ -171,8 +171,9 @@ def install_fake_httpx(monkeypatch, response=None, error=None):
 
 def test_search_segments_maps_matches_to_sdk_playback_segments(monkeypatch):
     calls = install_fake_httpx(monkeypatch)
-    start = datetime(2026, 9, 1, 9, 0, tzinfo=BJT)
-    end = datetime(2026, 9, 1, 10, 0, tzinfo=BJT)
+    # 查询窗口完整覆盖录像块（01:00~01:10），块不被裁剪
+    start = datetime(2026, 9, 1, 0, 30, tzinfo=BJT)
+    end = datetime(2026, 9, 1, 2, 0, tzinfo=BJT)
 
     segments = asyncio.run(search_segments(make_camera(), start, end, 10))
 
@@ -199,6 +200,35 @@ def test_search_segments_maps_matches_to_sdk_playback_segments(monkeypatch):
 
 SEARCH_START = datetime(2026, 9, 1, tzinfo=BJT)
 SEARCH_END = datetime(2026, 9, 1, 1, tzinfo=BJT)
+
+
+def test_search_segments_clips_matches_to_query_window(monkeypatch):
+    """ISAPI 返回与窗口相交的整个连续录像块（01:00~01:10）；结果裁剪到查询窗口，recordingId 随之重算。"""
+    install_fake_httpx(monkeypatch)
+    start = datetime(2026, 9, 1, 1, 5, tzinfo=BJT)
+    end = datetime(2026, 9, 1, 1, 8, tzinfo=BJT)
+
+    segments = asyncio.run(search_segments(make_camera(), start, end, 10))
+
+    assert len(segments) == 1
+    assert segments[0].startTime == start
+    assert segments[0].endTime == end
+    # 同一录像块在不同窗口下裁剪结果不同，缓存键必须不同
+    unclipped = asyncio.run(
+        search_segments(
+            make_camera(), datetime(2026, 9, 1, 0, 30, tzinfo=BJT), datetime(2026, 9, 1, 2, 0, tzinfo=BJT), 10
+        )
+    )
+    assert segments[0].recordingId != unclipped[0].recordingId
+
+
+def test_search_segments_drops_matches_outside_query_window(monkeypatch):
+    """与查询窗口无交集的录像块不返回。"""
+    install_fake_httpx(monkeypatch)
+    start = datetime(2026, 9, 1, 9, 0, tzinfo=BJT)
+    end = datetime(2026, 9, 1, 10, 0, tzinfo=BJT)
+
+    assert asyncio.run(search_segments(make_camera(), start, end, 10)) == []
 
 
 def test_search_segments_returns_empty_list_when_device_has_no_recordings(monkeypatch):

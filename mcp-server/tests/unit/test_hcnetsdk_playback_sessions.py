@@ -116,6 +116,28 @@ def test_ensure_playback_evicts_and_retries_on_start_failure(monkeypatch):
     assert list(proxy._sessions) == ["hcn-new"]
 
 
+def test_ensure_playback_retries_start_failure_without_sessions(monkeypatch):
+    """无任何现存会话时启流偶发失败（ffmpeg 启流死亡/设备抖动）也重试，直到成功。"""
+    proxy = make_proxy()
+    recording = make_recording()
+    new_session = make_session("hcn-new", recording.recordingId)
+    calls = []
+
+    def flaky_start(rec, speed=1.0):
+        calls.append(rec.recordingId)
+        if len(calls) < 3:
+            raise HcNetSdkError("ffmpeg exited")
+        return new_session
+
+    monkeypatch.setattr(proxy, "_start_session", flaky_start)
+
+    url = asyncio.run(proxy.ensure_playback(recording))
+
+    assert url == new_session.playback_url
+    assert len(calls) == 3
+    assert list(proxy._sessions) == ["hcn-new"]
+
+
 def test_ensure_playback_raises_after_all_sessions_evicted(monkeypatch):
     """逐出全部会话后仍失败时抛出最后一次错误。"""
     proxy = make_proxy()

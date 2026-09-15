@@ -55,6 +55,7 @@ class Settings:
     hcnetsdk_download_username: str
     hcnetsdk_download_password: str
     hcnetsdk_download_channel: int
+    hcnetsdk_max_live_sessions: int
     minio_endpoint: str
     minio_port: int
     minio_use_ssl: bool
@@ -105,6 +106,8 @@ def load_settings() -> Settings:
         hcnetsdk_download_username=_env("HCNETSDK_DOWNLOAD_USERNAME", "admin"),
         hcnetsdk_download_password=_env("HCNETSDK_DOWNLOAD_PASSWORD", ""),
         hcnetsdk_download_channel=_env_int("HCNETSDK_DOWNLOAD_CHANNEL", 1),
+        # 每台设备同时保持的 SDK 回放会话上限；0 表示不限制（demo 环境 NVR 并发受限时才设，如 2）
+        hcnetsdk_max_live_sessions=_env_int("HCNETSDK_MAX_LIVE_SESSIONS", 0),
         minio_endpoint=_env("MINIO_ENDPOINT", "192.168.11.194"),
         minio_port=_env_int("MINIO_PORT", 9000),
         minio_use_ssl=_env_bool("MINIO_USE_SSL", False),
