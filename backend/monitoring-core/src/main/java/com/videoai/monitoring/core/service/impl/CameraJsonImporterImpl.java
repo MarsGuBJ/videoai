@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.videoai.monitoring.core.config.VideoAiProperties;
 import com.videoai.monitoring.core.dao.CameraDao;
 import com.videoai.monitoring.core.entity.CameraEntity;
+import com.videoai.monitoring.core.support.AreaPaths;
 import com.videoai.monitoring.core.service.CameraJsonImporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,7 +72,7 @@ public class CameraJsonImporterImpl implements CameraJsonImporter {
         entity.setStreamName(node.path("streamName").asText());
         entity.setFfmpegKey(text(node, "ffmpegKey", null));
         entity.setDescription(text(node, "description", null));
-        entity.setArea(text(node, "area", null));
+        entity.setArea(AreaPaths.normalize(text(node, "area", null)));
         entity.setStatus(text(node, "status", "STOPPED"));
         entity.setCreatedAt(timestamp(node, "createdAt"));
         entity.setUpdatedAt(timestamp(node, "updatedAt"));

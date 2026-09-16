@@ -80,6 +80,11 @@ def test_search_recordings_http_uses_beijing_time_and_boolean_conversion(monkeyp
 
     monkeypatch.setattr(server.hcnetsdk_playback, "build_recording", fake_build_recording)
 
+    async def fake_list_cameras():
+        return []
+
+    monkeypatch.setattr(server.videoai, "list_cameras", fake_list_cameras)
+
     response = post(
         "/search_recordings-http",
         json={
@@ -93,46 +98,18 @@ def test_search_recordings_http_uses_beijing_time_and_boolean_conversion(monkeyp
     assert response.status_code == 200
     payload = response.json()
     assert payload["data"][0]["startTime"] == "2026-07-08T00:00:00+08:00"
+    assert payload["data"][0]["id"] == "cam-hcn"
     assert payload["data"][0].get("url") is None
     assert "streamUrl" not in payload["data"][0]
     assert calls[0][0].utcoffset().total_seconds() == 8 * 60 * 60
     assert calls[0][0].hour == 0
 
 
-def test_get_recording_stream_is_not_registered_as_mcp_tool():
-    tool_names = {tool.name for tool in asyncio.run(server.mcp.list_tools())}
+def test_get_recording_stream_http_route_removed():
+    """get_recording_stream 已从 MCP 接口移除：-http 入口不再注册。"""
+    response = post("/get_recording_stream-http", json={"recordingId": "rec-any", "format": "flv"})
 
-    assert "get_recording_stream" not in tool_names
-
-
-def test_get_recording_stream_http_route_remains_available(monkeypatch):
-    start = datetime(2026, 7, 8, tzinfo=timezone.utc)
-    recording = RecordingSegment(
-        recordingId="rec-http-compat",
-        cameraId="cam-hcn",
-        cameraName="IPC-198",
-        trackId="1",
-        startTime=start,
-        endTime=start.replace(minute=5),
-        playbackUri="hcnetsdk://192.168.11.198:8000/channels/1",
-        source=server.NET_DVR_PLAYBACK_BY_TIME,
-    )
-
-    async def fake_start_playback(cached_recording, speed=1.0):
-        assert cached_recording.recordingId == recording.recordingId
-        return "http://zlm/live/rec-http-compat.live.flv"
-
-    server.recording_cache.put_many([recording])
-    monkeypatch.setattr(server.hcnetsdk_playback, "start_playback", fake_start_playback)
-
-    response = post(
-        "/get_recording_stream-http",
-        json={"recordingId": recording.recordingId, "format": "flv"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["format"] == "flv"
-    assert response.json()["url"] == "http://zlm/live/rec-http-compat.live.flv"
+    assert response.status_code == 404
 
 
 def test_download_recording_http_route(monkeypatch, tmp_path):
@@ -150,7 +127,7 @@ def test_download_recording_http_route(monkeypatch, tmp_path):
         async def measure_clock_skew(self):
             return 0.0
 
-        async def download_mp4(self, recording):
+        async def download_mp4(self, recording, speedx=1):
             return temp_mp4
 
     def fake_upload_mp4(source_file, object_name):
@@ -173,6 +150,58 @@ def test_download_recording_http_route(monkeypatch, tmp_path):
     assert payload["data"][0]["format"] == "mp4"
     assert payload["data"][0]["url"].startswith("http://minio/public/recordings/")
     assert payload["data"][0]["metadata"]["deviceHost"] == "10.10.7.252"
+
+
+def test_download_recording_http_passes_speedx(monkeypatch, tmp_path):
+    temp_mp4 = tmp_path / "download.mp4"
+    temp_mp4.write_bytes(b"mp4")
+    calls = {}
+
+    class FakeDownloader:
+        channel = 1
+
+        def build_download_recording(self, start_time, end_time, channel=None):
+            from app.hcnetsdk_playback import build_hcnetsdk_download_recording
+
+            return build_hcnetsdk_download_recording("10.10.7.252", 8000, channel or self.channel, start_time, end_time)
+
+        async def measure_clock_skew(self):
+            return 0.0
+
+        async def download_mp4(self, recording, speedx=1):
+            calls["speedx"] = speedx
+            return temp_mp4
+
+    monkeypatch.setattr("app.tools.recordings.hcnetsdk_downloaders", {"10.10.7.252": FakeDownloader()})
+    monkeypatch.setattr(server.recording_mp4_storage, "upload_mp4", lambda source_file, object_name: "http://minio/x.mp4")
+
+    response = post(
+        "/download_recording-http",
+        json={
+            "nvr": "10.10.7.252",
+            "startTime": "2026-07-08T00:00:00",
+            "endTime": "2026-07-08T00:05:00",
+            "speedx": 16,
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls["speedx"] == 16
+
+
+def test_download_recording_http_rejects_invalid_speedx():
+    response = post(
+        "/download_recording-http",
+        json={
+            "nvr": "10.10.7.252",
+            "startTime": "2026-07-08T00:00:00",
+            "endTime": "2026-07-08T00:05:00",
+            "speedx": 3,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "speedx must be one of" in response.json()["error"]["message"]
 
 
 def test_download_recording_http_requires_nvr():
@@ -336,6 +365,59 @@ def test_search_person_by_bbox_http_converts_numeric_arguments(monkeypatch):
     ]
 
 
+def test_gait_feature_extract_and_insert_http_route_converts_arguments(monkeypatch):
+    calls = []
+    position = [{"x": 1, "y": 2}, {"x": 3, "y": 2}, {"x": 3, "y": 4}, {"x": 1, "y": 4}]
+
+    async def fake_gait_feature_extract_and_insert(
+        person_id,
+        image_url,
+        video_url,
+        is_walking,
+        is_full_body,
+        position,
+        frame_interval=4,
+        min_gait_frames=5,
+    ):
+        calls.append(
+            (person_id, image_url, video_url, is_walking, is_full_body, position, frame_interval, min_gait_frames)
+        )
+        return {"code": 200, "data": {"task_id": "task-1"}}
+
+    monkeypatch.setattr(
+        server.person_api, "gait_feature_extract_and_insert", fake_gait_feature_extract_and_insert
+    )
+
+    response = post(
+        "/gait_feature_extract_and_insert-http",
+        json={
+            "personId": "person-1",
+            "imageUrl": "http://example.test/query.jpg",
+            "videoUrl": "http://example.test/video.mp4",
+            "isWalking": "true",
+            "isFullBody": True,
+            "position": position,
+            "frameInterval": "2",
+            "minGaitFrames": "8",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["task_id"] == "task-1"
+    assert calls == [
+        (
+            "person-1",
+            "http://example.test/query.jpg",
+            "http://example.test/video.mp4",
+            True,
+            True,
+            position,
+            2,
+            8,
+        )
+    ]
+
+
 def test_gait_feature_compare_http_route_passes_person_array(monkeypatch):
     persons = [{"id": "person_001", "isWalking": True}, {"id": "person_002", "isWalking": True}]
 
@@ -382,8 +464,8 @@ def test_recording_live_redirects_to_on_demand_stream(monkeypatch):
     """GET /recording-live 按链接参数临时建流并 302 到真实 FLV 地址。"""
     calls = []
 
-    async def fake_ensure_playback(recording):
-        calls.append((recording.startTime, recording.endTime))
+    async def fake_ensure_playback(recording, speed=1.0):
+        calls.append((recording.startTime, recording.endTime, speed))
         return "http://zlm/live/hcn-ondemand.live.flv"
 
     monkeypatch.setattr(server.hcnetsdk_playback, "ensure_playback", fake_ensure_playback)
@@ -393,6 +475,30 @@ def test_recording_live_redirects_to_on_demand_stream(monkeypatch):
     assert response.status_code == 302
     assert response.headers["location"] == "http://zlm/live/hcn-ondemand.live.flv"
     assert calls[0][0].utcoffset().total_seconds() == 8 * 60 * 60
+    assert calls[0][2] == 1.0
+
+
+def test_recording_live_passes_speed_to_playback(monkeypatch):
+    """GET /recording-live?speed=8 把倍速传给 SDK 回放代理。"""
+    calls = []
+
+    async def fake_ensure_playback(recording, speed=1.0):
+        calls.append(speed)
+        return "http://zlm/live/hcn-speed.live.flv"
+
+    monkeypatch.setattr(server.hcnetsdk_playback, "ensure_playback", fake_ensure_playback)
+
+    response = get("/recording-live?startTime=2026-07-08T00:00:00&endTime=2026-07-08T00:05:00&speed=8")
+
+    assert response.status_code == 302
+    assert calls == [8.0]
+
+
+def test_recording_live_rejects_unsupported_speed():
+    response = get("/recording-live?startTime=2026-07-08T00:00:00&endTime=2026-07-08T00:05:00&speed=3")
+
+    assert response.status_code == 400
+    assert "unsupported playback speed" in response.json()["error"]["message"]
 
 
 def test_recording_live_with_camera_id_routes_to_camera_nvr(monkeypatch):
@@ -427,8 +533,9 @@ def test_recording_live_with_camera_id_routes_to_camera_nvr(monkeypatch):
                 source="hikvision_hcnetsdk_playback",
             )
 
-        async def ensure_playback(self, recording):
+        async def ensure_playback(self, recording, speed=1.0):
             calls["recording"] = recording
+            calls["speed"] = speed
             return "http://zlm/live/hcn-camera.live.flv"
 
     class FakeRegistry:
@@ -439,7 +546,7 @@ def test_recording_live_with_camera_id_routes_to_camera_nvr(monkeypatch):
     monkeypatch.setattr(server.videoai, "get_camera", fake_get_camera)
     monkeypatch.setattr("app.routes.nvr_devices", FakeRegistry())
 
-    async def fail_ensure_playback(recording):
+    async def fail_ensure_playback(recording, speed=1.0):
         raise AssertionError("cameraId path must not use the singleton playback proxy")
 
     monkeypatch.setattr(server.hcnetsdk_playback, "ensure_playback", fail_ensure_playback)

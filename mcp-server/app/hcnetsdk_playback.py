@@ -45,6 +45,8 @@ logger = logging.getLogger(__name__)
 NET_DVR_PLAYSTART = 1
 NET_DVR_PLAYPAUSE = 3
 NET_DVR_PLAYRESTART = 4
+# 下载句柄的流控命令（NET_DVR_PlayBackControl）：dwInValue 为流控值，单位 Mbps，范围 0~32
+NET_DVR_SETSPEED = 24
 NET_DVR_PLAYBACK_BY_TIME = "hikvision_hcnetsdk_playback"
 NET_DVR_DOWNLOAD_BY_TIME = "hikvision_hcnetsdk_download"
 PLAYBACK_CALLBACK = CFUNCTYPE(None, c_long, c_uint32, POINTER(c_ubyte), c_uint32, c_void_p)
@@ -440,11 +442,16 @@ class HcNetSdkPlaybackProxy:
         session.stop()
         self._close_zlm_stream(session.stream_name)
 
-    async def download_mp4(self, recording: RecordingSegment) -> Path:
-        """Download the recording via SDK and return the remuxed MP4 file path."""
-        return await asyncio.to_thread(self._download_mp4, recording)
+    async def download_mp4(self, recording: RecordingSegment, speedx: int = 1) -> Path:
+        """Download the recording via SDK and return the remuxed MP4 file path.
 
-    def _download_mp4(self, recording: RecordingSegment) -> Path:
+        Args:
+            speedx: NVR 侧下载流控倍速（1/2/4/8/16/32，映射 NET_DVR_SETSPEED 的 Mbps 流控值）；
+                1 为默认，不下发流控，按设备默认速度下载。
+        """
+        return await asyncio.to_thread(self._download_mp4, recording, speedx)
+
+    def _download_mp4(self, recording: RecordingSegment, speedx: int = 1) -> Path:
         work_dir = Path(tempfile.mkdtemp(prefix="hcnetsdk-download-"))
         ps_file = work_dir / f"{recording.recordingId}.ps"
         mp4_file = work_dir / f"{recording.recordingId}.mp4"
@@ -470,6 +477,14 @@ class HcNetSdkPlaybackProxy:
                 raise HcNetSdkError(f"NET_DVR_GetFileByTime failed: {sdk.last_error()}")
             if not sdk.sdk.NET_DVR_PlayBackControl(download_handle, NET_DVR_PLAYSTART, 0, None):
                 raise HcNetSdkError(f"NET_DVR_PlayBackControl download start failed: {sdk.last_error()}")
+            if speedx != 1:
+                # speedx 映射 NET_DVR_SETSPEED 流控值（Mbps）；设备不支持时告警并按默认速度继续，
+                # 只影响下载耗时，不影响文件内容
+                if not sdk.sdk.NET_DVR_PlayBackControl(download_handle, NET_DVR_SETSPEED, int(speedx), None):
+                    logger.warning(
+                        "NET_DVR_SETSPEED %dMbps failed on %s: %s; continue at device default speed",
+                        speedx, self.host, sdk.last_error(),
+                    )
             self._wait_until_downloaded(sdk, download_handle, recording)
             self._remux_to_mp4(ps_file, mp4_file)
             final_file = Path(tempfile.gettempdir()) / f"{recording.recordingId}.mp4"
@@ -764,20 +779,26 @@ class PlaybackSession:
             args += ["-re"]
         args += ["-i", "pipe:0", "-an"]
         if self.speed != 1.0:
-            # 压缩/拉伸时间戳让播放器按倍速渲染；fps=25 固定输出帧率
+            # 压缩/拉伸时间戳让播放器按倍速渲染；fps=25 固定输出帧率。
+            # 滤镜需要解码+重编码，倍速档必须转码 H.264（浏览器 MSE 不支持 HEVC）
             args += ["-vf", f"setpts=PTS/{self.speed:g},fps=25"]
+            args += [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-pix_fmt",
+                "yuv420p",
+                "-g",
+                "50",
+            ]
+        else:
+            # 1x 等速回放不重编码，源是什么编码就直推什么编码（H.264 直接使用），
+            # 与 media_proxy 的直播/录像转发行为一致
+            args += ["-c:v", "copy"]
         args += [
-            # 浏览器 MSE 不支持 NVR 的 HEVC（现场 NVR 多为 smart265），必须转码 H.264
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
-            "-g",
-            "50",
             "-f",
             "flv",
             self.rtmp_url,

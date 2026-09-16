@@ -7,11 +7,12 @@ from .persons import (
     detect_persons,
     detect_persons_with_id,
     gait_feature_compare,
+    gait_feature_extract_and_insert,
     get_person_bbox,
     get_person_search_result,
     search_person_by_bbox,
 )
-from .recordings import download_recording, export_recording, get_recording_stream, search_recordings
+from .recordings import download_recording, export_recording, search_recordings
 from .search import search_person_by_image, text_search_images
 from .understanding import video_understanding
 
@@ -22,10 +23,10 @@ __all__ = [
     "download_recording",
     "export_recording",
     "gait_feature_compare",
+    "gait_feature_extract_and_insert",
     "get_live_stream",
     "get_person_bbox",
     "get_person_search_result",
-    "get_recording_stream",
     "list_cameras",
     "query_face_matches",
     "search_person_by_bbox",

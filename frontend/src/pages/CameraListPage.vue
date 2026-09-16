@@ -7,9 +7,9 @@
           <div class="video-device-filter">
             <label>设备名称<input class="input" v-model.trim="nameQuery" placeholder="请输入设备名称/编号/IP" /></label>
             <label>接入协议<select class="select" v-model="protocolFilter"><option>全部协议</option><option>海康 SDK</option><option>大华 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></label>
-            <label>在线状态<select class="select" v-model="statusFilter"><option>全部状态</option><option>在线</option><option>离线</option><option>未成功连接</option><option>停用</option></select></label>
+            <label>在线状态<select class="select" v-model="statusFilter"><option>全部状态</option><option>在线</option><option>离线</option></select></label>
             <label>厂商<select class="select" v-model="vendorFilter"><option>全部厂商</option><option>海康威视</option><option>大华</option><option>宇视</option><option>华为</option><option>其他</option></select></label>
-            <label>所在区域<select class="select" v-model="areaFilter"><option>全部区域</option><option v-for="area in areaOptions" :key="area">{{ area }}</option></select></label>
+            <label>所在区域<select class="select" v-model="areaFilter"><option>全部区域</option><option v-for="option in areaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></label>
             <button class="btn primary" @click="loadCameras">查询</button>
             <button class="btn" @click="resetFilters">重置</button>
           </div>
@@ -20,7 +20,6 @@
           <div class="video-device-tabs"><button v-for="tab in quickTabs" :key="tab.key" class="video-device-tab" :class="{ active: activeQuickTab === tab.key }" @click="activeQuickTab = tab.key">{{ tab.label }} {{ tab.count }}</button></div>
           <div class="video-device-table-wrap">
             <table class="prototype-table video-device-table">
-              <colgroup><col style="width:42px;" /><col style="width:180px;" /><col style="width:125px;" /><col style="width:130px;" /><col style="width:165px;" /><col style="width:190px;" /><col style="width:180px;" /><col style="width:145px;" /><col style="width:86px;" /><col style="width:105px;" /><col style="width:190px;" /></colgroup>
               <thead><tr><th><input type="checkbox" aria-label="全选设备" :checked="allPageSelected" @change="toggleSelectAll" /></th><th class="left">设备名称</th><th>所在区域</th><th>接入协议</th><th>IP地址及端口</th><th>设备编号</th><th>设备序列号</th><th class="left">描述</th><th>密码强度</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="row in pagedCameras" :key="row.id">
@@ -42,8 +41,8 @@ import { defineComponent } from "vue";
 import { api } from "../api";
 import type { Camera } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
-import { buildRegionTree, loadCustomRegions, normalizePath, passwordStrength } from "../utils/regions";
-import type { RegionNode } from "../utils/regions";
+import { flattenRegionTree, loadRegionTree, normalizePath, passwordStrength } from "../utils/regions";
+import type { FlatRegionNode } from "../utils/regions";
 
 function guessProtocol(sourceUrl: string): string {
   const url = (sourceUrl || "").toLowerCase();
@@ -66,6 +65,7 @@ function statusLabel(status: string): string {
   const value = (status || "").toUpperCase();
   if (value === "RUNNING") return "在线";
   if (value === "STOPPED") return "离线";
+  if (value === "OFFLINE") return "离线";
   if (value === "DISABLED") return "停用";
   return "未成功连接";
 }
@@ -94,21 +94,17 @@ export default defineComponent({
       page: 1,
       pageSize: 10,
       loading: false,
-      customRegions: [] as string[],
+      regionFlat: [] as FlatRegionNode[],
       cameras: [] as any[]
     };
   },
   computed: {
-    regionNodes(): RegionNode[] {
-      const areas = this.cameras.map((row: any) => row.area).filter((area: string) => area && area !== "未分配");
-      return buildRegionTree(areas, this.customRegions);
-    },
-    // “所在区域”筛选下拉选项：设备区域 + 自定义区域的完整路径
-    areaOptions(): string[] {
-      return this.regionNodes.map((node) => node.fullPath);
+    // “所在区域”筛选下拉选项：后端区域树按 sortOrder 展开，按层级缩进显示
+    areaOptions(): { fullPath: string; label: string }[] {
+      return this.regionFlat.map((item) => ({ fullPath: item.fullPath, label: "　".repeat(item.depth) + item.name }));
     },
     regionPaths(): string[] {
-      return this.regionNodes.map((node) => node.fullPath);
+      return this.regionFlat.map((item) => item.fullPath);
     },
     quickTabs(): any[] {
       const rows = this.cameras;
@@ -180,7 +176,7 @@ export default defineComponent({
       this.page = 1;
     },
     "state.camerasVersion"() {
-      this.customRegions = loadCustomRegions();
+      this.loadRegions();
       this.loadCameras();
     }
   },
@@ -212,6 +208,13 @@ export default defineComponent({
         rawStatus: camera.status,
         vendor: camera.vendor || "其他",        raw: camera
       };
+    },
+    async loadRegions() {
+      try {
+        this.regionFlat = flattenRegionTree(await loadRegionTree());
+      } catch {
+        // 区域接口不可用时保留下拉现状
+      }
     },
     async loadCameras() {
       this.loading = true;
@@ -270,7 +273,7 @@ export default defineComponent({
     }
   },
   mounted() {
-    this.customRegions = loadCustomRegions();
+    this.loadRegions();
     this.loadCameras();
   }
 });

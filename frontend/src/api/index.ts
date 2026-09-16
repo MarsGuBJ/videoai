@@ -30,7 +30,7 @@ export type {
 export const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 export const MEDIA_API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_MEDIA_API_BASE_URL);
 
-const MEDIA_API_PATH_PREFIXES = ['/api/cameras', '/api/live', '/api/streams', '/api/access-config', '/api/cloud-platforms'];
+const MEDIA_API_PATH_PREFIXES = ['/api/cameras', '/api/live', '/api/streams', '/api/access-config', '/api/cloud-platforms', '/api/regions'];
 
 function isMediaApiPath(path: string): boolean {
   return MEDIA_API_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
@@ -39,6 +39,17 @@ function isMediaApiPath(path: string): boolean {
 function baseUrlForPath(path: string): string {
   return isMediaApiPath(path) ? MEDIA_API_BASE_URL : API_BASE_URL;
 }
+
+// 区域树节点（backend-media /api/regions/*）：children 已按 sortOrder 排序；
+// 节点完整路径 = 祖先 name 以 " / " 连接，与 utils/regions.ts 的 normalizePath 口径一致
+export type RegionTreeNode = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  sortOrder: number;
+  deviceCount: number;
+  children: RegionTreeNode[];
+};
 
 type CameraPayload = {
   name?: string;
@@ -101,6 +112,16 @@ type ReviewSchedulePayload = {
 export type PersonSearchBboxPoint = {
   x: number;
   y: number;
+};
+
+export type SourceProbeResponse = {
+  reachable?: boolean;
+  serialNumber?: string | null;
+  ptzSupported?: boolean | null;
+  ip?: string | null;
+  port?: number | null;
+  username?: string | null;
+  password?: string | null;
 };
 
 export type DetectedPerson = {
@@ -313,6 +334,25 @@ function fetchCamerasCached(): Promise<Camera[]> {
   return promise;
 }
 
+// 区域树 30 秒短缓存：与摄像头列表缓存同一口径；增删改/排序后立即失效，失败响应不留缓存
+const REGIONS_CACHE_TTL_MS = 30_000;
+let regionsCache: { at: number; promise: Promise<RegionTreeNode[]> } | null = null;
+
+export function invalidateRegions() {
+  regionsCache = null;
+}
+
+function fetchRegionTreeCached(): Promise<RegionTreeNode[]> {
+  const now = Date.now();
+  if (regionsCache && now - regionsCache.at < REGIONS_CACHE_TTL_MS) return regionsCache.promise;
+  const promise = request<RegionTreeNode[]>('/api/regions/tree').catch((error) => {
+    if (regionsCache?.promise === promise) regionsCache = null;
+    throw error;
+  });
+  regionsCache = { at: now, promise };
+  return promise;
+}
+
 export const api = {
   cameras: () => fetchCamerasCached(),
   camera: (id: string) => request<Camera>(`/api/cameras/${id}`),
@@ -343,6 +383,31 @@ export const api = {
     }),
   ptzControl: (id: string, payload: PtzCommandRequest) =>
     request<PtzCommandResponse>(`/api/cameras/${id}/ptz`, { method: 'POST', body: JSON.stringify(payload) }),
+  // 按拉流地址探测设备源：回取序列号/云台能力并解析 IP/端口/用户名/密码（新增/编辑设备页自动回填）
+  probeCameraSource: (sourceUrl: string) =>
+    request<SourceProbeResponse>('/api/cameras/probe-source', { method: 'POST', body: JSON.stringify({ sourceUrl }) }),
+
+  regionTree: () => fetchRegionTreeCached(),
+  createRegion: (payload: { name: string; parentId: string | null }) =>
+    request<RegionTreeNode>('/api/regions', { method: 'POST', body: JSON.stringify(payload) }).then((node) => {
+      invalidateRegions();
+      return node;
+    }),
+  renameRegion: (id: string, name: string) =>
+    request<RegionTreeNode>(`/api/regions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }).then((node) => {
+      invalidateRegions();
+      return node;
+    }),
+  reorderRegions: (parentId: string | null, orderedIds: string[]) =>
+    request<void>('/api/regions/reorder', { method: 'POST', body: JSON.stringify({ parentId, orderedIds }) }).then((result) => {
+      invalidateRegions();
+      return result;
+    }),
+  deleteRegion: (id: string) =>
+    request<void>(`/api/regions/${encodeURIComponent(id)}`, { method: 'DELETE' }).then((result) => {
+      invalidateRegions();
+      return result;
+    }),
 
   faces: () => request<FaceProfile[]>('/api/faces'),
   createFace: (form: FormData) => request<FaceProfile>('/api/faces', { method: 'POST', body: form }),

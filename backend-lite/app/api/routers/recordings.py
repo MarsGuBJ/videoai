@@ -12,7 +12,7 @@ from app.schemas.recordings import (
 )
 from app.services import camera_cache
 from app.services.person_search import required_text
-from app.services.recordings import download_recording, get_recording_stream, search_recordings
+from app.services.recordings import download_recording, search_recordings
 
 router = APIRouter()
 
@@ -60,7 +60,10 @@ def recordings_search(request: RecordingSearchRequest) -> RecordingSearchRespons
 
 @router.post("/api/recordings/stream")
 def recordings_stream(request: RecordingSearchRequest) -> RecordingStreamResponse:
-    """检索录像并为第一段录像换取 FLV 回放地址（speed 指定回放倍速）。"""
+    """检索录像并返回第一段录像的按需回放链接（/recording-live 动态链接，speed 指定回放倍速）。
+
+    链接在首次请求时才建立 SDK 回放流；不再调用 MCP get_recording_stream（该接口已移除）。
+    """
     _camera, camera_id, start_time, end_time = _resolve_camera(request)
     speed = request.speed if request.speed is not None else 1.0
     if speed not in PLAYBACK_SPEEDS:
@@ -70,17 +73,14 @@ def recordings_stream(request: RecordingSearchRequest) -> RecordingStreamRespons
             "cameraId": camera_id,
             "startTime": start_time,
             "endTime": end_time,
-            "autoProxy": False,
+            "autoProxy": True,
             "streamFormat": STREAM_FORMAT,
         }
     )
     if not data:
         raise HTTPException(status_code=404, detail="该时段无录像")
-    recording_id = required_text(str(data[0].get("recordingId") or ""), "recordingId")
-    stream = get_recording_stream({"recordingId": recording_id, "format": STREAM_FORMAT, "speed": speed})
-    return RecordingStreamResponse(
-        url=stream["url"], format=stream.get("format") or STREAM_FORMAT, expiresAt=stream.get("expiresAt")
-    )
+    url = required_text(str(data[0].get("url") or ""), "url")
+    return RecordingStreamResponse(url=f"{url}&speed={speed}", format=STREAM_FORMAT, expiresAt=None)
 
 
 @router.post("/api/recordings/download")

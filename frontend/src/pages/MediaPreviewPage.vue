@@ -11,8 +11,8 @@
       </aside>
       <section class="panel media-stage-panel">
         <div class="media-stage-toolbar"><div class="media-layout-buttons"><span>分屏</span><button v-for="count in [1, 4, 9, 16]" :key="count" :class="{ active: previewLayout === count }" @click="changeLayout(count)">{{ count }}</button></div><div class="media-control-buttons"><button class="btn" @click="saveScene">保存场景</button><select class="select" style="width:96px;" v-model="streamType" aria-label="码流类型" @change="onStreamTypeChange"><option value="main">主码流</option><option value="sub">子码流</option></select><button class="btn" @click="openModal('videoConfig')">视频参数</button><select class="select" style="width:96px;" v-model="videoFit" aria-label="画面比例" @change="onVideoFitChange"><option value="contain">原始比例</option><option value="cover">满屏窗口</option></select></div></div>
-        <div class="media-video-grid" ref="videoGrid" :class="gridClass"><article v-for="(feed, index) in visibleFeeds" :key="feed ? feed.name + '-' + index : 'empty-' + index" class="media-video-tile" :class="{ selected: feed && selectedFeed === index, 'drop-hover': dropHoverIndex === index, 'has-video': feed && !!videoAspects[index] }" :style="tileAspectStyle(index)" @click="feed && selectFeed(index)" @dragover.prevent="onTileDragOver(index)" @dragleave="onTileDragLeave(index)" @drop="onTileDrop($event, index)"><video-player v-if="feed && feed.camera" :ref="(el: any) => setPlayerRef(el, index)" :url="feedUrl(feed)" :fit="videoFit" :show-zoom-bar="!!feed.digitalZoom" @resolution="onVideoResolution(index, $event)" /><div v-else class="media-video-empty">请从左侧选择一个监控点上屏</div><template v-if="previewLayout === 1 && feed"><button class="media-feed-switch prev" title="上一路" aria-label="上一路摄像头" @click.stop="switchFeed(-1)">‹</button><button class="media-feed-switch next" title="下一路" aria-label="下一路摄像头" @click.stop="switchFeed(1)">›</button></template><span class="media-video-clock">{{ now }}</span></article><button v-if="gridFullscreen" class="media-fullscreen-exit" title="取消全屏" aria-label="取消全屏" @click="exitGridFullscreen">⛶</button></div>
-        <div class="media-stage-controls"><div class="media-control-buttons"><button class="media-icon-button" :title="ctrlPaused ? '播放' : '暂停'" @click="togglePlay">{{ ctrlPaused ? '▶' : '⏸' }}</button><button class="media-icon-button" title="停止" @click="stopSelected">■</button><button class="media-icon-button" :title="ctrlMuted ? '打开声音' : '静音'" @click="toggleSound">{{ ctrlMuted ? '静' : '♪' }}</button><button class="media-icon-button" title="抓拍" @click="snapshotSelected">▣</button><button class="btn" @click="openQuickReplay">即时回放</button><button class="btn" @click="setRoute('mediaPlayback')">切至录像</button><button class="btn" :class="{ primary: selectedDigitalZoom }" @click="toggleDigitalZoom">电子放大</button><button class="btn" @click="snapshotSelected">保存截图</button></div><span class="media-network-state">{{ selectedFeedName ? '当前窗口：' + selectedFeedName : '点击窗口或左侧监控点选择一路设备' }}</span></div>
+        <div class="media-video-grid" ref="videoGrid" :class="gridClass"><article v-for="(feed, index) in visibleFeeds" :key="feed ? feed.name + '-' + index : 'empty-' + index" class="media-video-tile" :class="{ selected: feed && selectedFeed === index, 'drop-hover': dropHoverIndex === index, 'has-video': feed && !!videoAspects[index] }" :style="tileAspectStyle()" @click="feed && selectFeed(index)" @dragover.prevent="onTileDragOver(index)" @dragleave="onTileDragLeave(index)" @drop="onTileDrop($event, index)"><video-player v-if="feed && feed.camera" :ref="(el: any) => setPlayerRef(el, index)" :url="feedUrl(feed)" :fit="videoFit" :show-zoom-bar="!!feed.digitalZoom" @resolution="onVideoResolution(index, $event)" /><div v-else class="media-video-empty">请从左侧选择一个监控点上屏</div><template v-if="previewLayout === 1 && feed"><button class="media-feed-switch prev" title="上一路" aria-label="上一路摄像头" @click.stop="switchFeed(-1)">‹</button><button class="media-feed-switch next" title="下一路" aria-label="下一路摄像头" @click.stop="switchFeed(1)">›</button></template><span class="media-video-clock">{{ now }}</span></article><button v-if="gridFullscreen" class="media-fullscreen-exit" title="取消全屏" aria-label="取消全屏" @click="exitGridFullscreen">⛶</button></div>
+        <div class="media-stage-controls"><div class="media-control-buttons"><button class="media-icon-button" :title="ctrlPaused ? '播放' : '暂停'" @click="togglePlay">{{ ctrlPaused ? '▶' : '⏸' }}</button><button class="media-icon-button" title="停止" @click="stopSelected">■</button><button class="media-icon-button" :title="ctrlMuted ? '打开声音' : '静音'" @click="toggleSound">{{ ctrlMuted ? '静' : '♪' }}</button><button class="media-icon-button" title="抓拍" @click="snapshotSelected">▣</button><button class="btn" @click="openQuickReplay">即时回放</button><button class="btn" @click="goToPlayback">切至录像</button><button class="btn" :class="{ primary: selectedDigitalZoom }" @click="toggleDigitalZoom">电子放大</button></div><span class="media-network-state">{{ selectedFeedName ? '当前窗口：' + selectedFeedName : '点击窗口或左侧监控点选择一路设备' }}</span></div>
       </section>
       <aside class="panel media-ptz-panel">
         <div class="media-ptz-section"><div class="media-panel-head"><b>云台控制</b><span class="status-pill" :class="ptzLocked || !ptzSupported ? 'waiting' : 'pass'">{{ !ptzCamera ? '未选择设备' : !ptzSupported ? '设备不支持' : ptzLocked ? '已锁定' : '已解锁' }}</span></div><div class="media-ptz-wheel"><button class="up" :disabled="ptzDisabled" @click="ptz('up')">▲</button><button class="left" :disabled="ptzDisabled" @click="ptz('left')">◀</button><button class="center" :disabled="ptzDisabled" @click="ptz('stop')">●</button><button class="right" :disabled="ptzDisabled" @click="ptz('right')">▶</button><button class="down" :disabled="ptzDisabled" @click="ptz('down')">▼</button></div><div class="media-range-list"><label>云台步长<input type="range" min="1" max="10" v-model.number="ptzStep" :disabled="ptzDisabled" /></label></div><div class="media-control-buttons" style="margin-top:12px;"><button class="btn primary" :disabled="ptzDisabled" @click="ptzLocked = true">锁定云台</button><button class="btn" :disabled="!ptzLocked" @click="ptzLocked = false">解锁</button></div></div>
@@ -26,9 +26,9 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api, cameraStreamUrl } from "../api";
-import type { PtzCommand } from "../api";
+import type { PtzCommand, RegionTreeNode } from "../api";
 import { loadPlayerSettings, snapshotFileName } from "../utils/player-settings";
-import { buildRegionTree, loadCustomRegions, normalizePath, type RegionNode } from "../utils/regions";
+import { flattenRegionTree, loadRegionTree, normalizePath, type RegionNode } from "../utils/regions";
 import VideoPlayer from "../components/VideoPlayer.vue";
 
 const FAVORITES_KEY = "videoai.media.favorites";
@@ -53,12 +53,50 @@ function statusLabel(status: string): string {
   const value = (status || "").toUpperCase();
   if (value === "RUNNING") return "在线";
   if (value === "STOPPED") return "离线";
+  if (value === "OFFLINE") return "离线";
   if (value === "DISABLED") return "停用";
   return "未成功连接";
 }
 
-function loadJson(key: string, fallback: any) {
-  try {
+// 区域节点来自后端区域树（sortOrder 顺序）；设备占用的路径不在树中时（含「未分配」）按前缀补齐到末尾。
+// count 口径与原 buildRegionTree 一致：顶层节点含全部子孙，子节点仅统计精确挂载的设备数。
+function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<string, any[]>): RegionNode[] {
+  const exactCount = (path: string) => (regionCameras[path] || []).length;
+  const subtreeCount = (path: string) =>
+    Object.keys(regionCameras)
+      .filter((p) => p === path || p.startsWith(path + " / "))
+      .reduce((sum, p) => sum + regionCameras[p].length, 0);
+  const regions: RegionNode[] = (tree ? flattenRegionTree(tree) : []).map((item) => ({
+    name: item.name,
+    fullPath: item.fullPath,
+    child: item.depth > 0,
+    count: item.depth > 0 ? exactCount(item.fullPath) : subtreeCount(item.fullPath)
+  }));
+  const seen = new Set(regions.map((region) => region.fullPath));
+  const missing: string[] = [];
+  for (const path of Object.keys(regionCameras)) {
+    let prefix = "";
+    for (const segment of path.split(" / ")) {
+      prefix = prefix ? `${prefix} / ${segment}` : segment;
+      if (!seen.has(prefix) && !missing.includes(prefix)) missing.push(prefix);
+    }
+  }
+  missing.sort((a, b) => a.localeCompare(b, "zh"));
+  missing.forEach((fullPath) => {
+    seen.add(fullPath);
+    const segments = fullPath.split(" / ");
+    const child = segments.length > 1;
+    regions.push({
+      name: segments[segments.length - 1],
+      fullPath,
+      child,
+      count: child ? exactCount(fullPath) : subtreeCount(fullPath)
+    });
+  });
+  return regions;
+}
+
+function loadJson(key: string, fallback: any) {  try {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
   } catch {
@@ -134,11 +172,12 @@ export default defineComponent({
         single: this.previewLayout === 1,
         "grid-9": this.previewLayout === 9,
         "grid-16": this.previewLayout === 16,
-        // 原始比例模式下有视频已加载：窗格高度改为适配视频宽高比（宽度始终适应容器）
+        // 原始比例模式下有视频已加载：宫格高度不再填充舞台，
+        // 各窗格统一按“最高画面”的宽高比确定高度
         "fit-video":
           this.videoFit === "contain" &&
           !this.gridFullscreen &&
-          this.visibleFeeds.some((feed, index) => !!feed && !!this.videoAspects[index])
+          !!this.unifiedVideoAspect
       };
     },
     visibleFeeds(): any[] {
@@ -147,6 +186,25 @@ export default defineComponent({
         list.push(this.feeds[i] || null);
       }
       return list;
+    },
+    // 已加载视频中“画面最高”的宽高比（同样窗格宽度下高度最大，即 w/h 最小），
+    // 用于统一所有窗格（含空窗格）的高度
+    unifiedVideoAspect(): string | null {
+      let best: string | null = null;
+      let bestRatio = Infinity;
+      for (const key of Object.keys(this.videoAspects)) {
+        const index = Number(key);
+        if (!this.visibleFeeds[index]) continue;
+        const width = Number(this.videoAspects[index].split("/")[0]);
+        const height = Number(this.videoAspects[index].split("/")[1]);
+        if (!width || !height) continue;
+        const ratio = width / height;
+        if (ratio < bestRatio) {
+          bestRatio = ratio;
+          best = `${width} / ${height}`;
+        }
+      }
+      return best;
     },
     displayRegions(): RegionNode[] {
       if (!this.searchKeyword.trim()) return this.regions;
@@ -208,10 +266,16 @@ export default defineComponent({
   },
   methods: {
     async loadCameras() {
+      let tree: RegionTreeNode[] | null = null;
+      try {
+        tree = await loadRegionTree();
+      } catch {
+        // 区域接口不可用时按设备 area 兜底聚合
+      }
       try {
         const list = await api.cameras();
         this.cameraList = list || [];
-        this.applyCameras(this.cameraList);
+        this.applyCameras(this.cameraList, tree);
         this.playPendingCamera();
       } catch (e) {
         // 接口不可用时保留当前树
@@ -229,12 +293,12 @@ export default defineComponent({
       }
       this.selectCamera({ name: camera.name, code: camera.id, camera }, null);
     },
-    // 监控点树与设备管理页共用同一套区域聚合逻辑：
-    // 设备 area 按 "/" 分层 + localStorage 自定义区域（utils/regions.ts）
-    applyCameras(list: any[]) {
+    // 监控点树的区域顺序来自后端区域树（utils/regions.ts loadRegionTree），
+    // 设备按 area 全路径（" / " 连接、分段 trim）挂到对应区域节点下
+    applyCameras(list: any[], tree: RegionTreeNode[] | null) {
       const regionCameras: Record<string, any[]> = {};
       for (const c of list) {
-        // 与 buildRegionTree 的 fullPath 口径一致（" / " 连接、分段 trim），否则展开区域取不到设备
+        // 与区域树 fullPath 口径一致，否则展开区域取不到设备
         const areaPath = normalizePath(c.area) || "未分配";
         if (!regionCameras[areaPath]) {
           regionCameras[areaPath] = [];
@@ -248,7 +312,7 @@ export default defineComponent({
           areaPath
         });
       }
-      const regions = buildRegionTree(Object.keys(regionCameras).flatMap((path) => regionCameras[path].map(() => path)), loadCustomRegions());
+      const regions = regionsFromTree(tree, regionCameras);
       const expanded: Record<string, boolean> = {};
       regions.forEach((region, index) => {
         expanded[region.fullPath] = index === 0;
@@ -344,12 +408,11 @@ export default defineComponent({
         this.videoAspects[index] = `${resolution.width} / ${resolution.height}`;
       }
     },
-    // 原始比例模式下给已加载视频的窗格内联宽高比；空窗口/满屏窗口不处理
-    tileAspectStyle(index: number): Record<string, string> | null {
-      const feed = this.visibleFeeds[index];
-      const aspect = feed && this.videoAspects[index];
-      if (!aspect || this.videoFit !== "contain" || this.gridFullscreen) return null;
-      return { aspectRatio: aspect };
+    // 原始比例模式下所有窗格统一使用“最高画面”的宽高比，空窗格也按此高度对齐；
+    // 满屏窗口模式/宫格全屏时不处理
+    tileAspectStyle(): Record<string, string> | null {
+      if (this.videoFit !== "contain" || this.gridFullscreen || !this.unifiedVideoAspect) return null;
+      return { aspectRatio: this.unifiedVideoAspect };
     },
     // 码流切换作用于当前选中窗口；子码流代理由后端按厂商约定（海康 101→102、大华 subtype=0→1）注册
     onStreamTypeChange() {
@@ -656,6 +719,18 @@ export default defineComponent({
         return;
       }
       this.openModal("quickReplay", { camera: feed.camera });
+    },
+    // 切至录像：带上当前选中窗口的设备，录像回放页检索并播放其最新 15 分钟录像
+    goToPlayback() {
+      const feed = this.visibleFeeds[this.selectedFeed];
+      if (!feed || !feed.camera) {
+        this.setRoute("mediaPlayback");
+        return;
+      }
+      const endMs = Date.now();
+      this.setRoute("mediaPlayback", {
+        playbackQuery: { cameraId: feed.camera.id, startMs: endMs - 15 * 60 * 1000, endMs }
+      });
     },
     toggleDigitalZoom() {
       const feed = this.visibleFeeds[this.selectedFeed];

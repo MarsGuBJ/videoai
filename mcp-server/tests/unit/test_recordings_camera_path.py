@@ -8,7 +8,7 @@ from urllib.parse import quote
 import pytest
 
 import app.server as server
-from app.hcnetsdk_playback import NET_DVR_PLAYBACK_BY_TIME, build_hcnetsdk_download_recording
+from app.hcnetsdk_playback import NET_DVR_PLAYBACK_BY_TIME, build_hcnetsdk_download_recording, build_hcnetsdk_recording
 from app.models import Camera, RecordingSegment
 
 BJT = timezone(timedelta(hours=8))
@@ -110,14 +110,79 @@ def test_search_recordings_with_camera_id_returns_segment_links(monkeypatch):
         )
         assert item["url"] == expected_url
         assert item["format"] == "flv"
+        assert item["id"] == "cam-1"
         assert item["cameraId"] == "cam-1"
         assert item["cameraName"] == "园区东门"
         assert item["source"] == "hikvision_hcnetsdk_playback"
         assert "username" not in item["metadata"]
         assert item["metadata"]["deviceHost"] == "10.10.8.10"
-        # 段已入缓存，可供 get_recording_stream 使用
+        # 段已入缓存，供录像资源查询使用
         assert server.recording_cache.get(segment.recordingId) is not None
     assert "cameraId=cam-1" in result["xml"]
+    assert 'id="cam-1"' in result["xml"]
+
+
+class FakeSingletonPlayback:
+    """无 cameraId 路径使用的单例回放代理替身（host/channel 供摄像头反查）。"""
+
+    host = "10.10.8.10"
+    channel = 1
+
+    def build_recording(self, start_time, end_time):
+        return build_hcnetsdk_recording(self.host, 8000, self.channel, start_time, end_time)
+
+
+def test_search_recordings_without_camera_id_resolves_camera_uuid(monkeypatch):
+    """无 cameraId 路径：按 NVR 主机+通道反查平台摄像头，id/cameraId 返回摄像头 UUID。"""
+    camera = make_nvr_camera()
+
+    async def fake_list_cameras():
+        return [camera]
+
+    monkeypatch.setattr("app.tools.recordings.hcnetsdk_playback", FakeSingletonPlayback())
+    monkeypatch.setattr(server.videoai, "list_cameras", fake_list_cameras)
+    monkeypatch.setattr(
+        "app.tools.recordings.settings", SimpleNamespace(mcp_public_base_url="http://mcp.test:8097")
+    )
+
+    result = asyncio.run(
+        server.search_recordings(
+            startTime="2026-09-01T09:00:00",
+            endTime="2026-09-01T10:00:00",
+            limit=10,
+        )
+    )
+
+    item = result["data"][0]
+    assert item["id"] == "cam-1"
+    assert item["cameraId"] == "cam-1"
+    assert item["cameraName"] == "园区东门"
+    assert 'id="cam-1"' in result["xml"]
+
+
+def test_search_recordings_without_camera_id_keeps_synthetic_id_when_no_camera_matches(monkeypatch):
+    """无 cameraId 路径：平台列表无匹配摄像头时保留合成的设备通道标识。"""
+
+    async def fake_list_cameras():
+        return [make_nvr_camera(nvrChannel="2", nvrTrackId="201")]
+
+    monkeypatch.setattr("app.tools.recordings.hcnetsdk_playback", FakeSingletonPlayback())
+    monkeypatch.setattr(server.videoai, "list_cameras", fake_list_cameras)
+    monkeypatch.setattr(
+        "app.tools.recordings.settings", SimpleNamespace(mcp_public_base_url="http://mcp.test:8097")
+    )
+
+    result = asyncio.run(
+        server.search_recordings(
+            startTime="2026-09-01T09:00:00",
+            endTime="2026-09-01T10:00:00",
+            limit=10,
+        )
+    )
+
+    item = result["data"][0]
+    assert item["id"] == "10.10.8.10-channel-1"
+    assert item["cameraId"] == "10.10.8.10-channel-1"
 
 
 def test_search_recordings_with_camera_id_returns_empty_when_device_has_no_recordings(monkeypatch):
@@ -161,72 +226,6 @@ def test_search_recordings_with_camera_id_rejects_unbound_camera(monkeypatch):
         )
 
 
-def test_get_recording_stream_routes_camera_recording_to_per_device_proxy(monkeypatch):
-    """metadata.deviceHost 非单例设备时按 recording.cameraId 查摄像头并路由到 per-device 代理。"""
-    camera = make_nvr_camera()
-    start = datetime(2026, 9, 1, 9, 0, tzinfo=BJT)
-    recording = make_segment(camera, start)
-    server.recording_cache.put_many([recording])
-    install_camera_lookup(monkeypatch, camera)
-    calls = {}
-
-    class FakeProxy:
-        async def start_playback(self, rec, speed=1.0):
-            calls["recording"] = rec
-            return "http://zlm/live/hcn-per-device.live.flv"
-
-    class FakeRegistry:
-        def proxy_for_credentials(self, credentials):
-            calls["credentials"] = credentials
-            return FakeProxy()
-
-    monkeypatch.setattr("app.tools.recordings.nvr_devices", FakeRegistry())
-
-    async def fail_start_playback(rec, speed=1.0):
-        raise AssertionError("camera recording must not use the singleton playback proxy")
-
-    monkeypatch.setattr(server.hcnetsdk_playback, "start_playback", fail_start_playback)
-
-    result = asyncio.run(server.get_recording_stream(recording.recordingId))
-
-    assert result["url"] == "http://zlm/live/hcn-per-device.live.flv"
-    assert result["format"] == "flv"
-    assert calls["credentials"].host == "10.10.8.10"
-    assert calls["credentials"].channel == 1
-    assert calls["recording"].recordingId == recording.recordingId
-    assert "username" not in result["metadata"]
-
-
-def test_get_recording_stream_keeps_singleton_for_legacy_recording(monkeypatch):
-    """metadata.deviceHost 为空或等于单例设备时不查摄像头，仍走单例 hcnetsdk_playback。"""
-    start = datetime(2026, 9, 1, 9, 0, tzinfo=BJT)
-    recording = RecordingSegment(
-        recordingId="rec-legacy",
-        cameraId="192.168.11.198-channel-1",
-        cameraName="IPC-198",
-        trackId="1",
-        startTime=start,
-        endTime=start + timedelta(minutes=5),
-        playbackUri="hcnetsdk://192.168.11.198:8000/channels/1",
-        source=NET_DVR_PLAYBACK_BY_TIME,
-        metadata={"deviceHost": "192.168.11.198", "devicePort": 8000, "channel": 1},
-    )
-    server.recording_cache.put_many([recording])
-
-    async def fail_get_camera(camera_id):
-        raise AssertionError("legacy recording must not query the camera API")
-
-    async def fake_start_playback(rec, speed=1.0):
-        return "http://zlm/live/hcn-legacy.live.flv"
-
-    monkeypatch.setattr(server.videoai, "get_camera", fail_get_camera)
-    monkeypatch.setattr(server.hcnetsdk_playback, "start_playback", fake_start_playback)
-
-    result = asyncio.run(server.get_recording_stream("rec-legacy"))
-
-    assert result["url"] == "http://zlm/live/hcn-legacy.live.flv"
-
-
 def test_download_recording_with_camera_id_uses_per_device_proxy(monkeypatch, tmp_path):
     """cameraId 路径：registry 取设备代理，时钟偏差补偿到 SDK 下载时间，展示时间保持请求值。"""
     camera = make_nvr_camera()
@@ -244,7 +243,7 @@ def test_download_recording_with_camera_id_uses_per_device_proxy(monkeypatch, tm
         async def measure_clock_skew(self):
             return -3600.0
 
-        async def download_mp4(self, recording):
+        async def download_mp4(self, recording, speedx=1):
             calls["download_start"] = recording.startTime
             return temp_mp4
 
@@ -293,35 +292,3 @@ def test_download_recording_without_nvr_and_camera_id_keeps_existing_error():
                 endTime="2026-09-01T09:05:00",
             )
         )
-
-
-def test_get_recording_stream_rejects_unsupported_speed():
-    """倍速不在 NVR 实测支持档位（0.25~32）时直接报错，不起流。"""
-    with pytest.raises(ValueError, match="unsupported playback speed"):
-        asyncio.run(server.get_recording_stream("rec-any", speed=3.0))
-
-
-def test_get_recording_stream_passes_speed_to_playback_proxy(monkeypatch):
-    """倍速透传到 SDK 回放代理的 start_playback。"""
-    camera = make_nvr_camera()
-    start = datetime(2026, 9, 1, 9, 0, tzinfo=BJT)
-    recording = make_segment(camera, start)
-    server.recording_cache.put_many([recording])
-    install_camera_lookup(monkeypatch, camera)
-    calls = {}
-
-    class FakeProxy:
-        async def start_playback(self, rec, speed=1.0):
-            calls["speed"] = speed
-            return "http://zlm/live/hcn-speed.live.flv"
-
-    class FakeRegistry:
-        def proxy_for_credentials(self, credentials):
-            return FakeProxy()
-
-    monkeypatch.setattr("app.tools.recordings.nvr_devices", FakeRegistry())
-
-    result = asyncio.run(server.get_recording_stream(recording.recordingId, speed=8.0))
-
-    assert result["url"] == "http://zlm/live/hcn-speed.live.flv"
-    assert calls["speed"] == 8.0

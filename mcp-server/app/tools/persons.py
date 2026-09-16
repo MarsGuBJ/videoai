@@ -52,6 +52,30 @@ async def get_person_bbox(personId: str) -> dict:
 
 
 @mcp.tool()
+async def gait_feature_extract_and_insert(
+    personId: str,
+    imageUrl: str,
+    videoUrl: str,
+    isWalking: bool,
+    isFullBody: bool,
+    position: list[dict[str, Any]],
+    frameInterval: int = 4,
+    minGaitFrames: int = 5,
+) -> dict:
+    """Submit an async task to extract gait features from a walking video and store them for comparison."""
+    return await person_api.gait_feature_extract_and_insert(
+        personId,
+        imageUrl,
+        videoUrl,
+        isWalking,
+        isFullBody,
+        position,
+        frame_interval=frameInterval,
+        min_gait_frames=minGaitFrames,
+    )
+
+
+@mcp.tool()
 async def gait_feature_compare(persons: list[dict[str, Any]]) -> dict:
     """Compare gait features for a list of person records; the first person is the reference."""
     return await person_api.gait_feature_compare(persons)

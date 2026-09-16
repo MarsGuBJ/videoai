@@ -1,5 +1,29 @@
 # 接口规范
 
+## 环境地址
+
+下文接口路径均为 URL 路径（统一前缀 `/vlm-application`），调用时拼接对应环境的 Base URL：
+
+| 环境 | Base URL | 用途 |
+|------|------|------|
+| 项目现场 | `http://10.10.3.100:15501` | 生产环境 |
+| 本地测试（192） | `http://192.168.11.192:15501` | 开发验证环境（容器化部署，与现场同构） |
+
+两套环境接口完全一致，192 测试通过后打包发布到现场。
+示例（人员检测，替换 Base URL 即可切换环境）：
+
+```bash
+# 本地测试（192）
+curl -X POST http://192.168.11.192:15501/vlm-application/search/detectPersons \
+     -H "Content-Type: application/json" \
+     -d '{"image_url": "http://xxx/query.jpg"}'
+
+# 项目现场
+curl -X POST http://10.10.3.100:15501/vlm-application/search/detectPersons \
+     -H "Content-Type: application/json" \
+     -d '{"image_url": "http://xxx/query.jpg"}'
+```
+
 ## 一、图搜人
 
 ### 1. 人员检测
@@ -141,25 +165,21 @@
     "message": "成功",
     "data": {
         "status": "success",
-        "message": "任务完成",
+        "message": "找到 3 个相似人员",
         "data": {
-            "status": "success",
-            "message": "找到 3 个相似人员",
-            "processed_bboxes": [[{"x":..., "y":...}, ...]],
-            "search_method": "vlm",
-            "similar_persons": [
-                {
-                    "es_doc_id": "...",
-                    "similarity_score": 0.85,
-                    "create_time": 1735708249,
-                    "camera_id": "...",
-                    "image_url": "..."
-                }
-            ]
+            "index_name": "search_person_info",
+            "es_ids": ["id1", "id2", "id3"]
         }
     }
 }
 ```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `data.data.index_name` | string | 命中目标所在的 ES 索引名，多个用逗号分隔 |
+| `data.data.es_ids` | array | 命中目标的 ES 文档 ID 数组，去重保序 |
+
+> 说明：搜索结果只返回 ES 定位信息（index_name + es_ids），调用方按需自行从 ES 取文档详情。多 bbox / 多目标搜索时同一 ES 文档可能被多次命中，已按首次命中顺序去重。
 
 **任务处理中 (200)**
 ```json
@@ -328,7 +348,64 @@
 
 ## 二、步态识别
 
-### 步态特征比对
+### 1. 步态特征提取入库
+
+#### POST /vlm-application/gait/gaitFeaExtraAndIns
+
+异步接口，从视频中提取人员步态特征向量并写入 Milvus（`gait_features` 集合），供后续 `gaitFeaCompare` 比对。
+
+##### 请求体
+
+```json
+{
+    "id": "1f63f7a20cdb4488b0c997ad1daa54b7",
+    "image_url": "http://xxx/query_image.jpg",
+    "video_url": "http://xxx/video.mp4",
+    "is_walking": true,
+    "is_full_body": true,
+    "position": [
+        {"x": 1119, "y": 569},
+        {"x": 1344, "y": 569},
+        {"x": 1344, "y": 1005},
+        {"x": 1119, "y": 1005}
+    ],
+    "frame_interval": 4,
+    "min_gait_frames": 5
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 人员 ID（与 ES 文档 ID 对应） |
+| `image_url` | string | 是 | 人员查询图片 URL |
+| `video_url` | string | 是 | 人员行走视频 URL |
+| `is_walking` | bool | 是 | 是否行走，`false` 返回 400 |
+| `is_full_body` | bool | 是 | 是否全身可见，`false` 返回 400 |
+| `position` | array | 是 | 人员检测框，4 点定位多边形 |
+| `frame_interval` | int | 否 | 视频抽帧间隔，默认 `4` |
+| `min_gait_frames` | int | 否 | 最小步态帧数，默认 `5` |
+
+##### 返回值
+
+**成功 (200)**
+```json
+{
+    "code": 200,
+    "message": "成功",
+    "data": {
+        "task_id": "550e8400-e29b-41d4-a716-446655440000"
+    }
+}
+```
+
+> 说明：
+> - 接口收到请求后先将 ES 文档 `has_gait` 置为 `false`（全覆盖标记），异步任务提取成功后再更新为 `true`
+> - 任务结果无独立查询接口，入库结果通过 ES 文档 `has_gait` 字段体现，比对能力通过 `gaitFeaCompare` 体现
+> - 仅支持行走且全身可见的视频，抽帧不足 `min_gait_frames` 时任务失败
+
+---
+
+### 2. 步态特征比对
 
 #### POST /vlm-application/gait/gaitFeaCompare
 

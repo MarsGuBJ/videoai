@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.videoai.monitoring.common.dto.CameraCreateRequest;
 import com.videoai.monitoring.common.dto.CameraUpdateRequest;
 import com.videoai.monitoring.common.vo.CameraResponse;
+import com.videoai.monitoring.core.client.DeviceSourceProbe;
 import com.videoai.monitoring.core.client.ZlmClient;
 import com.videoai.monitoring.core.config.VideoAiProperties;
 import com.videoai.monitoring.core.dao.CameraDao;
@@ -11,6 +12,7 @@ import com.videoai.monitoring.core.entity.CameraEntity;
 import com.videoai.monitoring.core.service.CameraService;
 import com.videoai.monitoring.core.service.LiveRelayService;
 import com.videoai.monitoring.core.service.preview.PreviewRelayManager;
+import com.videoai.monitoring.core.support.AreaPaths;
 import com.videoai.monitoring.core.support.StreamUrls;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,6 +38,13 @@ public class CameraServiceImpl implements CameraService {
     private final ZlmClient zlmClient;
     private final LiveRelayService liveRelayService;
     private final PreviewRelayManager previewRelayManager;
+    private final DeviceSourceProbe serialNumberResolver = new DeviceSourceProbe();
+    /** 序列号回取走后台线程：慢速设备不能阻塞创建接口 */
+    private final ExecutorService serialFetchExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "camera-serial-fetch");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public CameraServiceImpl(CameraDao cameraDao, VideoAiProperties properties, ZlmClient zlmClient,
                              LiveRelayService liveRelayService, PreviewRelayManager previewRelayManager) {
@@ -73,7 +84,7 @@ public class CameraServiceImpl implements CameraService {
         if (streamName == null || streamName.isEmpty()) {
             streamName = id.toString();
         }
-        String area = clean(request.area());
+        String area = AreaPaths.normalize(request.area());
         CameraEntity entity = new CameraEntity();
         entity.setId(id);
         entity.setName(request.name());
@@ -98,7 +109,9 @@ public class CameraServiceImpl implements CameraService {
         entity.setPort(clean(request.port()));
         entity.setUsername(clean(request.username()));
         entity.setPassword(clean(request.password()));
-        entity.setDeviceCode(clean(request.deviceCode()));
+        String deviceCode = clean(request.deviceCode());
+        // 未填设备编号时按 CAM%05d 自动分配（新增页已不再手填该字段）
+        entity.setDeviceCode(deviceCode != null ? deviceCode : nextDeviceCode());
         entity.setSerialNumber(clean(request.serialNumber()));
         entity.setVideoPreviewEnabled(request.videoPreviewEnabled() != null ? request.videoPreviewEnabled() : Boolean.TRUE);
         entity.setAudioEnabled(request.audioEnabled() != null ? request.audioEnabled() : Boolean.FALSE);
@@ -115,7 +128,55 @@ public class CameraServiceImpl implements CameraService {
         entity.setGbCode(clean(request.gbCode()));
         entity.setChannelName(clean(request.channelName()));
         cameraDao.insert(entity);
+        scheduleSerialNumberFetch(id, request.sourceUrl());
         return get(id);
+    }
+
+    /** 下一个自动设备编号：CAM00001 起，按库内已有 CAM%05d 最大值递增。 */
+    private String nextDeviceCode() {
+        int max = 0;
+        List<String> codes = cameraDao.selectCamDeviceCodes();
+        if (codes == null) {
+            return String.format("CAM%05d", 1);
+        }
+        for (String code : codes) {
+            if (code == null || code.length() != 8) {
+                continue;
+            }
+            try {
+                max = Math.max(max, Integer.parseInt(code.substring(3)));
+            } catch (NumberFormatException ignored) {
+                // 非纯数字尾缀不参与编号分配
+            }
+        }
+        return String.format("CAM%05d", max + 1);
+    }
+
+    /** 创建后异步回取设备序列号；回取失败或设备不支持时留空，不影响创建结果。 */
+    private void scheduleSerialNumberFetch(UUID id, String sourceUrl) {
+        if (!DeviceSourceProbe.isResolvable(sourceUrl)) {
+            return;
+        }
+        serialFetchExecutor.submit(() -> {
+            try {
+                Optional<String> serial = serialNumberResolver.resolveSerialNumber(sourceUrl);
+                if (serial.isEmpty()) {
+                    return;
+                }
+                CameraEntity fresh = cameraDao.selectById(id);
+                if (fresh == null) {
+                    return;
+                }
+                // 用户已在编辑页手填序列号时不覆盖
+                if (fresh.getSerialNumber() != null && !fresh.getSerialNumber().isBlank()) {
+                    return;
+                }
+                fresh.setSerialNumber(serial.get());
+                cameraDao.updateCamera(fresh);
+            } catch (Exception ignored) {
+                // 序列号回取失败不影响设备创建
+            }
+        });
     }
 
     @Override
@@ -125,7 +186,7 @@ public class CameraServiceImpl implements CameraService {
         String newName = request.name() != null ? request.name() : old.name();
         String newSourceUrl = request.sourceUrl() != null ? request.sourceUrl() : old.sourceUrl();
         String newDescription = request.description() != null ? request.description() : old.description();
-        String newArea = request.area() != null ? request.area() : old.area();
+        String newArea = request.area() != null ? AreaPaths.normalize(request.area()) : old.area();
         String streamName = StreamUrls.streamNameFromSource(newSourceUrl);
         if (streamName == null || streamName.isEmpty()) {
             streamName = old.streamName();
@@ -147,8 +208,11 @@ public class CameraServiceImpl implements CameraService {
         entity.setPort(request.port() != null ? clean(request.port()) : old.port());
         entity.setUsername(request.username() != null ? clean(request.username()) : old.username());
         entity.setPassword(request.password() != null ? clean(request.password()) : old.password());
-        entity.setDeviceCode(request.deviceCode() != null ? clean(request.deviceCode()) : old.deviceCode());
-        entity.setSerialNumber(request.serialNumber() != null ? clean(request.serialNumber()) : old.serialNumber());
+        // 设备编号留空（含历史数据为空串）时按 CAM%05d 自动分配
+        String deviceCode = clean(request.deviceCode() != null ? request.deviceCode() : old.deviceCode());
+        entity.setDeviceCode(deviceCode != null ? deviceCode : nextDeviceCode());
+        String serialNumber = clean(request.serialNumber() != null ? request.serialNumber() : old.serialNumber());
+        entity.setSerialNumber(serialNumber);
         entity.setVideoPreviewEnabled(request.videoPreviewEnabled() != null ? request.videoPreviewEnabled() : old.videoPreviewEnabled());
         entity.setAudioEnabled(request.audioEnabled() != null ? request.audioEnabled() : old.audioEnabled());
         entity.setTalkbackEnabled(request.talkbackEnabled() != null ? request.talkbackEnabled() : old.talkbackEnabled());
@@ -164,6 +228,10 @@ public class CameraServiceImpl implements CameraService {
         entity.setGbCode(request.gbCode() != null ? clean(request.gbCode()) : old.gbCode());
         entity.setChannelName(request.channelName() != null ? clean(request.channelName()) : old.channelName());
         cameraDao.updateCamera(entity);
+        // 序列号为空时后台回取（编辑页改了拉流地址直接保存也覆盖到）
+        if (serialNumber == null) {
+            scheduleSerialNumberFetch(id, newSourceUrl);
+        }
         if (!newSourceUrl.equals(old.sourceUrl()) || !streamName.equals(old.streamName())) {
             previewRelayManager.stopStream(old.streamName());
             liveRelayService.stopFfmpegLiveRelay(old.streamName());

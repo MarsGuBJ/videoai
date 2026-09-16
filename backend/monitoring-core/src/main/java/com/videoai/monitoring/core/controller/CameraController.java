@@ -4,8 +4,11 @@ import com.videoai.monitoring.api.CameraApi;
 import com.videoai.monitoring.common.dto.CameraCreateRequest;
 import com.videoai.monitoring.common.dto.CameraUpdateRequest;
 import com.videoai.monitoring.common.dto.PtzControlRequest;
+import com.videoai.monitoring.common.dto.SourceProbeRequest;
 import com.videoai.monitoring.common.vo.CameraResponse;
 import com.videoai.monitoring.common.vo.PtzControlResponse;
+import com.videoai.monitoring.common.vo.SourceProbeResponse;
+import com.videoai.monitoring.core.client.DeviceSourceProbe;
 import com.videoai.monitoring.core.service.CameraService;
 import com.videoai.monitoring.core.service.PtzService;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,6 +21,8 @@ import java.util.UUID;
 public class CameraController implements CameraApi {
     private final CameraService cameraService;
     private final PtzService ptzService;
+    /** 无状态工具，直接持有即可 */
+    private final DeviceSourceProbe sourceProbe = new DeviceSourceProbe();
 
     public CameraController(CameraService cameraService, PtzService ptzService) {
         this.cameraService = cameraService;
@@ -62,6 +67,20 @@ public class CameraController implements CameraApi {
     @Override
     public PtzControlResponse ptz(UUID id, PtzControlRequest request) {
         return ptzService.control(id, request);
+    }
+
+    @Override
+    public SourceProbeResponse probeSource(SourceProbeRequest request) {
+        DeviceSourceProbe.ParsedSource parsed = DeviceSourceProbe.parseSource(request.sourceUrl());
+        DeviceSourceProbe.ProbeResult result = sourceProbe.probe(request.sourceUrl());
+        return new SourceProbeResponse(
+                result.reachable(),
+                result.serialNumber(),
+                result.ptzSupported(),
+                parsed != null ? parsed.host() : null,
+                parsed != null ? parsed.port() : null,
+                parsed != null ? parsed.username() : null,
+                parsed != null ? parsed.password() : null);
     }
 
     @Override

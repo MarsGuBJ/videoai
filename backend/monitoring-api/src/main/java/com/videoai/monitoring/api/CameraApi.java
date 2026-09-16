@@ -3,8 +3,10 @@ package com.videoai.monitoring.api;
 import com.videoai.monitoring.common.dto.CameraCreateRequest;
 import com.videoai.monitoring.common.dto.CameraUpdateRequest;
 import com.videoai.monitoring.common.dto.PtzControlRequest;
+import com.videoai.monitoring.common.dto.SourceProbeRequest;
 import com.videoai.monitoring.common.vo.CameraResponse;
 import com.videoai.monitoring.common.vo.PtzControlResponse;
+import com.videoai.monitoring.common.vo.SourceProbeResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -48,6 +50,13 @@ public interface CameraApi {
 
     @PostMapping("/{id}/ptz")
     PtzControlResponse ptz(@PathVariable UUID id, @Valid @RequestBody PtzControlRequest request);
+
+    /**
+     * 按拉流地址探测设备源：回取序列号、云台能力，并解析出 IP/端口/用户名/密码，
+     * 供新增/编辑设备页在输入拉流地址后自动回填。
+     */
+    @PostMapping("/probe-source")
+    SourceProbeResponse probeSource(@Valid @RequestBody SourceProbeRequest request);
 
     @GetMapping("/media")
     Map<String, Object> mediaList();

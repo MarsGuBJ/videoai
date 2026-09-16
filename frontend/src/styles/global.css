@@ -3645,6 +3645,21 @@
       gap: 0 22px;
     }
 
+    /* 视频参数配置弹窗：加宽标签列避免“重连间隔（秒）：”换行导致两列控件错位；
+       复选框行占满控件列并与输入框垂直居中 */
+    .video-config-modal .modal-form-row {
+      grid-template-columns: 112px 1fr;
+    }
+
+    .video-config-modal .modal-form-row.video-config-check {
+      align-items: center;
+    }
+
+    .video-config-modal .modal-form-row.video-config-check > .video-device-include {
+      padding-top: 0;
+      text-align: left;
+    }
+
     .modal-split {
       display: flex;
       gap: 20px;
@@ -4048,6 +4063,12 @@
       gap: 0 24px;
     }
 
+    .form-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0 24px;
+    }
+
     .form-panel .form-section-title {
       margin-top: 4px;
     }
@@ -4065,6 +4086,35 @@
       color: #475467;
       text-align: right;
       font-size: 12px;
+    }
+
+    /* IP 地址专用输入框：四段数字均分控件宽度 */
+    .ip-input {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .ip-input .ip-input-segment {
+      flex: 1;
+      min-width: 0;
+      padding-left: 6px;
+      padding-right: 6px;
+      text-align: center;
+    }
+
+    .ip-input .ip-input-dot {
+      color: #98a2b3;
+      font-weight: 600;
+    }
+
+    /* 新增/编辑设备页：输入框获得焦点时 placeholder 自动消失 */
+    .device-wizard-page .input:focus::placeholder,
+    .device-wizard-page .textarea:focus::placeholder,
+    .device-edit-page .input:focus::placeholder,
+    .device-edit-page .textarea:focus::placeholder {
+      color: transparent;
     }
 
     .version-upload-single {
@@ -4575,9 +4625,10 @@
       color: #98a2b3;
     }
 
-    /* 状态居左后，收藏星标仍居右 */
+    /* 状态居左后，收藏星标仍居右；可点击，悬停显示手型 */
     .media-preview-page .exact-tree-device .link-blue {
       margin-left: auto;
+      cursor: pointer;
     }
 
     .deploy-tree-camera {
@@ -4706,6 +4757,86 @@
     .exact-tree-item span:last-child {
       color: #98a2b3;
       font-size: 11px;
+    }
+
+    /* 区域管理弹窗：区域树编辑器（左树右详情双栏） */
+    .region-editor {
+      display: flex;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .region-tree-panel {
+      flex: 0 0 55%;
+      max-height: 360px;
+      overflow: auto;
+      border: 1px solid #edf0f5;
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 6px;
+    }
+
+    .region-tree-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 32px;
+      padding-top: 0;
+      padding-bottom: 0;
+      padding-right: 8px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: #475467;
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .region-tree-row:hover,
+    .region-tree-row.selected {
+      border-color: #cfe2ff;
+      background: #eef6ff;
+      color: var(--blue);
+    }
+
+    .region-tree-row.drop-before {
+      box-shadow: inset 0 2px 0 var(--blue);
+    }
+
+    .region-tree-row.drop-after {
+      box-shadow: inset 0 -2px 0 var(--blue);
+    }
+
+    .region-tree-arrow {
+      flex: 0 0 16px;
+      text-align: center;
+      color: #98a2b3;
+      cursor: pointer;
+    }
+
+    .region-tree-arrow.placeholder {
+      cursor: default;
+    }
+
+    .region-tree-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .region-tree-empty {
+      padding: 16px 12px;
+      color: #98a2b3;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .region-detail-panel {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid #edf0f5;
+      border-radius: 8px;
+      padding: 14px;
     }
 
     .exact-camera-pane {
@@ -8971,8 +9102,25 @@
       overflow-x: auto;
     }
 
+    /* 设备表格列宽按内容自适应（覆盖 prototype-table 的 fixed 布局）；
+       内容过宽时由 .video-device-table-wrap 出现横向滚动条 */
     .video-device-table {
-      min-width: 1420px;
+      table-layout: auto;
+      min-width: 100%;
+    }
+
+    /* 除「所在区域」（第3列）与「设备序列号」（第7列）允许折行外，其余列不折行 */
+    .video-device-table th,
+    .video-device-table td {
+      white-space: nowrap;
+    }
+
+    .video-device-table th:nth-child(3),
+    .video-device-table td:nth-child(3),
+    .video-device-table th:nth-child(7),
+    .video-device-table td:nth-child(7) {
+      white-space: normal;
+      word-break: break-all;
     }
 
     .video-device-table td,
@@ -9027,7 +9175,7 @@
 
     .media-console-grid {
       display: grid;
-      grid-template-columns: 230px minmax(0, 1fr) 238px;
+      grid-template-columns: 287.5px minmax(0, 1fr) 238px;
       gap: 12px;
       min-height: calc(100vh - 132px);
     }
@@ -9069,6 +9217,17 @@
       display: flex;
       flex-direction: column;
       max-height: calc(100vh - 132px);
+    }
+
+    /* 页签行（监控点/收藏/场景）与搜索框保持固有高度，不被列表挤压；
+       overflow-x:auto 会让 overflow-y 计算为 auto，需显式 hidden 禁止垂直滚动条 */
+    .media-preview-page .media-resource-panel .media-resource-tabs,
+    .media-preview-page .media-resource-panel > .input {
+      flex: 0 0 auto;
+    }
+
+    .media-preview-page .media-resource-panel .media-resource-tabs {
+      overflow-y: hidden;
     }
 
     .media-preview-page .media-resource-panel .media-playback-tree {
@@ -9297,38 +9456,26 @@
       grid-template-rows: minmax(440px, 1fr);
     }
 
-    /* 9/16 宫格：窗格默认宽高 1:1，行高随列宽确定，
-       总高度超出页面时由 .workspace 出现垂直滚动条 */
+    /* 9/16 宫格：无视频时与 4 宫格一致，行高随舞台（视口）高度均分，保留最小行高；
+       有视频加载后由 fit-video 规则接管，行高按视频宽高比确定 */
     .media-video-grid.grid-9 {
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      grid-template-rows: none;
-      grid-auto-rows: auto;
-      align-content: start;
+      grid-template-rows: repeat(3, minmax(140px, 1fr));
     }
 
     .media-video-grid.grid-16 {
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      grid-template-rows: none;
-      grid-auto-rows: auto;
-      align-content: start;
+      grid-template-rows: repeat(4, minmax(100px, 1fr));
     }
 
-    .media-video-grid.grid-9 .media-video-tile,
-    .media-video-grid.grid-16 .media-video-tile {
-      aspect-ratio: 1 / 1;
-    }
-
-    /* 实时预览：原始比例模式下视频加载后（fit-video），窗格宽度适应容器宽度、
-       高度按视频真实宽高比收缩（内联 aspect-ratio 覆盖）；未加载视频的窗格保持 1:1。
-       无 fit-video 时维持默认布局：高度填充窗口显示区 */
+    /* 实时预览：原始比例模式下有视频加载后（fit-video），宫格不再填充舞台高度，
+       行高按视频宽高比确定；所有窗格（含空窗格）由内联 aspect-ratio 统一为
+       “最高画面”的高度。无 fit-video 时维持默认布局：高度填充窗口显示区 */
     .media-video-grid.fit-video {
+      flex: 0 0 auto;
       grid-template-rows: none;
       grid-auto-rows: auto;
       align-content: start;
-    }
-
-    .media-video-grid.fit-video .media-video-tile {
-      aspect-ratio: 1 / 1;
     }
 
     /* “满屏窗口”：视频宫格整体全屏时铺满屏幕 */

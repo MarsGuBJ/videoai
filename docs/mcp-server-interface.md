@@ -36,7 +36,6 @@ http://192.168.11.194:8097/mcp
 http://192.168.11.194:8097/list_cameras-http
 http://192.168.11.194:8097/get_live_stream-http
 http://192.168.11.194:8097/search_recordings-http
-http://192.168.11.194:8097/get_recording_stream-http
 http://192.168.11.194:8097/download_recording-http
 http://192.168.11.194:8097/export_recording-http
 http://192.168.11.194:8097/video_understanding-http
@@ -317,7 +316,7 @@ MCP Server 依赖以下服务：
 
 #### 安全说明
 
-返回值不包含录像设备的原始地址凭据，也不会返回用户名或密码。`recordingId` 由设备/通道（cameraId 路径为设备/track）/时间区间确定性生成，可用于后续调用 `get_recording_stream`。
+返回值不包含录像设备的原始地址凭据，也不会返回用户名或密码。`recordingId` 由设备/通道（cameraId 路径为设备/track）/时间区间确定性生成，可用于录像资源（`videoai://recordings/{recordingId}`）查询。
 
 #### 已知限制
 
@@ -341,6 +340,7 @@ MCP Server 依赖以下服务：
 | `cameraId` | `string` | 否 | 非空时按该摄像头绑定的 NVR 回放；为空时走 `HCNETSDK_*` 单设备路径。 |
 | `startTime` | `string` | 是 | 回放开始时间，ISO 8601；未带时区按东八区北京时间解释。 |
 | `endTime` | `string` | 是 | 回放结束时间，必须晚于 `startTime`。 |
+| `speed` | `float` | 否 | 回放倍速，默认 `1`；仅支持 `0.25`/`0.5`/`1`/`2`/`4`/`8`/`16`/`32`，其他值报 `unsupported playback speed`。 |
 
 #### 响应
 
@@ -348,56 +348,7 @@ MCP Server 依赖以下服务：
 - 参数错误：`400` JSON（`{"error": {"type": "ValueError", "message": ...}}`）。
 - 建流失败：`500` JSON，细节记录于 MCP 服务端日志。
 
-### 6.4 `get_recording_stream`
-
-获取某个历史录像片段的短期 FLV/HLS 播放地址，默认 FLV。该接口只提供 HTTP JSON 入口（`/get_recording_stream-http`），不注册为 MCP tool。
-
-#### 输入参数
-
-```json
-{
-  "recordingId": "b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22",
-  "format": "flv"
-}
-```
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-| --- | --- | --- | --- | --- |
-| `recordingId` | `string` | 是 | 无 | `search_recordings` 返回的录像 ID。 |
-| `format` | `"flv"`/`"hls"` | 否 | `flv` | 播放地址格式。 |
-| `speed` | `float` | 否 | `1.0` | 回放倍速，支持 `0.25`/`0.5`/`1`/`2`/`4`/`8`/`16`/`32`；仅 SDK 回放源生效，RTSP 转发源忽略；非法值报 `unsupported playback speed`。 |
-
-#### 返回值
-
-```json
-{
-  "url": "http://localhost:8080/live/rec-b7d7f2e07d1.live.flv",
-  "format": "flv",
-  "expiresAt": "2026-06-22T02:05:00+00:00",
-  "source": "hikvision_rtsp_direct",
-  "metadata": {
-    "nvrId": "192.168.11.251",
-    "nvrChannel": "601",
-    "nvrStreamType": "main",
-    "cameraId": "192.168.11.251-track-601",
-    "cameraName": "NVR-192.168.11.251-601",
-    "recordingId": "b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22",
-    "trackId": "601",
-    "startTime": "2026-06-22T01:00:00+00:00",
-    "endTime": "2026-06-22T01:10:00+00:00"
-  }
-}
-```
-
-#### 行为说明
-
-- `recordingId` 必须来自同一 MCP Server 实例近期的 `search_recordings`（或 `download_recording`）结果。
-- 默认缓存有效期为 `VIDEOAI_MCP_PLAYBACK_TTL_SECONDS`，默认 `1800` 秒；过期需重新调用 `search_recordings`。
-- 录像来源为 HCNetSDK 回放（`hikvision_hcnetsdk_playback`）时，重新启动一路 SDK 回放会话并输出 FLV（忽略 `format` 参数）；cameraId 路径检索出的录像（metadata 含非单例设备的 `deviceHost`）会按 `cameraId` 再查一次摄像头，路由到该摄像头绑定 NVR 的 per-device 回放代理。
-- 其他来源（RTSP 回放地址）通过 FFmpeg/ZLMediaKit 转推为 FLV/HLS；当 NVR 返回 `453 Not Enough Bandwidth` 时，使用 `VIDEOAI_MCP_RECORDING_FALLBACK_FILE` 指定的演示录像文件生成同格式代理流。
-- 返回值同样附 `xml`（`sxin-video-file` 摘要）字段；`input` 字段原样回显本次调用的输入参数（`recordingId`、`format`、`speed`）。
-
-### 6.5 `download_recording`
+### 6.4 `download_recording`
 
 使用 HCNetSDK `NET_DVR_GetFileByTime` 从指定设备下载指定时间范围录像，remux 为 MP4 并保存到 MinIO。下载前会通过 `/ISAPI/System/time` 自动测量设备时钟偏差并补偿（SDK 时间按设备本地时钟解释）。
 
@@ -410,7 +361,8 @@ MCP Server 依赖以下服务：
   "nvr": "10.10.7.252",
   "startTime": "2026-07-14T11:22:10+08:00",
   "endTime": "2026-07-14T11:23:10+08:00",
-  "trackId": "201"
+  "trackId": "201",
+  "speedx": 16
 }
 ```
 
@@ -422,6 +374,7 @@ MCP Server 依赖以下服务：
 | `endTime` | `string` | 是 | 无 | 下载结束时间，必须晚于 `startTime`；无时区时按北京时间解释。 |
 | `trackId` | `string` | 否 | 空 | 海康 track ID（如 `201`），自动换算 SDK 通道号（`201`→通道 `2`）。 |
 | `channel` | `int` | 否 | `0` | 显式 SDK 通道号，优先级高于 `trackId`；都为 0/空时用 `HCNETSDK_DOWNLOAD_CHANNEL`。 |
+| `speedx` | `int` | 否 | `1` | NVR 侧下载流控倍速，可选值 `1/2/4/8/16/32`，映射 HCNetSDK `NET_DVR_SETSPEED` 的流控值（单位 Mbps，范围 0~32）。`1` 为默认值，不下发流控命令，按设备默认速度下载；设备不支持设速时记录告警并按默认速度继续（只影响下载耗时，不影响文件内容）。 |
 
 下载账号：白名单路径由 `HCNETSDK_DOWNLOAD_USERNAME`/`HCNETSDK_DOWNLOAD_PASSWORD` 配置；cameraId 路径取摄像头 `sourceUrl` 内嵌凭据。账号需具备回放/下载权限，否则 SDK 会报 `NET_DVR_PlayBackControl download start failed: 17`（无权限）。
 
@@ -458,7 +411,7 @@ MCP Server 依赖以下服务：
 }
 ```
 
-### 6.6 `export_recording`
+### 6.5 `export_recording`
 
 通过 HCNetSDK 按时间下载（`NET_DVR_GetFileByTime`）把指定时间范围的录像导出为 MP4 并上传 MinIO，返回可直接 HTTP 访问的文件地址。供"文搜视频"等需要视频文件 URL 的场景使用。
 
@@ -503,7 +456,7 @@ MCP Server 依赖以下服务：
 
 `nvrClockSkewSeconds` 为导出时测得的 NVR 时钟偏差（NVR 时间减服务器时间，秒），用于排查时间对不上问题。该时段无有效录像时返回错误。SDK 按时间下载路径（含 cameraId 路径与白名单 SDK 路径）返回额外包含 `exportMethod: "hcnetsdk_download"` 字段；RTSP 兜底路径无此字段。
 
-### 6.7 `video_understanding`
+### 6.6 `video_understanding`
 
 代理调用视频理解结果结构化展示服务（`VIDEO_UNDERSTANDING_API_BASE_URL`，默认 `http://192.168.11.192:8775` 的 `POST /api/v1/video-understanding/structure`）：上游先对 MP4 视频做理解分析，再用 DeepSeek 将结果整理为结构化事件（事件名称、时间范围、简要描述、与用户问题的相关性评分），按事件时间范围截取关键帧，并选出与问题最相关的重点事件。响应原样透传（`code`/`message`/`data`，`data` 含 `summary`、`answer_status`、`focus_event`、`events`、`raw_understanding_result` 等字段）。理解 + 结构化 + 截帧耗时较长，默认超时 600 秒（`VIDEO_UNDERSTANDING_TIMEOUT_SECONDS`）。
 
@@ -568,7 +521,7 @@ MCP Server 依赖以下服务：
 
 `answer_status` 取值：`found`（可回答）/ `not_found`（无法回答，此时 `focus_event` 为 `null`、`events` 为空数组）/ `uncertain`（不确定）。上游校验或调用失败时按统一错误格式透传（如 `VALIDATION_001`、`UPSTREAM_001`、`LLM_001`、`VIDEO_001`）。
 
-### 6.8 `upload_face_image`
+### 6.7 `upload_face_image`
 
 通过图片 URL 上传人脸照片到人脸库，并按传入参数创建一个默认开启的人脸布控任务。MCP Server 会下载图片 URL 的内容，并转发给后端人脸库接口；人脸库当前只保留一张照片，新上传会覆盖旧照片。创建的布控任务会出现在布控任务页面，默认 `enabled=true`、`taskStatus=running`。
 
@@ -613,7 +566,7 @@ MCP Server 依赖以下服务：
 }
 ```
 
-### 6.9 文搜图 / 图搜图 tools
+### 6.8 文搜图 / 图搜图 tools
 
 以下 tools 对应前端"文搜图""图搜图"页面使用的接口。
 
@@ -626,7 +579,7 @@ MCP Server 依赖以下服务：
 
 `search_person_by_image`（图搜图）：一站式以图搜人。未传 `bbox` 时先调用 `detect_persons` 取第一个人形框；随后提交搜索任务并每 2 秒轮询，直到任务成功（返回含 `similar_persons` 的最终结果）或失败/超时（`waitTimeoutSeconds` 默认 120 秒）。已传 `bbox` 时跳过检测直接提交。`startTime`/`endTime` 可选，透传给上游 `searchPersonByBbox` 限定检索时间范围；提交任务失败时报 `搜索任务提交失败`。
 
-### 6.10 图搜人和步态识别 tools
+### 6.9 图搜人和步态识别 tools
 
 以下 tools 封装 `PERSON_API_BASE_URL` 指向的人员检索服务，默认上游为 `http://192.168.11.192:18890`。返回值透传上游 JSON；上游 4xx 业务响应会额外包含 `upstreamStatusCode` 字段。
 
@@ -641,7 +594,7 @@ MCP Server 依赖以下服务：
 
 `search_person_by_bbox` 会把 MCP 参数转换为上游字段名：`imageUrl` -> `image_url`、`searchMethod` -> `search_method`、`startTime` -> `start_time`、`endTime` -> `end_time`、`similarityThreshold` -> `similarity_threshold`、`topK` -> `top_k`。
 
-### 6.11 `query_face_matches`
+### 6.10 `query_face_matches`
 
 查询人脸库抓拍匹配事件，按视频时间倒序。
 
@@ -652,7 +605,7 @@ MCP Server 依赖以下服务：
 
 返回 `{"data": [...], "count": N}`，`data` 为匹配事件数组。
 
-### 6.12 `dino_events`
+### 6.11 `dino_events`
 
 返回 DINO 物品识别事件（当前为演示用 mock 数据：事件图片为生成的 SVG 占位图，事件点位取自摄像头列表，事件描述取自名称含 "dino" 的布控任务）。
 
@@ -700,7 +653,7 @@ videoai://recordings/b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22
 | `recordingId` 不存在或过期 | `recordingId is unknown or expired; call search_recordings again`。 |
 | FFmpeg/ZLMediaKit 转推失败 | 返回的播放 URL 不可用，需要检查 MCP 日志和 ZLMediaKit 流列表。 |
 | SDK 回放会话失败 | `HCNetSDK playback failed`（附具体会话/ffmpeg 错误细节），重试即可；回调队列打满时已改为背压暂停供流，不再报错。 |
-| `get_recording_stream` 倍速不支持 | `unsupported playback speed: {speed}; supported: ...`，改用支持的档位（0.25/0.5/1/2/4/8/16/32）。 |
+| 录像回放倍速不支持 | `unsupported playback speed: {speed}; supported: ...`，改用支持的档位（0.25/0.5/1/2/4/8/16/32）。 |
 | `export_recording` 时段无录像 | `该时段无可用录像`。 |
 | `export_recording` 跨度超限 | `export duration must not exceed 7200 seconds`。 |
 | `export_recording` 抓流停滞超时 | 自动用已抓到的部分出片；内容不足时报 `该时段无可用录像`。 |
@@ -722,7 +675,7 @@ videoai://recordings/b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22
 ### 历史录像
 
 1. 调用 `search_recordings`，传入需要回放的时间范围；传 `cameraId` 时按该摄像头绑定的 NVR 检索回放（多 NVR），不传时回放设备/通道由服务端 `HCNETSDK_*` 配置决定。
-2. 从返回的 `data` 中取 `url`（`/recording-live` 动态链接）直接交给播放器；链接在首次请求时才建立回放流，NVR 会话数受限时会逐出最老会话。需要显式重建播放地址时，也可用 `recordingId` 调用 `get_recording_stream`（HTTP 入口）。
+2. 从返回的 `data` 中取 `url`（`/recording-live` 动态链接）直接交给播放器；链接在首次请求时才建立回放流，NVR 会话数受限时会逐出最老会话。需要倍速时在链接后追加 `&speed=`（如 `&speed=8`）。
 3. 客户端跟随 302 后播放 `.flv` 视频。
 
 ### 文搜视频（录像内容分析）

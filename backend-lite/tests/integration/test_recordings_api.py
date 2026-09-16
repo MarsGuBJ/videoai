@@ -21,14 +21,13 @@ SEGMENT = {
 
 SEARCH_PAYLOAD = {"data": [SEGMENT], "xml": "<xml/>", "searchedTrackIds": ["201"], "failedTrackIds": {}}
 
-STREAM_PAYLOAD = {
-    "url": "http://192.168.11.194:9000/public/recordings/streams/rec-1.flv",
+SEGMENT_WITH_URL = {
+    **SEGMENT,
+    "url": "http://192.168.11.194:8097/recording-live?cameraId=cam-1&startTime=2026-08-31T10%3A00%3A00%2B08%3A00&endTime=2026-08-31T10%3A02%3A00%2B08%3A00",
     "format": "flv",
-    "expiresAt": "2026-08-31 11:00",
-    "source": "nvr",
-    "metadata": {},
-    "xml": "<xml/>",
 }
+
+SEARCH_WITH_URL_PAYLOAD = {"data": [SEGMENT_WITH_URL], "xml": "<xml/>", "searchedTrackIds": ["201"], "failedTrackIds": {}}
 
 DOWNLOAD_PAYLOAD = {
     "data": [
@@ -134,11 +133,11 @@ def test_search_unbound_camera_still_proxied(client: TestClient, monkeypatch: py
 
 
 def test_stream_happy_path(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """检索到录像后取第一段换取 FLV 回放地址。"""
+    """检索到录像后返回第一段录像的 /recording-live 按需回放链接（MCP 端 get_recording_stream 已移除）。"""
     captured: list = []
     _fake_mcp_post(
         monkeypatch,
-        {"/search_recordings-http": SEARCH_PAYLOAD, "/get_recording_stream-http": STREAM_PAYLOAD},
+        {"/search_recordings-http": SEARCH_WITH_URL_PAYLOAD},
         captured,
     )
 
@@ -146,13 +145,13 @@ def test_stream_happy_path(client: TestClient, monkeypatch: pytest.MonkeyPatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["url"].endswith("rec-1.flv")
+    assert body["url"] == SEGMENT_WITH_URL["url"] + "&speed=1.0"
     assert body["format"] == "flv"
-    assert body["expiresAt"] == "2026-08-31 11:00"
-    stream_call = captured[1]
-    assert stream_call["url"].endswith("/get_recording_stream-http")
-    assert stream_call["json"] == {"recordingId": "rec-1", "format": "flv", "speed": 1.0}
-    assert stream_call["timeout"] == 60
+    assert body["expiresAt"] is None
+    # 只有一次检索调用，且带 autoProxy=True 让 MCP 直接生成动态链接
+    assert len(captured) == 1
+    assert captured[0]["url"].endswith("/search_recordings-http")
+    assert captured[0]["json"]["autoProxy"] is True
 
 
 def test_stream_no_recording_returns_404(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -169,18 +168,16 @@ def test_stream_no_recording_returns_404(client: TestClient, monkeypatch: pytest
 
 
 def test_stream_passes_speed_to_mcp(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """倍速参数透传到 MCP 的 get_recording_stream。"""
-    captured: list = []
+    """倍速参数拼到 /recording-live 动态链接的 speed 查询参数上。"""
     _fake_mcp_post(
         monkeypatch,
-        {"/search_recordings-http": SEARCH_PAYLOAD, "/get_recording_stream-http": STREAM_PAYLOAD},
-        captured,
+        {"/search_recordings-http": SEARCH_WITH_URL_PAYLOAD},
     )
 
     response = client.post("/api/recordings/stream", json={**BASE_BODY, "speed": 8})
 
     assert response.status_code == 200
-    assert captured[1]["json"] == {"recordingId": "rec-1", "format": "flv", "speed": 8.0}
+    assert response.json()["url"].endswith("&speed=8.0")
 
 
 def test_stream_rejects_unsupported_speed(client: TestClient, monkeypatch: pytest.MonkeyPatch):

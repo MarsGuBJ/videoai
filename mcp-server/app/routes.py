@@ -18,10 +18,10 @@ from .tools import (
     download_recording,
     export_recording,
     gait_feature_compare,
+    gait_feature_extract_and_insert,
     get_live_stream,
     get_person_bbox,
     get_person_search_result,
-    get_recording_stream,
     list_cameras,
     query_face_matches,
     search_person_by_bbox,
@@ -40,7 +40,6 @@ def register_http_tool_routes() -> None:
         "list_cameras": list_cameras,
         "get_live_stream": get_live_stream,
         "search_recordings": search_recordings,
-        "get_recording_stream": get_recording_stream,
         "download_recording": download_recording,
         "export_recording": export_recording,
         "video_understanding": video_understanding,
@@ -52,6 +51,7 @@ def register_http_tool_routes() -> None:
         "detect_persons_with_id": detect_persons_with_id,
         "get_person_bbox": get_person_bbox,
         "gait_feature_compare": gait_feature_compare,
+        "gait_feature_extract_and_insert": gait_feature_extract_and_insert,
         "dino_events": dino_events,
         "text_search_images": text_search_images,
         "search_person_by_image": search_person_by_image,
@@ -59,6 +59,21 @@ def register_http_tool_routes() -> None:
     for tool_name, handler in tool_handlers.items():
         register_http_tool_route(tool_name, handler)
     register_recording_live_route()
+
+
+def parse_playback_speed(raw: str) -> float:
+    """解析回放倍速参数；缺省 1.0，仅支持现场 NVR 实测档位（PLAYBACK_SPEEDS）。"""
+    from .tools.recordings import PLAYBACK_SPEEDS  # 避免模块加载期循环依赖
+
+    if not raw.strip():
+        return 1.0
+    try:
+        speed = float(raw)
+    except ValueError:
+        raise ValueError(f"unsupported playback speed: {raw}; supported: {PLAYBACK_SPEEDS}") from None
+    if speed not in PLAYBACK_SPEEDS:
+        raise ValueError(f"unsupported playback speed: {speed}; supported: {PLAYBACK_SPEEDS}")
+    return speed
 
 
 def register_recording_live_route() -> None:
@@ -70,12 +85,14 @@ def register_recording_live_route() -> None:
 
         带 cameraId 时按摄像头绑定的 NVR（凭据来自摄像头 sourceUrl）建立回放，并补偿设备时钟偏差；
         NVR 回放并发数受限时逐出最早建立的会话，保证新请求总能拿到流。
+        speed 为可选回放倍速（0.25/0.5/1/2/4/8/16/32，默认 1）。
         """
         try:
             start = parse_datetime(request.query_params.get("startTime", ""))
             end = parse_datetime(request.query_params.get("endTime", ""))
             if end <= start:
                 raise ValueError("endTime must be later than startTime")
+            speed = parse_playback_speed(request.query_params.get("speed", ""))
             camera_id = request.query_params.get("cameraId", "").strip()
             if camera_id:
                 camera = await videoai.get_camera(camera_id)
@@ -87,7 +104,7 @@ def register_recording_live_route() -> None:
             else:
                 proxy = hcnetsdk_playback
                 recording = proxy.build_recording(start, end)
-            url = await proxy.ensure_playback(recording)
+            url = await proxy.ensure_playback(recording, speed)
             return RedirectResponse(url, status_code=302)
         except ValueError as exc:
             return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)

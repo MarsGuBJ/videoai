@@ -9,7 +9,6 @@ from app.core.config import get_settings
 from app.services.person_search import parse_person_api_response
 
 MCP_SEARCH_TIMEOUT_SECONDS = 30
-MCP_STREAM_TIMEOUT_SECONDS = 60
 # 下载耗时随时段增长（SDK 下载非实时），可能达数十秒~数分钟
 MCP_DOWNLOAD_TIMEOUT_SECONDS = 1800
 
@@ -63,24 +62,6 @@ def search_recordings(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(data, list):
         raise HTTPException(status_code=502, detail="Recording search returned malformed data")
     return [item for item in data if isinstance(item, dict)]
-
-
-def get_recording_stream(payload: dict[str, Any]) -> dict[str, Any]:
-    """调用 MCP /get_recording_stream-http，返回回放地址。
-
-    Args:
-        payload: 请求体（recordingId/format）。
-
-    Returns:
-        MCP 响应（含 url/format/expiresAt）。
-
-    Raises:
-        HTTPException: 响应缺 url 时 502。
-    """
-    result = _mcp_recording_post("/get_recording_stream-http", payload, MCP_STREAM_TIMEOUT_SECONDS)
-    if not result.get("url"):
-        raise HTTPException(status_code=502, detail="Recording stream returned no url")
-    return result
 
 
 def download_recording(payload: dict[str, Any]) -> list[dict[str, Any]]:

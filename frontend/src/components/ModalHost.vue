@@ -5,7 +5,9 @@ import type { RecordingSegment } from "../api";
 import type { Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
-import { computeSourceUrl, loadCustomRegions, normalizePath, saveCustomRegions } from "../utils/regions";
+import { computeSourceUrl, flattenRegionTree, loadRegionTree } from "../utils/regions";
+import type { FlatRegionNode } from "../utils/regions";
+import type { RegionTreeNode } from "../api";
 import VideoPlayer from "./VideoPlayer.vue";
 
 // 即时回放：与录像回放页同一口径，时间均按本地时区（北京时间）ISO 秒格式
@@ -93,12 +95,17 @@ export default {
       capabilityAlarmIo: false,
       capabilityStrategy: "overwrite",
       capabilitySaving: false,
-      // 区域管理弹窗：与「所在区域」下拉同源（设备占用区域 + 自定义区域）
-      regionList: [] as { path: string; devices: number }[],
-      regionCustom: [] as string[],
-      regionNew: "",
-      regionEditIndex: -1,
-      regionEditValue: "",
+      // 区域管理弹窗：后端区域树（/api/regions）树形编辑器
+      regionTree: [] as RegionTreeNode[],
+      regionSelectedId: "",
+      regionRootNew: "",
+      regionRenameValue: "",
+      regionChildNew: "",
+      regionSiblingNew: "",
+      regionExpanded: {} as Record<string, boolean>,
+      regionDragId: "",
+      regionDropTargetId: "",
+      regionDropPosition: "" as "" | "before" | "after",
       reviewLlmId: "",
       reviewLlmConfigs: [] as LlmConfig[],
       reviewTypeId: "",
@@ -234,7 +241,36 @@ export default {
     },
     quickReplayProgressText(): string {
       return `正在回放 ${formatMmSs(this.quickReplayCurrent)} / ${formatMmSs(this.quickReplayDuration)}`;
+    },
+    // --- 区域管理弹窗（区域树编辑器） ---
+    regionFlatList(): FlatRegionNode[] {
+      return flattenRegionTree(this.regionTree);
+    },
+    // 左侧树可见行：折叠节点的子孙不渲染；depth 用于 18px 逐级缩进
+    regionRows(): { node: RegionTreeNode; fullPath: string; depth: number; hasChildren: boolean }[] {
+      const rows: { node: RegionTreeNode; fullPath: string; depth: number; hasChildren: boolean }[] = [];
+      const walk = (nodes: RegionTreeNode[], prefix: string, depth: number, hidden: boolean) => {
+        for (const node of nodes || []) {
+          const fullPath = prefix ? `${prefix} / ${node.name}` : node.name;
+          if (!hidden) {
+            rows.push({ node, fullPath, depth, hasChildren: !!(node.children && node.children.length) });
+          }
+          walk(node.children || [], fullPath, depth + 1, hidden || this.regionExpanded[fullPath] === false);
+        }
+      };
+      walk(this.regionTree, "", 0, false);
+      return rows;
+    },
+    regionSelected(): FlatRegionNode | null {
+      if (!this.regionSelectedId) return null;
+      return this.regionFlatList.find((item) => item.node.id === this.regionSelectedId) || null;
+    },
+    // 有子区域或已挂载设备的节点不可删除（后端同样返回 409，前端提前禁用并提示）
+    regionDeletable(): boolean {
+      const selected = this.regionSelected;
+      return !!selected && !(selected.node.children && selected.node.children.length) && !selected.node.deviceCount;
     }
+
   },
   watch: {
     // 打开弹窗时重新读取设置，保证与上次保存/恢复默认后的值一致
@@ -287,10 +323,16 @@ export default {
       } else if (this.modal.type === "mediaCapability") {
         this.initCapabilityForm();
       } else if (this.modal.type === "mediaRegion") {
-        this.regionNew = "";
-        this.regionEditIndex = -1;
-        this.regionEditValue = "";
-        this.loadRegionList();
+        this.regionSelectedId = "";
+        this.regionRootNew = "";
+        this.regionRenameValue = "";
+        this.regionChildNew = "";
+        this.regionSiblingNew = "";
+        this.regionExpanded = {};
+        this.regionDragId = "";
+        this.regionDropTargetId = "";
+        this.regionDropPosition = "";
+        this.loadRegionTreeData();
       } else if (this.modal.type === "recordDownload") {
         this.initRecordDownloadForm();
       } else if (this.modal.type === "quickReplay") {
@@ -460,104 +502,170 @@ export default {
     toggleDeployArea(name: string) {
       this.deployAreaExpanded[name] = !this.deployAreaExpanded[name];
     },
-    // --- 区域管理弹窗 ---
-    // 列表与「所在区域」下拉同源：设备已占用区域（来自 cameras.area）+ localStorage 自定义区域；
-    // 修改被设备占用的区域名会同步更新设备 area（含下级区域前缀替换），仅未被占用的区域可删除
-    async loadRegionList() {
-      this.regionCustom = loadCustomRegions();
-      const counts: Record<string, number> = {};
+    // --- 区域管理弹窗（区域树编辑器） ---
+    // 区域数据来自后端区域树（/api/regions）；重命名由后端同步更新占用该区域的设备，
+    // 每次变更后刷新树并调用 refreshCameras 通知各页面（state.camerasVersion）
+    async loadRegionTreeData() {
       try {
-        const cameras = (await api.cameras()) || [];
-        for (const camera of cameras) {
-          const path = normalizePath(camera.area || "");
-          if (path) counts[path] = (counts[path] || 0) + 1;
+        this.regionTree = await loadRegionTree();
+        const selected = this.regionSelected;
+        if (this.regionSelectedId && !selected) {
+          this.regionSelectedId = "";
+          this.regionRenameValue = "";
+        } else if (selected) {
+          this.regionRenameValue = selected.node.name;
         }
-      } catch {
-        // 设备接口不可用时仅展示自定义区域
+      } catch (error) {
+        this.showToast(`区域树加载失败：${error instanceof Error ? error.message : error}`);
       }
-      const paths = Array.from(new Set([...this.regionCustom, ...Object.keys(counts)]))
-        .sort((a, b) => a.localeCompare(b, "zh"));
-      this.regionList = paths.map((path) => ({ path, devices: counts[path] || 0 }));
     },
-    // 自定义区域规整去重后持久化，并通知页面刷新“所在区域”下拉
-    async persistRegions(list: string[]) {
-      saveCustomRegions(list);
+    async reloadRegions(message?: string) {
+      await this.loadRegionTreeData();
       this.refreshCameras();
-      await this.loadRegionList();
+      if (message) this.showToast(message);
     },
-    addRegion() {
-      const path = normalizePath(this.regionNew);
-      if (!path) {
+    isRegionExpanded(fullPath: string): boolean {
+      return this.regionExpanded[fullPath] !== false;
+    },
+    toggleRegionExpand(fullPath: string) {
+      this.regionExpanded[fullPath] = !this.isRegionExpanded(fullPath);
+    },
+    selectRegion(row: { node: RegionTreeNode }) {
+      this.regionSelectedId = row.node.id;
+      this.regionRenameValue = row.node.name;
+    },
+    validateRegionName(value: string): string {
+      const name = (value || "").trim();
+      if (!name) {
         this.showToast("请输入区域名称");
-        return;
+        return "";
       }
-      if (this.regionList.some((item) => item.path === path)) {
-        this.showToast(`区域「${path}」已存在`);
-        return;
+      if (name.includes("/")) {
+        this.showToast("区域名称不能包含 /，请逐层添加");
+        return "";
       }
-      this.persistRegions([...this.regionCustom, path]);
-      this.regionNew = "";
-      this.showToast(`区域「${path}」已新增`);
+      return name;
     },
-    startRegionEdit(index: number) {
-      this.regionEditIndex = index;
-      this.regionEditValue = this.regionList[index].path;
-    },
-    cancelRegionEdit() {
-      this.regionEditIndex = -1;
-      this.regionEditValue = "";
-    },
-    async saveRegionEdit(index: number) {
-      const entry = this.regionList[index];
-      const oldPath = entry.path;
-      const path = normalizePath(this.regionEditValue);
-      if (!path) {
-        this.showToast("区域名称不能为空");
-        return;
-      }
-      if (path === oldPath) {
-        this.cancelRegionEdit();
-        return;
-      }
-      if (this.regionList.some((item, i) => i !== index && item.path === path)) {
-        this.showToast(`区域「${path}」已存在`);
-        return;
-      }
+    async addRootRegion() {
+      const name = this.validateRegionName(this.regionRootNew);
+      if (!name) return;
       try {
-        if (entry.devices > 0) {
-          // 占用该区域的设备同步改名；下级区域按前缀整体替换（东区 → 新区 时东区 / 一车间 → 新区 / 一车间）
-          const cameras = (await api.cameras()) || [];
-          const affected = cameras.filter((camera) => {
-            const area = normalizePath(camera.area || "");
-            return area === oldPath || area.startsWith(oldPath + " / ");
-          });
-          for (const camera of affected) {
-            const area = normalizePath(camera.area || "");
-            await api.updateCamera(camera.id, { area: path + area.slice(oldPath.length) });
-          }
-        }
-        // 自定义区域中的同名及下级路径一并改名
-        const custom = this.regionCustom.map((item) =>
-          item === oldPath || item.startsWith(oldPath + " / ") ? path + item.slice(oldPath.length) : item
-        );
-        saveCustomRegions(custom);
+        await api.createRegion({ name, parentId: null });
+      } catch (error) {
+        this.showToast(`区域新增失败：${error instanceof Error ? error.message : error}`);
+        return;
+      }
+      this.regionRootNew = "";
+      await this.reloadRegions(`区域「${name}」已新增`);
+    },
+    async saveRegionRename() {
+      const selected = this.regionSelected;
+      if (!selected) return;
+      const name = this.validateRegionName(this.regionRenameValue);
+      if (!name) return;
+      if (name === selected.node.name) return;
+      try {
+        await api.renameRegion(selected.node.id, name);
       } catch (error) {
         this.showToast(`区域修改失败：${error instanceof Error ? error.message : error}`);
         return;
       }
-      this.cancelRegionEdit();
-      this.refreshCameras();
-      await this.loadRegionList();
-      this.showToast(`区域已修改为「${path}」`);
+      await this.reloadRegions(`区域已修改为「${name}」`);
     },
-    removeRegion(index: number) {
-      const entry = this.regionList[index];
-      if (entry.devices > 0) {
-        this.showToast(`区域「${entry.path}」仍被 ${entry.devices} 台设备占用，请先移动这些设备后再删除`);
+    async addChildRegion() {
+      const selected = this.regionSelected;
+      if (!selected) return;
+      const name = this.validateRegionName(this.regionChildNew);
+      if (!name) return;
+      try {
+        await api.createRegion({ name, parentId: selected.node.id });
+      } catch (error) {
+        this.showToast(`区域新增失败：${error instanceof Error ? error.message : error}`);
         return;
       }
-      this.persistRegions(this.regionCustom.filter((item) => item !== entry.path));
-      this.showToast(`区域「${entry.path}」已删除`);
+      this.regionChildNew = "";
+      this.regionExpanded[selected.fullPath] = true;
+      await this.reloadRegions(`区域「${name}」已新增`);
+    },
+    async addSiblingRegion() {
+      const selected = this.regionSelected;
+      if (!selected) return;
+      const name = this.validateRegionName(this.regionSiblingNew);
+      if (!name) return;
+      try {
+        await api.createRegion({ name, parentId: selected.node.parentId });
+      } catch (error) {
+        this.showToast(`区域新增失败：${error instanceof Error ? error.message : error}`);
+        return;
+      }
+      this.regionSiblingNew = "";
+      await this.reloadRegions(`区域「${name}」已新增`);
+    },
+    async deleteSelectedRegion() {
+      const selected = this.regionSelected;
+      if (!selected || !this.regionDeletable) return;
+      if (!window.confirm("确认删除该区域？")) return;
+      try {
+        await api.deleteRegion(selected.node.id);
+      } catch (error) {
+        this.showToast(`区域删除失败：${error instanceof Error ? error.message : error}`);
+        return;
+      }
+      this.regionSelectedId = "";
+      this.regionRenameValue = "";
+      await this.reloadRegions("区域已删除");
+    },
+    // 同级拖拽排序：仅允许同一 parentId 的节点间拖拽，落点上半部分插到目标前、下半部分插到目标后
+    onRegionDragStart(event: DragEvent, row: { node: RegionTreeNode }) {
+      this.regionDragId = row.node.id;
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", row.node.id);
+      }
+    },
+    onRegionDragOver(event: DragEvent, row: { node: RegionTreeNode }) {
+      const dragged = this.regionFlatList.find((item) => item.node.id === this.regionDragId);
+      if (!dragged || dragged.node.id === row.node.id || dragged.node.parentId !== row.node.parentId) return;
+      // 仅同级节点允许放置，此时才阻止默认行为以启用 drop
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      this.regionDropTargetId = row.node.id;
+      this.regionDropPosition = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    },
+    onRegionDragLeave(row: { node: RegionTreeNode }) {
+      if (this.regionDropTargetId === row.node.id) {
+        this.regionDropTargetId = "";
+        this.regionDropPosition = "";
+      }
+    },
+    async onRegionDrop(event: DragEvent, row: { node: RegionTreeNode }) {
+      event.preventDefault();
+      const dragId = this.regionDragId;
+      const position = this.regionDropPosition;
+      this.onRegionDragEnd();
+      const dragged = this.regionFlatList.find((item) => item.node.id === dragId);
+      if (!dragged || dragged.node.id === row.node.id || dragged.node.parentId !== row.node.parentId || !position) return;
+      const parentId = row.node.parentId;
+      const siblings = parentId
+        ? (this.regionFlatList.find((item) => item.node.id === parentId)?.node.children || [])
+        : this.regionTree;
+      const orderedIds = siblings.map((node) => node.id).filter((id) => id !== dragId);
+      const targetIndex = orderedIds.indexOf(row.node.id);
+      if (targetIndex < 0) return;
+      orderedIds.splice(position === "before" ? targetIndex : targetIndex + 1, 0, dragId);
+      try {
+        await api.reorderRegions(parentId, orderedIds);
+      } catch (error) {
+        this.showToast(`区域排序失败：${error instanceof Error ? error.message : error}`);
+        return;
+      }
+      await this.reloadRegions();
+    },
+    onRegionDragEnd() {
+      this.regionDragId = "";
+      this.regionDropTargetId = "";
+      this.regionDropPosition = "";
     },
     // --- 录像下载弹窗 ---
     initRecordDownloadForm() {
@@ -603,6 +711,7 @@ export default {
       const value = (status || "").toUpperCase();
       if (value === "RUNNING") return "在线";
       if (value === "STOPPED") return "离线";
+  if (value === "OFFLINE") return "离线";
       if (value === "DISABLED") return "停用";
       return "未成功连接";
     },
@@ -838,14 +947,14 @@ export default {
       const rows = [
         {
           设备名称: "示例摄像机",
-          协议: "RTSP 拉流",
+          接入协议: "RTSP 拉流",
           IP: "192.168.1.64",
           端口: "554",
-          区域: "园区总部 / A区",
+          所在区域: "园区总部 / A区",
           账号: "admin",
           密码: "12345678",
           设备编号: "100000000000000001",
-          序列号: "SN-0001",
+          设备序列号: "SN-0001",
           拉流地址: ""
         }
       ];
@@ -878,7 +987,8 @@ export default {
             failures.push({ row: rowNo, reason: "设备名称必填" });
             continue;
           }
-          const protocol = cell("协议");
+          // 列名兼容：导入模板用「协议/区域/序列号」，导出文件与界面列名用「接入协议/所在区域/设备序列号」
+          const protocol = cell("协议") || cell("接入协议");
           const ip = cell("IP");
           let sourceUrl = cell("拉流地址");
           if (!sourceUrl) {
@@ -899,9 +1009,9 @@ export default {
               port: cell("端口") || undefined,
               username: cell("账号") || undefined,
               password: cell("密码") || undefined,
-              area: cell("区域") || undefined,
+              area: cell("区域") || cell("所在区域") || undefined,
               deviceCode: cell("设备编号") || undefined,
-              serialNumber: cell("序列号") || undefined
+              serialNumber: cell("序列号") || cell("设备序列号") || undefined
             });
             succeeded += 1;
           } catch (error: any) {
@@ -933,6 +1043,7 @@ export default {
         const value = (status || "").toUpperCase();
         if (value === "RUNNING") return "在线";
         if (value === "STOPPED") return "离线";
+  if (value === "OFFLINE") return "离线";
         if (value === "DISABLED") return "停用";
         return "未成功连接";
       };
@@ -1368,7 +1479,7 @@ export default {
           <input ref="importFileInput" type="file" accept=".xlsx,.csv" style="display:none" aria-label="选择导入文件" @change="handleImportFile" />
           <div class="modal-drop-zone" style="cursor:pointer;" @click="triggerImportFile" @dragover.prevent @drop.prevent="handleImportDrop">
             <strong>{{ importFileName || '拖拽或点击选择文件上传' }}</strong>
-            <span>支持 .xlsx / .csv，字段包含设备名称、协议、IP、端口、区域、账号、密码、设备编号。</span>
+            <span>支持 .xlsx / .csv，字段包含设备名称、接入协议、IP、端口、所在区域、账号、密码、设备编号。</span>
           </div>
           <div v-if="importResult" class="modal-summary-strip" style="margin-top:10px;"><strong>导入结果</strong><span>成功 {{ importResult.ok }} 条，失败 {{ importResult.fail.length }} 条</span></div>
           <ul v-if="importResult && importResult.fail.length" style="max-height:140px;overflow:auto;margin:8px 0 0;padding-left:18px;">
@@ -1396,37 +1507,71 @@ export default {
           <div class="modal-form-row"><label>配置策略：</label><select class="select" v-model="capabilityStrategy"><option value="overwrite">覆盖原能力配置</option><option value="append">仅追加新增能力</option><option value="onlineOnly">仅应用到在线设备</option></select></div>
         </template>
         <template v-if="modal.type === 'mediaRegion'">
-          <p class="modal-hint">与「所在区域」下拉框数据一致（设备已占用区域 + 自定义区域），支持多级路径（用 / 分隔，如：东区 / 一车间）。修改名称会同步更新占用该区域的设备（含下级区域）；仅未被设备占用的区域可删除。</p>
+          <p class="modal-hint">区域树与「所在区域」下拉框数据一致，支持多级区域；拖拽同级节点可调整显示顺序，重命名会同步更新占用该区域的设备（含下级区域）。</p>
           <div class="modal-form-row">
-            <label>新增区域：</label>
+            <label>添加根区域：</label>
             <div style="display:flex;gap:8px;flex:1;">
-              <input class="input" style="flex:1;" v-model.trim="regionNew" placeholder="请输入区域名称，如：东区 / 一车间" @keyup.enter="addRegion" />
-              <button class="btn primary" @click="addRegion">＋ 新增</button>
+              <input class="input" style="flex:1;" v-model.trim="regionRootNew" placeholder="请输入根区域名称，如：东区" @keyup.enter="addRootRegion" />
+              <button class="btn primary" @click="addRootRegion">＋ 添加</button>
             </div>
           </div>
-          <div class="modal-table-wrap" style="margin-top:10px;max-height:320px;overflow:auto;">
-            <table class="prototype-table">
-              <thead><tr><th class="left">区域名称</th><th style="width:130px;">操作</th></tr></thead>
-              <tbody>
-                <tr v-for="(region, index) in regionList" :key="region.path + '_' + index">
-                  <td class="left">
-                    <input v-if="regionEditIndex === index" class="input" v-model.trim="regionEditValue" @keyup.enter="saveRegionEdit(index)" @keyup.esc="cancelRegionEdit" />
-                    <span v-else>{{ region.path }}<span v-if="region.devices" class="hint-text" style="margin-left:6px;">（{{ region.devices }} 台设备）</span></span>
-                  </td>
-                  <td>
-                    <template v-if="regionEditIndex === index">
-                      <button class="link-blue" @click="saveRegionEdit(index)">保存</button>
-                      <button class="link-blue" style="margin-left:10px;" @click="cancelRegionEdit">取消</button>
-                    </template>
-                    <template v-else>
-                      <button class="link-blue" @click="startRegionEdit(index)">编辑</button>
-                      <button class="link-red" style="margin-left:10px;" @click="removeRegion(index)">删除</button>
-                    </template>
-                  </td>
-                </tr>
-                <tr v-if="!regionList.length"><td colspan="2">暂无区域，请在上方新增</td></tr>
-              </tbody>
-            </table>
+          <div class="region-editor">
+            <div class="region-tree-panel">
+              <div
+                v-for="row in regionRows"
+                :key="row.node.id"
+                class="region-tree-row"
+                :class="{ selected: regionSelectedId === row.node.id, 'drop-before': regionDropTargetId === row.node.id && regionDropPosition === 'before', 'drop-after': regionDropTargetId === row.node.id && regionDropPosition === 'after' }"
+                :style="{ paddingLeft: (row.depth * 18 + 8) + 'px' }"
+                draggable="true"
+                @click="selectRegion(row)"
+                @dragstart="onRegionDragStart($event, row)"
+                @dragover="onRegionDragOver($event, row)"
+                @dragleave="onRegionDragLeave(row)"
+                @drop="onRegionDrop($event, row)"
+                @dragend="onRegionDragEnd"
+              >
+                <span v-if="row.hasChildren" class="region-tree-arrow" @click.stop="toggleRegionExpand(row.fullPath)">{{ isRegionExpanded(row.fullPath) ? '▾' : '▸' }}</span>
+                <span v-else class="region-tree-arrow placeholder"></span>
+                <span class="region-tree-name">{{ row.node.name }}</span>
+                <span v-if="row.node.deviceCount > 0" class="hint-text">（{{ row.node.deviceCount }} 台设备）</span>
+              </div>
+              <div v-if="!regionRows.length" class="region-tree-empty">暂无区域，请在上方添加根区域</div>
+            </div>
+            <div class="region-detail-panel">
+              <template v-if="regionSelected">
+                <p class="modal-hint" style="margin-bottom:10px;">完整路径：{{ regionSelected.fullPath }}</p>
+                <div class="modal-form-row" style="grid-template-columns:84px 1fr;margin-bottom:12px;">
+                  <label>重命名：</label>
+                  <div style="display:flex;gap:8px;flex:1;">
+                    <input class="input" style="flex:1;" v-model.trim="regionRenameValue" @keyup.enter="saveRegionRename" />
+                    <button class="btn primary" @click="saveRegionRename">保存</button>
+                  </div>
+                </div>
+                <div class="modal-form-row" style="grid-template-columns:84px 1fr;margin-bottom:12px;">
+                  <label>添加子节点：</label>
+                  <div style="display:flex;gap:8px;flex:1;">
+                    <input class="input" style="flex:1;" v-model.trim="regionChildNew" placeholder="请输入子区域名称" @keyup.enter="addChildRegion" />
+                    <button class="btn" @click="addChildRegion">添加</button>
+                  </div>
+                </div>
+                <div class="modal-form-row" style="grid-template-columns:84px 1fr;margin-bottom:12px;">
+                  <label>添加同级节点：</label>
+                  <div style="display:flex;gap:8px;flex:1;">
+                    <input class="input" style="flex:1;" v-model.trim="regionSiblingNew" placeholder="请输入同级区域名称" @keyup.enter="addSiblingRegion" />
+                    <button class="btn" @click="addSiblingRegion">添加</button>
+                  </div>
+                </div>
+                <div class="modal-form-row" style="grid-template-columns:84px 1fr;margin-bottom:0;">
+                  <label>删除区域：</label>
+                  <div style="display:flex;gap:10px;align-items:center;flex:1;">
+                    <button class="btn danger" :disabled="!regionDeletable" @click="deleteSelectedRegion">删除</button>
+                    <span v-if="!regionDeletable" class="hint-text">存在子区域或已挂载设备，不可删除</span>
+                  </div>
+                </div>
+              </template>
+              <p v-else class="modal-hint" style="margin-bottom:0;">在左侧选择区域后，可进行重命名、添加子节点 / 同级节点、删除等操作。</p>
+            </div>
           </div>
         </template>
         <template v-if="modal.type === 'mediaCloud'">
@@ -1448,21 +1593,19 @@ export default {
         </template>
         <template v-if="modal.type === 'mediaDelete'">
           <p class="modal-hint danger">将删除 {{ (modal.item && modal.item.rows ? modal.item.rows.length : 0) }} 台设备。删除后将解除设备、通道、预览分组和告警联动关系。历史录像索引可按策略保留。</p>
-          <div class="modal-form-row"><label>删除选项：</label><span style="padding-top:7px;"><label class="video-device-include"><input type="checkbox" />同时删除通道配置</label></span></div>
+          <div class="modal-form-row"><label>删除选项：</label><span><label class="video-device-include"><input type="checkbox" />同时删除通道配置</label></span></div>
         </template>
         <template v-if="modal.type === 'videoConfig'">
-          <div class="modal-split">
+          <div class="modal-split video-config-modal">
             <div class="modal-split-main">
               <h4 class="modal-block-title" id="video-config-base">基础配置</h4>
               <div class="modal-form-grid">
                 <div class="modal-form-row"><label>保存路径：</label><input class="input" v-model="videoSettings.savePath" /></div>
                 <div class="modal-form-row"><label>启动窗口：</label><select class="select" v-model.number="videoSettings.startupLayout"><option :value="4">2x2</option><option :value="1">1x1</option><option :value="9">3x3</option><option :value="16">4x4</option></select></div>
-              </div>
-              <div class="modal-check-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));">
-                <label class="video-device-include"><input type="checkbox" v-model="videoSettings.perfWarning" />播放性能不足提示</label>
-                <label class="video-device-include"><input type="checkbox" v-model="videoSettings.gpuDecode" />GPU 硬件解码</label>
-                <label class="video-device-include"><input type="checkbox" v-model="videoSettings.recordWarning" />录像预警提示</label>
-                <label class="video-device-include"><input type="checkbox" v-model="videoSettings.multicast" />是否组播</label>
+                <div class="modal-form-row video-config-check"><span></span><label class="video-device-include"><input type="checkbox" v-model="videoSettings.perfWarning" />播放性能不足提示</label></div>
+                <div class="modal-form-row video-config-check"><span></span><label class="video-device-include"><input type="checkbox" v-model="videoSettings.gpuDecode" />GPU 硬件解码</label></div>
+                <div class="modal-form-row video-config-check"><span></span><label class="video-device-include"><input type="checkbox" v-model="videoSettings.recordWarning" />录像预警提示</label></div>
+                <div class="modal-form-row video-config-check"><span></span><label class="video-device-include"><input type="checkbox" v-model="videoSettings.multicast" />是否组播</label></div>
               </div>
               <h4 class="modal-block-title" id="video-config-video">视频配置</h4>
               <div class="modal-form-grid">

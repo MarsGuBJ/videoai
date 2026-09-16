@@ -1,40 +1,40 @@
 <template>
-  <section class="content review-wide">
+  <section class="content review-wide device-edit-page">
     <div class="review-titlebar">
       <div><h1>编辑设备</h1><p>维护设备类型、基础参数、接入协议与通道信息</p></div>
       <div class="segmented"><button class="btn" @click="setRoute('mediaDeviceDetail')">返回设备详情</button></div>
     </div>
-    <div class="panel form-panel" style="width:min(960px,100%);">
+    <div class="panel form-panel" style="width:100%;">
       <h3 class="form-section-title">设备类型</h3>
-      <div class="form-grid-2">
+      <div class="form-grid-3">
         <div class="wide-field-row"><label>设备类别：</label><select class="select" v-model="form.deviceCategory"><option>编码设备</option><option>解码设备</option></select></div>
         <div class="wide-field-row"><label>设备类型：</label><select class="select" v-model="form.deviceType"><option>IPC</option><option>NVR</option><option>DVR</option></select></div>
         <div class="wide-field-row"><label>厂商类型：</label><select class="select" v-model="form.vendor"><option>海康威视</option><option>大华</option><option>宇视</option><option>华为</option><option>其他</option></select></div>
       </div>
       <h3 class="form-section-title">基本信息</h3>
-      <div class="form-grid-2">
+      <div class="form-grid-3">
         <div class="wide-field-row"><label>接入方式：</label><select class="select" v-model="form.protocol"><option>海康 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>大华 SDK</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></div>
         <div class="wide-field-row"><label>协议版本：</label><select class="select" v-model="form.protocolVersion"><option>标准协议</option><option>海康 ISUP 5.0</option><option>GB/T 28181-2022</option><option>ONVIF Profile S</option></select></div>
         <div class="wide-field-row"><label>设备名称：</label><input class="input" v-model.trim="form.name" placeholder="请输入设备名称" /></div>
         <div class="wide-field-row"><label>设备编号：</label><input class="input" v-model.trim="form.deviceCode" placeholder="请输入设备编号" /></div>
         <div class="wide-field-row"><label>设备序列号：</label><input class="input" v-model.trim="form.serialNumber" placeholder="请输入设备序列号" /></div>
-        <div class="wide-field-row"><label>IP地址：</label><input class="input" v-model.trim="form.ip" placeholder="192.168.1.64" /></div>
+        <div class="wide-field-row"><label>拉流地址：</label><input class="input" v-model.trim="form.sourceUrl" placeholder="rtsp://user:pass@ip:port/stream" @input="onSourceUrlInput" @blur="probeSource" /></div>
+        <div class="wide-field-row"><label>IP地址：</label><IpInput v-model="form.ip" /></div>
         <div class="wide-field-row"><label>端口号：</label><input class="input" v-model.trim="form.port" placeholder="554" /></div>
         <div class="wide-field-row"><label>用户名：</label><input class="input" v-model.trim="form.username" placeholder="admin" /></div>
         <div class="wide-field-row"><label>密码：</label><input class="input" type="password" v-model="form.password" placeholder="留空则不修改密码" /></div>
-        <div class="wide-field-row"><label>所属区域：</label><select class="select" v-model="form.area"><option value="" disabled>请选择区域</option><option v-for="area in areaOptions" :key="area" :value="area">{{ area }}</option></select></div>
-        <div class="wide-field-row"><label>设备能力：</label><span style="display:flex;gap:16px;flex-wrap:wrap;align-self:center;"><label class="video-device-include"><input type="checkbox" v-model="form.capabilityVideo" />视频</label><label class="video-device-include"><input type="checkbox" v-model="form.capabilityAudio" />音频</label><label class="video-device-include"><input type="checkbox" v-model="form.capabilityPtz" />云台</label><label class="video-device-include"><input type="checkbox" v-model="form.capabilityTalkback" />对讲</label><label class="video-device-include"><input type="checkbox" v-model="form.capabilityAlarmIo" />警告输入输出</label></span></div>
+        <div class="wide-field-row"><label>所属区域：</label><select class="select" v-model="form.area"><option value="" disabled>请选择区域</option><option v-for="option in areaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></div>
+        <div class="wide-field-row"><label>设备能力：</label><span style="display:flex;gap:16px;flex-wrap:wrap;align-self:center;"><label class="video-device-include"><input type="checkbox" v-model="form.capabilityPtz" :disabled="ptzUnsupported" />云台控制</label></span></div>
       </div>
       <div class="wide-field-row"><label>描述：</label><textarea class="textarea" style="height:80px;" v-model.trim="form.description" placeholder="请输入设备描述"></textarea></div>
       <h3 class="form-section-title">高级配置</h3>
-      <div class="form-grid-2">
-        <div class="wide-field-row"><label>拉流地址：</label><input class="input" v-model.trim="form.sourceUrl" placeholder="rtsp://user:pass@ip:port/stream" /></div>
+      <div class="form-grid-3">
         <div class="wide-field-row"><label>注册有效期：</label><input class="input" v-model.trim="form.registerExpire" placeholder="3600" /></div>
         <div class="wide-field-row"><label>心跳周期：</label><input class="input" v-model.trim="form.heartbeat" placeholder="60" /></div>
         <div class="wide-field-row"><label>国标域编码：</label><input class="input" v-model.trim="form.gbCode" placeholder="请输入 20 位国标编码" /></div>
       </div>
       <h3 class="form-section-title">通道信息</h3>
-      <div class="form-grid-2">
+      <div class="form-grid-3">
         <div class="wide-field-row"><label>通道号：</label><input class="input" v-model.trim="form.nvrChannel" placeholder="1" /></div>
         <div class="wide-field-row"><label>通道名称：</label><input class="input" v-model.trim="form.channelName" placeholder="默认使用设备名称" /></div>
         <div class="wide-field-row"><label>码流类型：</label><select class="select" v-model="form.nvrStreamType"><option>主码流</option><option>子码流</option></select></div>
@@ -47,11 +47,14 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
+import IpInput from "../components/IpInput.vue";
 import type { Camera } from "../types";
-import { buildRegionTree, isValidChannelNo, isValidGbCode, isValidIPv4, isValidPort, loadCustomRegions, MAX_CHANNEL_NO, normalizePath } from "../utils/regions";
+import { flattenRegionTree, hasSourceUrlCredentials, isValidChannelNo, isValidGbCode, isValidIPv4, isValidPort, loadRegionTree, MAX_CHANNEL_NO, normalizePath, parseSourceUrlParts } from "../utils/regions";
+import type { FlatRegionNode } from "../utils/regions";
 
 export default defineComponent({
   name: "MediaDeviceEditPage",
+  components: { IpInput },
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm", "selectedCamera", "cameraEditOrigin"],
   inject: {
     setRoute: { from: "setRoute", default: (r: string, o?: any) => {} },
@@ -61,7 +64,11 @@ export default defineComponent({
   data() {
     return {
       saving: false,
-      cameraAreas: [] as string[],
+      regionFlat: [] as FlatRegionNode[],
+      // 云台能力探测：设备源不支持云台前禁用勾选框
+      ptzUnsupported: false,
+      sourceProbeTimer: null as ReturnType<typeof setTimeout> | null,
+      lastProbedSource: "",
       form: {
         deviceCategory: "编码设备",
         deviceType: "IPC",
@@ -88,6 +95,7 @@ export default defineComponent({
         capabilityAudio: true,
         capabilityPtz: true,
         capabilityTalkback: false,
+        capabilitySmartAnalysis: false,
         capabilityAlarmIo: false
       }
     };
@@ -97,16 +105,49 @@ export default defineComponent({
     cancelTarget(): string {
       return this.cameraEditOrigin === "mediaDeviceDetail" ? "mediaDeviceDetail" : "media";
     },
-    // 与设备管理页「所在区域」筛选下拉同源：设备已占用区域 + 自定义区域
-    areaOptions(): string[] {
-      const options = buildRegionTree(this.cameraAreas, loadCustomRegions()).map((node) => node.fullPath);
-      if (this.form.area && !options.includes(this.form.area)) options.push(this.form.area);
+    // 「所属区域」下拉与设备管理页「所在区域」同源：后端区域树按 sortOrder 展开，按层级缩进显示；
+    // 当前设备区域不在树中时（如刚被改名前）追加到末尾，避免下拉丢值
+    areaOptions(): { fullPath: string; label: string }[] {
+      const options = this.regionFlat.map((item) => ({ fullPath: item.fullPath, label: "　".repeat(item.depth) + item.name }));
+      if (this.form.area && !options.some((option) => option.fullPath === this.form.area)) {
+        options.push({ fullPath: this.form.area, label: this.form.area });
+      }
       return options;
     }
   },
   methods: {
     refreshCameras() {
       (this as any).refreshCamerasImpl();
+    },
+    // 拉流地址输入后：立即解析回填 IP/端口/用户名/密码，并延时触发设备源探测（序列号/云台能力）
+    onSourceUrlInput() {
+      const parts = parseSourceUrlParts(this.form.sourceUrl);
+      if (parts.ip) this.form.ip = parts.ip;
+      if (parts.port) this.form.port = parts.port;
+      if (parts.username) this.form.username = parts.username;
+      if (parts.password) this.form.password = parts.password;
+      if (this.sourceProbeTimer) clearTimeout(this.sourceProbeTimer);
+      this.sourceProbeTimer = setTimeout(() => this.probeSource(), 800);
+    },
+    async probeSource() {
+      const sourceUrl = (this.form.sourceUrl || "").trim();
+      if (!sourceUrl || sourceUrl === this.lastProbedSource || !hasSourceUrlCredentials(sourceUrl)) return;
+      this.lastProbedSource = sourceUrl;
+      try {
+        const result = await api.probeCameraSource(sourceUrl);
+        if ((this.form.sourceUrl || "").trim() !== sourceUrl) return; // 等待期间地址已被修改
+        if (!result.reachable) return;
+        if (result.serialNumber) this.form.serialNumber = result.serialNumber;
+        if (result.ptzSupported === true) {
+          this.form.capabilityPtz = true;
+          this.ptzUnsupported = false;
+        } else if (result.ptzSupported === false) {
+          this.form.capabilityPtz = false;
+          this.ptzUnsupported = true;
+        }
+      } catch {
+        // 探测失败静默：不阻塞表单填写
+      }
     },
     fillForm(camera: Camera) {
       this.form.name = camera.name || "";
@@ -127,6 +168,7 @@ export default defineComponent({
       this.form.capabilityAudio = !!camera.audioEnabled;
       this.form.capabilityPtz = !!camera.ptzEnabled;
       this.form.capabilityTalkback = !!camera.talkbackEnabled;
+      this.form.capabilitySmartAnalysis = !!camera.smartAnalysisEnabled;
       this.form.capabilityAlarmIo = !!camera.alarmIoEnabled;
       this.form.deviceCategory = camera.deviceCategory || "编码设备";
       this.form.deviceType = camera.deviceType || "IPC";
@@ -178,6 +220,7 @@ export default defineComponent({
         audioEnabled: this.form.capabilityAudio,
         ptzEnabled: this.form.capabilityPtz,
         talkbackEnabled: this.form.capabilityTalkback,
+        smartAnalysisEnabled: this.form.capabilitySmartAnalysis,
         alarmIoEnabled: this.form.capabilityAlarmIo
       };
       // 新扩展字段：文本空串视为未填写；注册有效期/心跳周期解析为整数
@@ -234,11 +277,10 @@ export default defineComponent({
       // 拉取最新数据失败时保留列表传入的设备信息
     }
     try {
-      // 「所属区域」下拉与设备管理页「所在区域」同源，需要全量设备的区域数据
-      const cameras = await api.cameras();
-      this.cameraAreas = (cameras || []).map((c: Camera) => c.area || "").filter((area: string) => area && area !== "未分配");
+      // 「所属区域」下拉与设备管理页「所在区域」同源，来自后端区域树
+      this.regionFlat = flattenRegionTree(await loadRegionTree());
     } catch {
-      // 区域列表加载失败时仅提供自定义区域
+      // 区域列表加载失败时保留下拉为空
     }
   }
 });

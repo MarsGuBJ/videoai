@@ -199,6 +199,8 @@ def test_ffmpeg_args_default_speed_is_realtime():
     assert "-readrate" not in args
     assert "-vf" not in args
     assert "-skip_frame" not in args
+    assert args[args.index("-c:v") + 1] == "copy"
+    assert "libx264" not in args
 
 
 def test_ffmpeg_args_fast_speed_limits_readrate_and_retimestamps():
@@ -208,6 +210,7 @@ def test_ffmpeg_args_fast_speed_limits_readrate_and_retimestamps():
     assert args[args.index("-readrate") + 1] == "8"
     assert args[args.index("-vf") + 1] == "setpts=PTS/8,fps=25"
     assert "-skip_frame" not in args
+    assert args[args.index("-c:v") + 1] == "libx264"
 
 
 def test_ffmpeg_args_speed_16_decodes_keyframes_only():

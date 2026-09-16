@@ -1,6 +1,11 @@
 <template>
   <section class="video-panel">
-    <div class="video-shell">
+    <div
+      ref="shell"
+      class="video-shell"
+      :class="{ 'video-shell-pannable': transform.zoom > 1, 'video-shell-panning': !!panDrag }"
+      @mousedown="onPanStart"
+    >
       <img
         v-if="fallbackUrl"
         :key="fallbackUrl"
@@ -19,7 +24,7 @@
         playsinline
         :class="[surfaceClassName, fallbackUrl ? 'video-surface-hidden' : '']"
         :style="surfaceStyle"
-        @click="playVideo"
+        @click="onSurfaceClick"
       ></video>
       <div v-if="message" class="video-message">{{ message }}</div>
       <div v-if="hevcUnsupported" class="video-hevc-tip">
@@ -70,6 +75,16 @@ export default defineComponent({
   data() {
     return {
       transform: { zoom: 1, x: 0, y: 0 } as Transform,
+      // 电子放大后鼠标拖动画面：记录拖拽起点与基准偏移；moved 区分点击与拖拽
+      panDrag: null as {
+        startX: number;
+        startY: number;
+        baseX: number;
+        baseY: number;
+        moved: boolean;
+      } | null,
+      // 拖拽结束的 mouseup 会紧跟一次 click，用它抑制误触发的播放/暂停
+      suppressClick: false,
       message: '未选择摄像头',
       fallbackUrl: undefined as string | undefined,
       hevcUnsupported: false,
@@ -114,6 +129,8 @@ export default defineComponent({
     this.setupStream();
   },
   beforeUnmount() {
+    window.removeEventListener('mousemove', this.onPanMove);
+    window.removeEventListener('mouseup', this.onPanEnd);
     this.teardown();
   },
   methods: {
@@ -375,6 +392,70 @@ export default defineComponent({
         y: clamp(this.transform.y + dy, -45, 45),
       };
     },
+    // 电子放大（zoom > 1）后按住鼠标拖动画面平移；拖完后抑制一次 click，避免误触发播放
+    onPanStart(event: MouseEvent) {
+      if (event.button !== 0 || this.transform.zoom <= 1) {
+        return;
+      }
+      // 避开 <video> 原生控制条区域（底部 ~40px），不与进度条等控件争抢拖动
+      const target = event.target as HTMLElement;
+      if (target === this.videoElement) {
+        const rect = target.getBoundingClientRect();
+        if (event.clientY > rect.bottom - 40) {
+          return;
+        }
+      }
+      this.panDrag = {
+        startX: event.clientX,
+        startY: event.clientY,
+        baseX: this.transform.x,
+        baseY: this.transform.y,
+        moved: false,
+      };
+      window.addEventListener('mousemove', this.onPanMove);
+      window.addEventListener('mouseup', this.onPanEnd);
+      event.preventDefault();
+    },
+    onPanMove(event: MouseEvent) {
+      const drag = this.panDrag;
+      const shell = this.$refs.shell as HTMLElement | undefined;
+      if (!drag || !shell) {
+        return;
+      }
+      if (!drag.moved) {
+        // 小位移视为点击，不进入拖拽
+        if (Math.abs(event.clientX - drag.startX) + Math.abs(event.clientY - drag.startY) < 4) {
+          return;
+        }
+        drag.moved = true;
+      }
+      const rect = shell.getBoundingClientRect();
+      if (!rect.width || !rect.height) {
+        return;
+      }
+      this.transform = {
+        ...this.transform,
+        x: clamp(drag.baseX + ((event.clientX - drag.startX) / rect.width) * 100, -45, 45),
+        y: clamp(drag.baseY + ((event.clientY - drag.startY) / rect.height) * 100, -45, 45),
+      };
+    },
+    onPanEnd() {
+      if (this.panDrag?.moved) {
+        this.suppressClick = true;
+        window.setTimeout(() => {
+          this.suppressClick = false;
+        }, 0);
+      }
+      this.panDrag = null;
+      window.removeEventListener('mousemove', this.onPanMove);
+      window.removeEventListener('mouseup', this.onPanEnd);
+    },
+    onSurfaceClick() {
+      if (this.suppressClick) {
+        return;
+      }
+      this.playVideo();
+    },
     zoom(delta: number) {
       this.transform = { ...this.transform, zoom: clamp(this.transform.zoom + delta, 1, 3) };
     },
@@ -536,6 +617,15 @@ function panClass(axis: 'x' | 'y', value: number) {
 
 .video-surface-hidden {
   visibility: hidden;
+}
+
+/* 电子放大后画面可拖动平移 */
+.video-shell-pannable .video-surface {
+  cursor: grab;
+}
+
+.video-shell-panning .video-surface {
+  cursor: grabbing;
 }
 
 .video-message {

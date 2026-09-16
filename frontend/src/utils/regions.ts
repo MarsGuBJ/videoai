@@ -1,11 +1,23 @@
-// 设备管理共用工具：自定义区域（localStorage）、区域树聚合、密码强度、拉流地址拼装。
+// 设备管理共用工具：区域树（backend-media /api/regions）、密码强度、拉流地址拼装。
+
+import { api } from "../api";
+import type { RegionTreeNode } from "../api";
 
 const STORAGE_KEY = "videoai.media.regions";
 
+// 页面侧监控点树使用的扁平节点（由 flattenRegionTree 结果映射而来）
 export type RegionNode = {
   name: string;
   fullPath: string;
   child: boolean;
+  count: number;
+};
+
+export type FlatRegionNode = {
+  node: RegionTreeNode;
+  name: string;
+  fullPath: string;
+  depth: number;
   count: number;
 };
 
@@ -17,7 +29,21 @@ export function normalizePath(path: string): string {
     .join(" / ");
 }
 
-export function loadCustomRegions(): string[] {
+// 区域树深度优先展开：children 保持后端给定的 sortOrder 顺序；count = 该节点精确挂载的设备数
+export function flattenRegionTree(tree: RegionTreeNode[]): FlatRegionNode[] {
+  const out: FlatRegionNode[] = [];
+  const walk = (nodes: RegionTreeNode[], prefix: string, depth: number) => {
+    for (const node of nodes || []) {
+      const fullPath = prefix ? `${prefix} / ${node.name}` : node.name;
+      out.push({ node, name: node.name, fullPath, depth, count: node.deviceCount || 0 });
+      walk(node.children || [], fullPath, depth + 1);
+    }
+  };
+  walk(tree, "", 0);
+  return out;
+}
+
+function readStoredRegionPaths(): string[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const list = raw ? JSON.parse(raw) : [];
@@ -28,60 +54,53 @@ export function loadCustomRegions(): string[] {
   }
 }
 
-// 区域管理弹窗增删改后回写 localStorage：统一规整路径并去重。
-export function saveCustomRegions(list: string[]): string[] {
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  list.forEach((item) => {
-    const path = normalizePath(item);
-    if (path && !seen.has(path)) {
-      seen.add(path);
-      normalized.push(path);
+// 旧版 localStorage 自定义区域迁移到后端区域树：
+// 每条路径逐段补齐缺失节点（已覆盖的路径跳过），全部完成后清除 localStorage
+async function migrateStoredRegions(tree: RegionTreeNode[]): Promise<void> {
+  const stored = readStoredRegionPaths();
+  if (!stored.length) return;
+  const idByPath = new Map<string, string>();
+  flattenRegionTree(tree).forEach((item) => idByPath.set(item.fullPath, item.node.id));
+  for (const raw of stored) {
+    const path = normalizePath(raw);
+    if (!path || idByPath.has(path)) continue;
+    let prefix = "";
+    let parentId: string | null = null;
+    for (const segment of path.split(" / ")) {
+      prefix = prefix ? `${prefix} / ${segment}` : segment;
+      const existing = idByPath.get(prefix);
+      if (existing) {
+        parentId = existing;
+        continue;
+      }
+      const created = await api.createRegion({ name: segment, parentId });
+      idByPath.set(prefix, created.id);
+      parentId = created.id;
     }
-  });
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-  } catch {
-    // localStorage 不可用时静默失败，调用方仍拿到规整后的列表
   }
-  return normalized;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // localStorage 不可用时静默失败，下次加载会重试迁移（已存在的节点会被跳过）
+  }
 }
 
-// 由设备 area 列表 + 自定义区域聚合成扁平节点数组：
-// 每条路径的每一级前缀都成为一个节点；child 表示非顶层节点；
-// 顶层节点 count 含子孙，子节点 count 仅统计精确 area 匹配的设备数。
-export function buildRegionTree(areas: string[], custom: string[]): RegionNode[] {
-  const exactCounts = new Map<string, number>();
-  const ordered: string[] = [];
-  const seen = new Set<string>();
-  const addPath = (raw: string, count: boolean) => {
-    const path = normalizePath(raw);
-    if (!path) return;
-    if (count) exactCounts.set(path, (exactCounts.get(path) || 0) + 1);
-    const segments = path.split(" / ");
-    let prefix = "";
-    for (const segment of segments) {
-      prefix = prefix ? `${prefix} / ${segment}` : segment;
-      if (!seen.has(prefix)) {
-        seen.add(prefix);
-        ordered.push(prefix);
-      }
-    }
-  };
-  areas.forEach((area) => addPath(area, true));
-  custom.forEach((path) => addPath(path, false));
-  return ordered.map((fullPath) => {
-    const segments = fullPath.split(" / ");
-    const child = segments.length > 1;
-    let count = exactCounts.get(fullPath) || 0;
-    if (!child) {
-      // 顶层节点累加所有子孙的精确计数
-      exactCounts.forEach((value, path) => {
-        if (path !== fullPath && path.startsWith(fullPath + " / ")) count += value;
+// 迁移只执行一次的并发保护：多个页面同时挂载时共享同一个迁移 Promise
+let migrationPromise: Promise<void> | null = null;
+
+// 加载区域树：首次调用时若存在旧版 localStorage 自定义区域，先迁移到后端再重新拉取
+export async function loadRegionTree(): Promise<RegionTreeNode[]> {
+  let tree = await api.regionTree();
+  if (readStoredRegionPaths().length) {
+    if (!migrationPromise) {
+      migrationPromise = migrateStoredRegions(tree).finally(() => {
+        migrationPromise = null;
       });
     }
-    return { name: segments[segments.length - 1], fullPath, child, count };
-  });
+    await migrationPromise;
+    tree = await api.regionTree();
+  }
+  return tree;
 }
 
 export function passwordStrength(pwd?: string | null): { label: string; cls: string } {
@@ -114,6 +133,29 @@ export function computeSourceUrl(
 // 可通过 IP+端口自动拼装拉流地址的协议
 export function canComputeSourceUrl(protocol?: string | null): boolean {
   return protocol === "RTSP 拉流" || protocol === "RTMP 推流" || protocol === "HTTP 拉流";
+}
+
+// 从拉流地址解析连接要素（新增/编辑页输入后自动回填 IP/端口/用户名/密码）。
+// 端口缺省时按协议取默认：rtsp=554、rtmp=1935、http=80、https=443。
+export function parseSourceUrlParts(sourceUrl?: string | null): { ip?: string; port?: string; username?: string; password?: string } {
+  const value = (sourceUrl || "").trim();
+  if (!value) return {};
+  const match = value.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/(?:([^:@/]+)(?::([^@/]*))?@)?([^:/@\s]+)(?::(\d+))?/);
+  if (!match) return {};
+  const scheme = match[1].toLowerCase();
+  const defaultPort = scheme === "rtsp" ? "554" : scheme === "rtmp" ? "1935" : scheme === "http" ? "80" : scheme === "https" ? "443" : undefined;
+  const parts: { ip?: string; port?: string; username?: string; password?: string } = {};
+  if (match[4]) parts.ip = decodeURIComponent(match[4]);
+  const port = match[5] || defaultPort;
+  if (port) parts.port = port;
+  if (match[2]) parts.username = decodeURIComponent(match[2]);
+  if (match[3]) parts.password = decodeURIComponent(match[3]);
+  return parts;
+}
+
+// 拉流地址内嵌了用户名密码（值得调后端探测设备序列号/云台能力）
+export function hasSourceUrlCredentials(sourceUrl?: string | null): boolean {
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^:@/]+:[^@/]+@/.test((sourceUrl || "").trim());
 }
 
 // 设备通道号上限（常见 NVR/DVR 通道上限）

@@ -106,6 +106,11 @@ def test_search_recordings_returns_dynamic_link_without_starting_stream(monkeypa
 
     monkeypatch.setattr(server.hcnetsdk_playback, "start_playback", fail_start_playback)
     monkeypatch.setattr(server.hcnetsdk_playback, "ensure_playback", fail_start_playback)
+
+    async def fake_list_cameras():
+        return []
+
+    monkeypatch.setattr(server.videoai, "list_cameras", fake_list_cameras)
     monkeypatch.setattr(
         "app.tools.recordings.settings", SimpleNamespace(mcp_public_base_url="http://mcp.test:8097")
     )
@@ -155,7 +160,7 @@ def test_download_recording_routes_to_selected_nvr_and_cleans_temp_file(monkeypa
         async def measure_clock_skew(self):
             return 0.0
 
-        async def download_mp4(self, recording):
+        async def download_mp4(self, recording, speedx=1):
             calls.append(("download", recording.metadata["deviceHost"], recording.trackId))
             return temp_mp4
 
@@ -218,7 +223,7 @@ def test_download_recording_derives_channel_from_track_id_and_compensates_skew(m
         async def measure_clock_skew(self):
             return -3600.0
 
-        async def download_mp4(self, recording):
+        async def download_mp4(self, recording, speedx=1):
             calls["download_start"] = recording.startTime
             return temp_mp4
 

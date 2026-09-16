@@ -28,11 +28,13 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
+import { loadRegionTree } from "../utils/regions";
 
 function statusLabel(status: string): string {
   const value = (status || "").toUpperCase();
   if (value === "RUNNING") return "在线";
   if (value === "STOPPED") return "离线";
+  if (value === "OFFLINE") return "离线";
   if (value === "DISABLED") return "停用";
   return "未成功连接";
 }
@@ -71,6 +73,13 @@ export default defineComponent({
   },
   methods: {
     async loadCameras() {
+      // 顶层区域顺序来自后端区域树；不在树中的分组排在最后并按名称排序
+      let topNames: string[] = [];
+      try {
+        topNames = (await loadRegionTree()).map((node) => node.name);
+      } catch {
+        // 区域接口不可用时保持原有分组顺序
+      }
       try {
         const cameras = await api.cameras();
         const grouped: Record<string, PickerCamera[]> = {};
@@ -79,7 +88,14 @@ export default defineComponent({
           if (!grouped[areaName]) grouped[areaName] = [];
           grouped[areaName].push({ name: cam.name, code: cam.id, status: statusLabel(cam.status) });
         });
+        const order = new Map(topNames.map((name, index) => [name, index]));
         const areas = Object.keys(grouped).map(name => ({ name, cameras: grouped[name] }));
+        areas.sort((a, b) => {
+          const ia = order.has(a.name) ? (order.get(a.name) as number) : Number.MAX_SAFE_INTEGER;
+          const ib = order.has(b.name) ? (order.get(b.name) as number) : Number.MAX_SAFE_INTEGER;
+          if (ia !== ib) return ia - ib;
+          return a.name.localeCompare(b.name, "zh");
+        });
         this.areas = areas;
         const expanded: Record<string, boolean> = {};
         areas.forEach((area, index) => { expanded[area.name] = index === 0; });

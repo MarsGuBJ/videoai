@@ -245,6 +245,7 @@ function statusLabel(status?: string): string {
   const value = (status || "").toUpperCase();
   if (value === "RUNNING") return "在线";
   if (value === "STOPPED") return "离线";
+  if (value === "OFFLINE") return "离线";
   if (value === "DISABLED") return "停用";
   return "未成功连接";
 }

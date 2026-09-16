@@ -57,6 +57,7 @@ def build_video_list_xml(recordings: list[dict]) -> str:
     root.set("count", str(len(recordings)))
     for rec in recordings:
         r = SubElement(root, "recording")
+        r.set("id", _attr(rec.get("id")))
         r.set("recordingId", _attr(rec.get("recordingId")))
         r.set("cameraId", _attr(rec.get("cameraId")))
         r.set("cameraName", _attr(rec.get("cameraName")))

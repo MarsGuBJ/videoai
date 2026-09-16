@@ -4,12 +4,12 @@
     <div class="media-console-grid playback">
       <aside class="panel media-resource-panel">
         <div class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in regions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ expandedRegions[region.fullPath] ? '⌄' : '›' }} {{ region.name }}</span><span>{{ region.count }} 台设备</span></button><div v-if="expandedRegions[region.fullPath]" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!regions.length" style="padding:12px;color:#888;">暂无录像资源，请先在设备管理中添加设备</div></div></div>
-        <div class="media-record-query"><div class="media-resource-tabs" style="margin-bottom:0;"></div><label>开始时间<input class="input" type="datetime-local" v-model="queryStart" /></label><label>结束时间<input class="input" type="datetime-local" v-model="queryEnd" /></label><button class="btn primary" :disabled="searching" @click="searchRecordings">{{ searching ? '查询中…' : '录像查询' }}</button><ul v-if="segments.length" class="media-plan-list"><li v-for="segment in segments" :key="segment.recordingId || segment.startTime" :class="{ active: activeSegment === segment }" style="cursor:pointer;" @click="playSegment(segment)"><b>{{ formatSegmentTime(segment.startTime) }} ~ {{ formatSegmentTime(segment.endTime, true) }}</b><span>{{ segment.cameraName || (selectedCamera && selectedCamera.name) || '' }}</span></li></ul><p v-else-if="searchError" class="hint-text">{{ searchError }}</p><p v-else-if="searched && !searching" class="hint-text">该时段无录像</p></div>
+        <div class="media-record-query"><div class="media-resource-tabs" style="margin-bottom:0;"></div><label>开始时间<input class="input" type="datetime-local" v-model="queryStart" /></label><label>结束时间<input class="input" type="datetime-local" v-model="queryEnd" /></label><button class="btn primary" :disabled="searching" @click="searchRecordings">{{ searching ? '查询中…' : '录像查询' }}</button><ul v-if="segments.length" class="media-plan-list"><li :class="{ active: !!activeSegment }" style="cursor:pointer;" @click="playMergedResult"><b>{{ formatSegmentTime(segments[0].startTime) }} ~ {{ formatSegmentTime(segments[segments.length - 1].endTime, true) }}</b><span>{{ segments[0].cameraName || (selectedCamera && selectedCamera.name) || '' }}</span></li></ul><p v-else-if="searchError" class="hint-text">{{ searchError }}</p><p v-else-if="searched && !searching" class="hint-text">该时段无录像</p></div>
       </aside>
       <section class="panel media-stage-panel">
         <div class="media-playback-player" :class="{ 'fit-video': !!playbackAspect }" :style="playbackAspect ? { aspectRatio: playbackAspect } : null">
           <video-player v-if="playbackStreamUrl" ref="playbackPlayer" :url="playbackStreamUrl" @resolution="onPlaybackResolution"></video-player>
-          <div v-else style="display:flex;align-items:center;justify-content:center;height:100%;color:#98a2b3;font-size:13px;">选择左侧摄像头并查询录像，点击录像段开始回放</div>
+          <div v-else style="display:flex;align-items:center;justify-content:center;height:100%;color:#98a2b3;font-size:13px;">选择左侧摄像头并查询录像，点击录像结果开始回放</div>
           <div class="media-playback-player-title">录像回放 · {{ playbackTitle }}</div>
           <div class="media-playback-overlay-controls">
             <div class="media-playback-button-group" aria-label="录像回放控制">
@@ -19,9 +19,9 @@
               <button class="media-playback-step" type="button" title="前进10秒" aria-label="前进10秒" @click="seekPlayback(10)">▶</button>
               <button class="media-playback-step" type="button" title="跳到结束" aria-label="跳到结束" @click="seekPlayback(playbackDuration)">▶|</button>
             </div>
-            <span>{{ formatClock(segmentStartMs) }}</span>
+            <span>{{ formatClock(rangeStartMs) }}</span>
             <input class="media-playback-progress" type="range" min="0" :max="playbackDuration" step="1" v-model.number="playbackCurrent" :disabled="!activeSegment" aria-label="录像播放进度" @pointerdown="scrubbing = true" @pointerup="scrubbing = false" @change="commitProgress" />
-            <span>{{ formatClock(segmentEndMs) }}</span>
+            <span>{{ formatClock(rangeEndMs) }}</span>
             <select class="media-playback-rate" v-model="speed" title="回放倍速（NVR 实测支持 0.25~32 倍）" aria-label="播放倍速" @change="onSpeedChange"><option v-for="option in SPEED_OPTIONS" :key="option" :value="String(option)">{{ option }}x</option></select>
           </div>
         </div>
@@ -33,14 +33,53 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
-import type { RecordingSegment } from "../api";
-import { buildRegionTree, loadCustomRegions, normalizePath, type RegionNode } from "../utils/regions";
+import type { RecordingSegment, RegionTreeNode } from "../api";
+import { flattenRegionTree, loadRegionTree, normalizePath, type RegionNode } from "../utils/regions";
 import VideoPlayer from "../components/VideoPlayer.vue";
+
+// 区域节点来自后端区域树（sortOrder 顺序）；设备占用的路径不在树中时（含「未分配」）按前缀补齐到末尾。
+// count 口径与原 buildRegionTree 一致：顶层节点含全部子孙，子节点仅统计精确挂载的设备数。
+function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<string, any[]>): RegionNode[] {
+  const exactCount = (path: string) => (regionCameras[path] || []).length;
+  const subtreeCount = (path: string) =>
+    Object.keys(regionCameras)
+      .filter((p) => p === path || p.startsWith(path + " / "))
+      .reduce((sum, p) => sum + regionCameras[p].length, 0);
+  const regions: RegionNode[] = (tree ? flattenRegionTree(tree) : []).map((item) => ({
+    name: item.name,
+    fullPath: item.fullPath,
+    child: item.depth > 0,
+    count: item.depth > 0 ? exactCount(item.fullPath) : subtreeCount(item.fullPath)
+  }));
+  const seen = new Set(regions.map((region) => region.fullPath));
+  const missing: string[] = [];
+  for (const path of Object.keys(regionCameras)) {
+    let prefix = "";
+    for (const segment of path.split(" / ")) {
+      prefix = prefix ? `${prefix} / ${segment}` : segment;
+      if (!seen.has(prefix) && !missing.includes(prefix)) missing.push(prefix);
+    }
+  }
+  missing.sort((a, b) => a.localeCompare(b, "zh"));
+  missing.forEach((fullPath) => {
+    seen.add(fullPath);
+    const segments = fullPath.split(" / ");
+    const child = segments.length > 1;
+    regions.push({
+      name: segments[segments.length - 1],
+      fullPath,
+      child,
+      count: child ? exactCount(fullPath) : subtreeCount(fullPath)
+    });
+  });
+  return regions;
+}
 
 function statusLabel(status: string): string {
   const value = (status || "").toUpperCase();
   if (value === "RUNNING") return "在线";
   if (value === "STOPPED") return "离线";
+  if (value === "OFFLINE") return "离线";
   if (value === "DISABLED") return "停用";
   return "未成功连接";
 }
@@ -50,6 +89,7 @@ function statusRank(status: string): number {
   const value = (status || "").toUpperCase();
   if (value === "RUNNING") return 0;
   if (value === "STOPPED") return 1;
+  if (value === "OFFLINE") return 1;
   if (value === "DISABLED") return 2;
   return 3;
 }
@@ -117,15 +157,16 @@ export default defineComponent({
     };
   },
   computed: {
-    segmentStartMs(): number {
-      return this.activeSegment ? parseLocalMs(this.activeSegment.startTime) : 0;
+    // 查询结果合并为一条：整体起点 = 首段开始时间，整体终点 = 末段结束时间
+    rangeStartMs(): number {
+      return this.segments.length ? parseLocalMs(this.segments[0].startTime) : 0;
     },
-    segmentEndMs(): number {
-      return this.activeSegment ? parseLocalMs(this.activeSegment.endTime) : 0;
+    rangeEndMs(): number {
+      return this.segments.length ? parseLocalMs(this.segments[this.segments.length - 1].endTime) : 0;
     },
-    // 当前回放位置 ≈ 起流时刻 + 已播放墙钟秒数 × 倍速
+    // 当前回放位置 ≈ 合并结果起点 + 全局进度秒数
     currentPlaybackMs(): number {
-      return this.activeSegment ? this.segmentStartMs + this.playbackCurrent * 1000 : 0;
+      return this.segments.length ? this.rangeStartMs + this.playbackCurrent * 1000 : 0;
     },
     playbackTitle(): string {
       if (!this.selectedCamera) return "未选择摄像头";
@@ -144,20 +185,26 @@ export default defineComponent({
   },
   methods: {
     async loadCameras() {
+      let tree: RegionTreeNode[] | null = null;
+      try {
+        tree = await loadRegionTree();
+      } catch {
+        // 区域接口不可用时按设备 area 兜底聚合
+      }
       try {
         const cameras = await api.cameras();
-        this.applyCameras(cameras || []);
+        this.applyCameras(cameras || [], tree);
         this.playPendingPlayback();
       } catch (error) {
         // 后端不可用时保留当前树
       }
     },
-    // 录像资源树与设备管理页共用同一套区域聚合逻辑：
-    // 设备 area 按 "/" 分层 + localStorage 自定义区域（utils/regions.ts）
-    applyCameras(cameras: any[]) {
+    // 录像资源树的区域顺序来自后端区域树（utils/regions.ts loadRegionTree），
+    // 设备按 area 全路径（" / " 连接、分段 trim）挂到对应区域节点下
+    applyCameras(cameras: any[], tree: RegionTreeNode[] | null) {
       const regionCameras: Record<string, any[]> = {};
       for (const cam of cameras) {
-        // 与 buildRegionTree 的 fullPath 口径一致（" / " 连接、分段 trim），否则展开区域取不到设备
+        // 与区域树 fullPath 口径一致，否则展开区域取不到设备
         const areaPath = normalizePath(cam.area) || "未分配";
         if (!regionCameras[areaPath]) regionCameras[areaPath] = [];
         regionCameras[areaPath].push({
@@ -175,7 +222,7 @@ export default defineComponent({
       for (const list of Object.values(regionCameras)) {
         list.sort((a, b) => statusRank(a.statusRaw) - statusRank(b.statusRaw) || a.name.localeCompare(b.name, "zh"));
       }
-      const regions = buildRegionTree(Object.keys(regionCameras).flatMap((path) => regionCameras[path].map(() => path)), loadCustomRegions());
+      const regions = regionsFromTree(tree, regionCameras);
       const expanded: Record<string, boolean> = {};
       regions.forEach((region, index) => {
         expanded[region.fullPath] = index === 0;
@@ -225,18 +272,15 @@ export default defineComponent({
       try {
         // 检索用秒级精度的原始时间段，避免 datetime-local 分钟精度截断漏段
         const result = await api.searchRecordings({ cameraId: target.id, startTime: toLocalIsoSeconds(pending.startMs), endTime: toLocalIsoSeconds(pending.endMs) });
-        this.segments = (result && result.data) || [];
+        this.segments = ((result && result.data) || []).slice().sort((a, b) => parseLocalMs(a.startTime) - parseLocalMs(b.startTime));
         this.searched = true;
         if (!this.segments.length) {
           this.showToast("该时段无录像");
           return;
         }
-        // 选段口径与即时回放一致：优先覆盖回放起点的段，找不到时回退最晚一段
-        const segment = this.segments.find(item => parseLocalMs(item.endTime) >= pending.startMs) || this.segments[this.segments.length - 1];
-        this.activeSegment = segment;
-        this.playbackDuration = Math.max(0, Math.round((parseLocalMs(segment.endTime) - parseLocalMs(segment.startTime)) / 1000));
-        const offset = Math.max(0, Math.round((pending.startMs - parseLocalMs(segment.startTime)) / 1000));
-        this.playbackCurrent = offset;
+        // 合并结果整体回放：从带入的回放起点开始（全局进度，段间自动接续）
+        this.playbackDuration = Math.max(0, Math.round((this.rangeEndMs - this.rangeStartMs) / 1000));
+        const offset = Math.max(0, Math.round((pending.startMs - this.rangeStartMs) / 1000));
         this.startPlaybackAt(offset);
       } catch (error) {
         // 摄像头不存在（404）/未绑定 NVR（400）等，直接展示后端错误消息
@@ -260,16 +304,18 @@ export default defineComponent({
       this.stopProgressTimer();
       this.playbackTimer = window.setInterval(() => {
         if (!this.playbackPlaying || this.scrubbing) return;
-        // 倍速流进度 = 起流位置 + 墙钟秒数 × 倍速
+        // 倍速流进度 = 起流位置 + 墙钟秒数 × 倍速（全局进度，相对合并结果起点）
         const elapsed = Math.floor(((Date.now() - this.streamStartedAt) / 1000) * Number(this.speed));
-        this.playbackCurrent = Math.max(0, Math.min(this.playbackDuration, Math.round((this.streamBaseMs - this.segmentStartMs) / 1000) + elapsed));
-        if (this.playbackCurrent >= this.playbackDuration) {
-          // 段尾自动接续下一段（重新起流并重置进度）；无下一段才停止
-          const currentIndex = this.activeSegment ? this.segments.indexOf(this.activeSegment) : -1;
+        const positionMs = this.streamBaseMs + elapsed * 1000;
+        this.playbackCurrent = Math.max(0, Math.min(this.playbackDuration, Math.round((positionMs - this.rangeStartMs) / 1000)));
+        if (this.activeSegment && positionMs >= parseLocalMs(this.activeSegment.endTime)) {
+          // 段尾自动接续下一段（重新起流，全局进度连续）；无下一段才停止
+          const currentIndex = this.segments.indexOf(this.activeSegment);
           const next = currentIndex >= 0 && currentIndex + 1 < this.segments.length ? this.segments[currentIndex + 1] : null;
           if (next) {
-            this.playSegment(next);
+            this.startPlaybackAt(Math.round((parseLocalMs(next.startTime) - this.rangeStartMs) / 1000));
           } else {
+            this.playbackCurrent = this.playbackDuration;
             this.playbackPlaying = false;
             this.stopProgressTimer();
           }
@@ -311,7 +357,8 @@ export default defineComponent({
       this.segments = [];
       try {
         const result = await api.searchRecordings({ cameraId: this.selectedCamera.id, startTime: this.queryStart, endTime: this.queryEnd });
-        this.segments = (result && result.data) || [];
+        // 多段录像按开始时间排序后合并展示为一条结果
+        this.segments = ((result && result.data) || []).slice().sort((a, b) => parseLocalMs(a.startTime) - parseLocalMs(b.startTime));
         this.searched = true;
         if (!this.segments.length) this.showToast("该时段无录像");
       } catch (error) {
@@ -323,18 +370,36 @@ export default defineComponent({
         this.searching = false;
       }
     },
-    playSegment(segment: RecordingSegment) {
-      this.activeSegment = segment;
-      this.playbackDuration = Math.max(0, Math.round((parseLocalMs(segment.endTime) - parseLocalMs(segment.startTime)) / 1000));
+    // 查询结果合并为一条（开始时间 ~ 结束时间），点击从起点连续回放，段间自动接续
+    playMergedResult() {
+      if (!this.segments.length) return;
+      this.playbackDuration = Math.max(0, Math.round((this.rangeEndMs - this.rangeStartMs) / 1000));
       this.playbackCurrent = 0;
       this.startPlaybackAt(0);
     },
-    // NVR 回放是连续推送流：定位/快进/拖动进度 = 以「段开始 + 偏移」为新起点重新起流（段内 clamp），倍速随起流生效
-    async startPlaybackAt(offsetSeconds: number) {
-      const segment = this.activeSegment;
-      if (!segment || !this.selectedCamera || this.playbackBusy) return;
-      const offset = Math.max(0, Math.min(Math.max(this.playbackDuration - 1, 0), Math.round(offsetSeconds)));
-      const startMs = this.segmentStartMs + offset * 1000;
+    // 全局进度（相对合并结果起点）定位录像段：优先覆盖该时刻的段，时段空隙跳到其后一段
+    locateSegment(ms: number): { segment: RecordingSegment; localOffset: number } | null {
+      for (const segment of this.segments) {
+        const startMs = parseLocalMs(segment.startTime);
+        const endMs = parseLocalMs(segment.endTime);
+        if (ms >= startMs && ms < endMs) {
+          return { segment, localOffset: Math.round((ms - startMs) / 1000) };
+        }
+        if (ms < startMs) return { segment, localOffset: 0 };
+      }
+      const last = this.segments[this.segments.length - 1];
+      if (!last) return null;
+      const lastDuration = Math.max(0, Math.round((parseLocalMs(last.endTime) - parseLocalMs(last.startTime)) / 1000));
+      return { segment: last, localOffset: Math.max(lastDuration - 1, 0) };
+    },
+    // NVR 回放是连续推送流：定位/快进/拖动进度 = 以「合并结果起点 + 全局偏移」对应的录像时刻为新起点重新起流（段内 clamp），倍速随起流生效
+    async startPlaybackAt(globalOffsetSeconds: number) {
+      if (!this.segments.length || !this.selectedCamera || this.playbackBusy) return;
+      const offset = Math.max(0, Math.min(Math.max(this.playbackDuration - 1, 0), Math.round(globalOffsetSeconds)));
+      const located = this.locateSegment(this.rangeStartMs + offset * 1000);
+      if (!located) return;
+      this.activeSegment = located.segment;
+      const startMs = parseLocalMs(located.segment.startTime) + located.localOffset * 1000;
       this.playbackBusy = true;
       this.stopProgressTimer();
       this.playbackPlaying = false;
@@ -342,12 +407,12 @@ export default defineComponent({
         const result = await api.startRecordingStream({
           cameraId: this.selectedCamera.id,
           startTime: toLocalIsoSeconds(startMs),
-          endTime: toLocalIsoSeconds(this.segmentEndMs),
+          endTime: located.segment.endTime,
           speed: Number(this.speed)
         });
         this.streamBaseMs = startMs;
         this.streamStartedAt = Date.now();
-        this.playbackCurrent = offset;
+        this.playbackCurrent = Math.round((startMs - this.rangeStartMs) / 1000);
         this.playbackPlaying = true;
         this.startProgressTimer();
         if (this.playbackStreamUrl === result.url) {
@@ -372,7 +437,7 @@ export default defineComponent({
     },
     togglePlayback() {
       if (!this.activeSegment) {
-        this.showToast("请先查询并点击左侧录像段");
+        this.showToast("请先查询并点击左侧录像结果");
         return;
       }
       const player = this.$refs.playbackPlayer as any;
@@ -432,12 +497,9 @@ export default defineComponent({
         this.showToast("请先在左侧选择摄像头");
         return;
       }
-      // 已选中录像段时默认导出该段（时段过长会超出 NVR 导出上限），否则用查询时段
-      const segment = this.activeSegment;
-      const startMs = segment ? parseLocalMs(segment.startTime) : 0;
-      const endMs = segment ? parseLocalMs(segment.endTime) : 0;
-      const startTime = startMs ? toLocalIsoSeconds(startMs) : this.queryStart;
-      const endTime = endMs ? toLocalIsoSeconds(endMs) : this.queryEnd;
+      // 查询结果已合并为一条：默认导出整个合并时段，否则用查询时段
+      const startTime = this.rangeStartMs ? toLocalIsoSeconds(this.rangeStartMs) : this.queryStart;
+      const endTime = this.rangeEndMs ? toLocalIsoSeconds(this.rangeEndMs) : this.queryEnd;
       this.openModal("recordDownload", { camera: this.selectedCamera, startTime, endTime });
     }
   },

@@ -81,6 +81,46 @@ def test_get_person_search_result_uses_path_parameter():
     assert seen == {"method": "GET", "path": "/vlm-application/search/searchPersonResult/task-1"}
 
 
+def test_gait_feature_extract_and_insert_maps_mcp_fields_to_upstream_payload():
+    seen = {}
+    position = [{"x": 1, "y": 2}, {"x": 3, "y": 2}, {"x": 3, "y": 4}, {"x": 1, "y": 4}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"code": 200, "data": {"task_id": "task-1"}})
+
+    result = run(
+        make_client(handler).gait_feature_extract_and_insert(
+            "person-1",
+            "http://example.test/query.jpg",
+            "http://example.test/video.mp4",
+            True,
+            True,
+            position,
+            frame_interval=2,
+            min_gait_frames=8,
+        )
+    )
+
+    assert result["data"]["task_id"] == "task-1"
+    assert seen == {
+        "method": "POST",
+        "path": "/vlm-application/gait/gaitFeaExtraAndIns",
+        "body": {
+            "id": "person-1",
+            "image_url": "http://example.test/query.jpg",
+            "video_url": "http://example.test/video.mp4",
+            "is_walking": True,
+            "is_full_body": True,
+            "position": position,
+            "frame_interval": 2,
+            "min_gait_frames": 8,
+        },
+    }
+
+
 def test_gait_feature_compare_posts_array_and_preserves_4xx_payload():
     seen = {}
     persons = [{"id": "person_001", "isWalking": True}, {"id": "person_002", "isWalking": True}]

@@ -49,6 +49,29 @@ class PersonApiClient:
         safe_person_id = required(person_id, "personId")
         return await self._get(f"/vlm-application/search/getPersonBbox/{safe_person_id}")
 
+    async def gait_feature_extract_and_insert(
+        self,
+        person_id: str,
+        image_url: str,
+        video_url: str,
+        is_walking: bool,
+        is_full_body: bool,
+        position: list[dict[str, Any]],
+        frame_interval: int = 4,
+        min_gait_frames: int = 5,
+    ) -> dict:
+        payload: dict[str, Any] = {
+            "id": required(person_id, "personId"),
+            "image_url": required(image_url, "imageUrl"),
+            "video_url": required(video_url, "videoUrl"),
+            "is_walking": is_walking,
+            "is_full_body": is_full_body,
+            "position": position,
+            "frame_interval": frame_interval,
+            "min_gait_frames": min_gait_frames,
+        }
+        return await self._post("/vlm-application/gait/gaitFeaExtraAndIns", payload)
+
     async def gait_feature_compare(self, persons: list[dict[str, Any]]) -> dict:
         if not isinstance(persons, list):
             raise ValueError("persons must be a JSON array")

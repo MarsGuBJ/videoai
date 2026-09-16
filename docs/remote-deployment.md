@@ -49,6 +49,7 @@
 - `BACKEND_PUBLIC_URL=http://192.168.11.194:8081`
 - `BACKEND_INTERNAL_URL=http://backend:8081`
 - `ZLM_PUBLIC_HTTP_URL`、`ZLM_HTTP_URL`、`ZLM_RTMP_PUSH_BASE`
+- `VIDEOAI_MCP_PUBLIC_BASE_URL`：录像动态链接（`/recording-live`）对外基址，必须是客户端可访问的 MCP 地址（10.10 现场为 `http://10.10.3.100:8097`）；compose 默认值的开发网段地址在现场不可达，会导致回放页/文搜返回的播放链接打不开
 - `HIKVISION_NVR_BASE_URL=http://192.168.11.251`
 - `VIDEOAI_MCP_RECORDING_FALLBACK_FILE=/data/demo-recording-601.ps`
 - `VIDEOAI_MCP_RECORDING_FALLBACK_FILE_HOST=/home/public/videoai/demo-recording-601.ps`
@@ -76,7 +77,7 @@
 
 ### 录像回放页（对接现场 NVR，2026-09-04 新增）
 
-- 前端录像回放页 → backend-lite `POST /api/recordings/search|stream|download`（body 均为 `{cameraId, startTime, endTime}`，北京时间）→ MCP `search_recordings-http` / `get_recording_stream-http` / `download_recording-http`（均支持 `cameraId`）。
+- 前端录像回放页 → backend-lite `POST /api/recordings/search|stream|download`（body 均为 `{cameraId, startTime, endTime}`，北京时间）→ MCP `search_recordings-http` / `download_recording-http`（均支持 `cameraId`）；`/api/recordings/stream` 只调 `search_recordings-http`（autoProxy=true）取 `/recording-live` 动态链接并追加 `&speed=` 倍速参数，MCP 侧 `get_recording_stream` 接口已移除。
 - 多 NVR 能力：MCP 按摄像头的 `nvrId`/`nvrTrackId`/`nvrChannel` 定位设备，凭据从摄像头 `sourceUrl`（`rtsp://user:pass@host:554/...`）解析，无需额外配置；ISAPI 检索录像段、HCNetSDK 按时间回放/下载，设备时钟偏差自动测量补偿。
 - 回放链路：SDK 回放 → ffmpeg `-re` 节流 + **libx264 转码**（现场 NVR 多为 smart265/HEVC，浏览器 flv.js 不支持，禁止改回 `-c:v copy`）→ ZLM FLV。等速流不支持倍速与真正的 seek，前端通过按新 startTime 重新起流实现跳转。
 - ISAPI 检索返回的是与查询窗口相交的**整个连续录像块**（海康设备行为，不裁剪）；MCP `search_segments` 会把结果裁剪到用户查询窗口（`clip_segment_to_window`），recordingId 随裁剪后的时间重算，避免不同窗口共享缓存键。

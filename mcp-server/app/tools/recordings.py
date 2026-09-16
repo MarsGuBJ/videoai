@@ -1,7 +1,8 @@
 """Recording search, playback and download MCP tools."""
 
-from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
+import logging
+from datetime import datetime, timedelta
+from urllib.parse import quote, urlparse
 
 from ..context import (
     DEFAULT_RECORDING_RESULT_LIMIT,
@@ -20,9 +21,9 @@ from ..context import (
     settings,
     videoai,
 )
-from ..hcnetsdk_playback import NET_DVR_PLAYBACK_BY_TIME, HcNetSdkPlaybackProxy
-from ..models import Camera, RecordingSegment, StreamResponse
-from ..nvr_devices import resolve_device_credentials, search_segments
+from ..hcnetsdk_playback import HcNetSdkPlaybackProxy
+from ..models import Camera, RecordingSegment
+from ..nvr_devices import resolve_device_channel, resolve_device_credentials, search_segments
 from ..recording_export import (
     MAX_EXPORT_DURATION_SECONDS,
     MAX_SDK_EXPORT_DURATION_SECONDS,
@@ -31,7 +32,22 @@ from ..recording_export import (
     export_recording_via_downloader,
     export_recording_via_sdk_download,
 )
-from ..xml_builder import build_video_file_xml, build_video_list_xml
+from ..xml_builder import build_video_list_xml
+
+# download_recording 的 speedx 可选值：1 为默认（不下发流控），其余映射 NET_DVR_SETSPEED 的 Mbps 流控值
+ALLOWED_DOWNLOAD_SPEEDS = (1, 2, 4, 8, 16, 32)
+
+logger = logging.getLogger(__name__)
+
+
+def normalize_download_speed(speedx: int) -> int:
+    try:
+        value = int(speedx)
+    except (TypeError, ValueError):
+        raise ValueError(f"speedx must be one of {ALLOWED_DOWNLOAD_SPEEDS}") from None
+    if value not in ALLOWED_DOWNLOAD_SPEEDS:
+        raise ValueError(f"speedx must be one of {ALLOWED_DOWNLOAD_SPEEDS}")
+    return value
 
 
 @mcp.tool()
@@ -118,6 +134,11 @@ async def search_recordings(
 
     failed_tracks: dict[str, str] = {}
     recording = hcnetsdk_playback.build_recording(start, end)
+    # 把合成的设备通道标识替换为平台摄像头 UUID（反查不到时保留原值）
+    camera = await resolve_recording_camera(hcnetsdk_playback.host, hcnetsdk_playback.channel)
+    if camera is not None:
+        recording.cameraId = camera.id
+        recording.cameraName = camera.name
     recording_cache.put_many([recording])
     items = [recording_item(recording)]
     if autoProxy:
@@ -130,6 +151,39 @@ async def search_recordings(
         "searchedTrackIds": [recording.trackId],
         "failedTrackIds": failed_tracks,
     }
+
+
+async def resolve_recording_camera(host: str, channel: int) -> Camera | None:
+    """按 NVR 主机+通道在平台摄像头列表中反查摄像头，用于把合成标识替换为摄像头 UUID。
+
+    sourceUrl 指向该 NVR 的摄像头按 nvrChannel/nvrTrackId 换算通道匹配；
+    直连 IPC 的摄像头经 channel_lookup 反查所属 NVR 与通道。
+    反查失败返回 None，调用方退回合成的设备通道标识。
+    """
+    try:
+        cameras = await videoai.list_cameras()
+    except Exception as exc:  # noqa: BLE001  # 平台不可达时不阻塞检索，退回合成的设备通道标识
+        logger.warning("camera lookup for %s channel %s failed: %s", host, channel, type(exc).__name__)
+        return None
+    for camera in cameras:
+        if await camera_matches_device_channel(camera, host, channel):
+            return camera
+    return None
+
+
+async def camera_matches_device_channel(camera: Camera, host: str, channel: int) -> bool:
+    source_host = urlparse((camera.sourceUrl or "").strip()).hostname or ""
+    if source_host == host:
+        track_id = (camera.nvrTrackId or camera.nvrChannel or "").strip()
+        if not track_id:
+            return False
+        try:
+            return resolve_device_channel(camera, track_id) == channel
+        except ValueError:
+            return False
+    if channel_lookup is None or not source_host or source_host in known_nvr_hosts:
+        return False
+    return await channel_lookup.lookup(source_host) == (host, channel)
 
 
 async def search_camera_recordings(
@@ -184,75 +238,20 @@ def dynamic_recording_url(start: datetime, end: datetime) -> str:
 PLAYBACK_SPEEDS = (0.25, 0.5, 1, 2, 4, 8, 16, 32)
 
 
-async def get_recording_stream(recordingId: str, format: str = "flv", speed: float = 1.0) -> dict:
-    """Start a short-lived relay for a cached recording and return a playable FLV or HLS URL.
-
-    speed 为回放倍速（仅 SDK 回放源支持；RTSP 转发源不支持倍速）。"""
-    if speed not in PLAYBACK_SPEEDS:
-        raise ValueError(f"unsupported playback speed: {speed}; supported: {PLAYBACK_SPEEDS}")
-    recording = recording_cache.get(recordingId)
-    if recording is None:
-        raise ValueError("recordingId is unknown or expired; call search_recordings again")
-    if recording.source == NET_DVR_PLAYBACK_BY_TIME:
-        proxy = await resolve_playback_proxy(recording)
-        url = await proxy.start_playback(recording, speed)
-        response = StreamResponse(
-            url=url,
-            format="flv",
-            expiresAt=datetime.now(timezone.utc) + timedelta(seconds=settings.playback_ttl_seconds),
-            source=recording.source,
-            metadata=recording_metadata(recording),
-        )
-        data = response.model_dump(mode="json")
-        data["xml"] = build_video_file_xml(data)
-        data["input"] = {"recordingId": recordingId, "format": format, "speed": speed}
-        return data
-    playback_format = normalize_playback_format(format)
-    url = await media_proxy.start_rtsp_relay(
-        recording.recordingId,
-        recording.playbackUri,
-        playback_format,
-        overlay_text=RECORDING_OVERLAY_TEXT,
-        fallback_file=settings.recording_fallback_file,
-    )
-    response = StreamResponse(
-        url=url,
-        format=playback_format,
-        expiresAt=datetime.now(timezone.utc) + timedelta(seconds=settings.playback_ttl_seconds),
-        source=recording.source,
-        metadata=recording_metadata(recording),
-    )
-    data = response.model_dump(mode="json")
-    data["xml"] = build_video_file_xml(data)
-    data["input"] = {"recordingId": recordingId, "format": format, "speed": speed}
-    return data
-
-
-async def resolve_playback_proxy(recording: RecordingSegment) -> HcNetSdkPlaybackProxy:
-    """Route an SDK playback recording to its device's proxy.
-
-    cameraId 路径检索出的录像（metadata.deviceHost 存在且非单例回放设备）按 recording.cameraId
-    再查一次摄像头，经 resolve_device_credentials（含 IPC→NVR 反查）路由到 nvr_devices 中对应
-    NVR 的 per-device 代理；其余走单例 hcnetsdk_playback。
-    """
-    device_host = str(recording.metadata.get("deviceHost") or "")
-    if not device_host or device_host == hcnetsdk_playback.host:
-        return hcnetsdk_playback
-    camera = await videoai.get_camera(recording.cameraId)
-    credentials = await resolve_device_credentials(camera, channel_lookup, known_nvr_hosts)
-    return nvr_devices.proxy_for_credentials(credentials)
-
-
 @mcp.tool()
 async def download_recording(
-    nvr: str = "", startTime: str = "", endTime: str = "", channel: int = 0, trackId: str = "", cameraId: str = ""
+    nvr: str = "", startTime: str = "", endTime: str = "", channel: int = 0, trackId: str = "", cameraId: str = "",
+    speedx: int = 1,
 ) -> dict:
     """Download a recording from the selected NVR through HCNetSDK, save it as MP4 in MinIO, and return the MP4 URL.
     With cameraId the camera's NVR is used instead of the nvr whitelist: a sourceUrl pointing at a known NVR
     uses its embedded credentials, a direct-IPC sourceUrl is reverse-mapped to its NVR channel via the known
     NVRs' input channel lists.
     The channel can be given directly, or derived from trackId (e.g. "201" -> channel 2). The NVR clock
-    offset is measured and compensated automatically before downloading."""
+    offset is measured and compensated automatically before downloading.
+    speedx is optional (1/2/4/8/16/32, default 1): the NVR-side download throttle, mapped to the HCNetSDK
+    NET_DVR_SETSPEED flow-control value in Mbps; 1 keeps the device default speed (no throttle is sent)."""
+    speed = normalize_download_speed(speedx)
     camera_id = (cameraId or "").strip()
     if camera_id:
         camera = await videoai.get_camera(camera_id)
@@ -262,7 +261,7 @@ async def download_recording(
         end = parse_datetime(endTime)
         if end <= start:
             raise ValueError("endTime must be later than startTime")
-        return await download_and_store_recording(downloader, start, end, credentials.channel, camera)
+        return await download_and_store_recording(downloader, start, end, credentials.channel, camera, speed)
 
     downloader = resolve_download_nvr(nvr)
     start = parse_datetime(startTime)
@@ -277,7 +276,7 @@ async def download_recording(
             sdk_channel = int(trackId.strip()) // 100
         except ValueError:
             raise ValueError(f"trackId must be numeric, got: {trackId}") from None
-    return await download_and_store_recording(downloader, start, end, sdk_channel or None)
+    return await download_and_store_recording(downloader, start, end, sdk_channel or None, None, speed)
 
 
 async def download_and_store_recording(
@@ -286,6 +285,7 @@ async def download_and_store_recording(
     end: datetime,
     sdk_channel: int | None,
     camera: Camera | None = None,
+    speedx: int = 1,
 ) -> dict:
     """SDK 按时间下载、remux 并上传 MinIO 的公共流程；展示字段保持用户请求的时间。"""
     failed_tracks: dict[str, str] = {}
@@ -303,7 +303,7 @@ async def download_and_store_recording(
     object_name = f"recordings/{recording.metadata['deviceHost']}/ch{recording.trackId}/{recording.recordingId}.mp4"
     mp4_file = None
     try:
-        mp4_file = await downloader.download_mp4(recording)
+        mp4_file = await downloader.download_mp4(recording, speedx)
         url = recording_mp4_storage.upload_mp4(mp4_file, object_name)
         item["url"] = url
         item["format"] = "mp4"
@@ -404,7 +404,8 @@ def normalize_playback_format(value: str) -> str:
 
 def recording_item(recording: RecordingSegment) -> dict:
     return dict(
-        recording.model_dump(mode="json", exclude={"playbackUri", "metadata"}),
+        {"id": recording.cameraId},
+        **recording.model_dump(mode="json", exclude={"playbackUri", "metadata"}),
         metadata=safe_metadata(recording.metadata),
     )
 

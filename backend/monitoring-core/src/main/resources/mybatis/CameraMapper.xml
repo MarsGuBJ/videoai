@@ -69,4 +69,28 @@
         ON CONFLICT (id) DO NOTHING
     </insert>
 
+    <update id="replaceAreaPrefix">
+        UPDATE cameras
+        SET area = #{newPath} || substr(area, length(#{oldPath}) + 1),
+            updated_at = now()
+        WHERE area = #{oldPath} OR strpos(area, #{oldPath} || ' / ') = 1
+    </update>
+
+    <select id="countByAreaPrefix" resultType="int">
+        SELECT COUNT(*) FROM cameras
+        WHERE area = #{path} OR strpos(area, #{path} || ' / ') = 1
+    </select>
+
+    <select id="selectDistinctAreas" resultType="string">
+        SELECT DISTINCT area FROM cameras WHERE area IS NOT NULL AND area &lt;&gt; ''
+    </select>
+
+    <select id="selectAreaCounts" resultType="java.util.HashMap">
+        SELECT area, COUNT(*) AS cnt FROM cameras WHERE area IS NOT NULL GROUP BY area
+    </select>
+
+    <select id="selectCamDeviceCodes" resultType="string">
+        SELECT device_code FROM cameras WHERE device_code ~ '^CAM[0-9]{5}$'
+    </select>
+
 </mapper>
