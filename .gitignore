@@ -33,6 +33,9 @@ frontend/dist-*/
 .coverage
 storage/algorithm-packages/
 
+# local verification scratch (CDP browser profiles, screenshots, ad-hoc scripts)
+tmp-verify/
+
 # Office 临时锁文件
 ~$*
 .venv/
