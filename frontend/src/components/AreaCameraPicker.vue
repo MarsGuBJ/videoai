@@ -28,18 +28,10 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
+import { deviceStatusLabel } from "../utils/device-status";
 import { loadRegionTree } from "../utils/regions";
 
-function statusLabel(status: string): string {
-  const value = (status || "").toUpperCase();
-  if (value === "RUNNING") return "在线";
-  if (value === "STOPPED") return "离线";
-  if (value === "OFFLINE") return "离线";
-  if (value === "DISABLED") return "停用";
-  return "未成功连接";
-}
-
-type PickerCamera = { name: string; code: string; status: string };
+type PickerCamera = { name: string; code: string; status: string; onlineStatus?: string | null };
 type PickerArea = { name: string; cameras: PickerCamera[] };
 
 // 「区域 / 监控点」树形下拉：与文搜视频页在线监控点选择器一致。
@@ -86,7 +78,12 @@ export default defineComponent({
         (cameras || []).forEach((cam: any) => {
           const areaName = (String(cam.area || "").split("/")[0] || "").trim() || "未分配";
           if (!grouped[areaName]) grouped[areaName] = [];
-          grouped[areaName].push({ name: cam.name, code: cam.id, status: statusLabel(cam.status) });
+          grouped[areaName].push({
+            name: cam.name,
+            code: cam.id,
+            status: deviceStatusLabel(cam),
+            onlineStatus: cam.onlineStatus
+          });
         });
         const order = new Map(topNames.map((name, index) => [name, index]));
         const areas = Object.keys(grouped).map(name => ({ name, cameras: grouped[name] }));

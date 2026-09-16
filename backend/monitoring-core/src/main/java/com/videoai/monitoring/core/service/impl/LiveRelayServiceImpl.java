@@ -32,20 +32,20 @@ public class LiveRelayServiceImpl implements LiveRelayService {
     }
 
     @Override
-    public void addZlmediakitProxy(String sourceUrl, String streamName) {
-        addZlmediakitProxy(sourceUrl, streamName, false);
+    public boolean addZlmediakitProxy(String sourceUrl, String streamName) {
+        return addZlmediakitProxy(sourceUrl, streamName, false);
     }
 
     @Override
-    public void addZlmediakitProxy(String sourceUrl, String streamName, boolean forceRestart) {
+    public boolean addZlmediakitProxy(String sourceUrl, String streamName, boolean forceRestart) {
         if (sourceUrl == null || !sourceUrl.startsWith("rtsp://")) {
-            return;
+            // 非 RTSP 源（如内部推流）无需挂代理，不算失败
+            return true;
         }
         if (useFfmpegLiveRelay(streamName)) {
-            startFfmpegLiveRelay(sourceUrl, streamName, forceRestart);
-            return;
+            return startFfmpegLiveRelay(sourceUrl, streamName, forceRestart);
         }
-        zlmClient.addStreamProxy("live", streamName, sourceUrl);
+        return zlmClient.addStreamProxy("live", streamName, sourceUrl);
     }
 
     @Override
@@ -69,11 +69,11 @@ public class LiveRelayServiceImpl implements LiveRelayService {
     }
 
     @Override
-    public void startFfmpegLiveRelay(String sourceUrl, String streamName, boolean forceRestart) {
+    public boolean startFfmpegLiveRelay(String sourceUrl, String streamName, boolean forceRestart) {
         Process existing = liveRelayProcesses.get(streamName);
         if (existing != null && existing.isAlive()) {
             if (!forceRestart) {
-                return;
+                return true;
             }
             terminateProcess(existing);
         }
@@ -99,11 +99,11 @@ public class LiveRelayServiceImpl implements LiveRelayService {
                     .start();
         } catch (IOException exception) {
             log.warn("ffmpeg relay failed for {}: {}", streamName, exception.getMessage());
-            zlmClient.addStreamProxy("live", streamName, sourceUrl);
-            return;
+            return zlmClient.addStreamProxy("live", streamName, sourceUrl);
         }
         liveRelayProcesses.put(streamName, process);
         log.info("ffmpeg relay started for {}", streamName);
+        return true;
     }
 
     @Override

@@ -66,8 +66,12 @@ public class ZlmClient {
         return requestMap(uri, "Failed to read media list");
     }
 
-    /** Mirrors backend-lite/main.py add_zlmediakit_stream_proxy (never throws on ZLM failure). */
-    public void addStreamProxy(String app, String stream, String url) {
+    /**
+     * Mirrors backend-lite/main.py add_zlmediakit_stream_proxy: never throws.
+     * 返回 true 表示 ZLM 已接受该代理（含"流已存在"这种幂等成功）；false 表示拉流服务拒绝了该地址
+     * （例如 OPTIONS 404/401、通道非法），调用方据此避免把设备标成"拉流中"。
+     */
+    public boolean addStreamProxy(String app, String stream, String url) {
         String uri = UriComponentsBuilder.fromUriString(properties.zlm().httpUrl())
                 .path("/index/api/addStreamProxy")
                 .queryParam("secret", properties.zlm().secret())
@@ -88,11 +92,19 @@ public class ZlmClient {
         try {
             Map<String, Object> response = requestMap(uri, "ZLMediaKit addStreamProxy failed");
             Object code = response.get("code");
-            if (code != null && !code.toString().equals("0")) {
-                log.warn("ZLM addStreamProxy error for {}: {}", stream, response);
+            if (code == null || "0".equals(code.toString())) {
+                return true;
             }
+            String message = response.get("msg") == null ? "" : response.get("msg").toString();
+            // 代理已存在等价于挂流成功（重复调用/守护线程重挂场景）
+            if (message.toLowerCase().contains("already exists")) {
+                return true;
+            }
+            log.warn("ZLM addStreamProxy rejected for {}: {}", stream, response);
+            return false;
         } catch (Exception exception) {
             log.warn("ZLM addStreamProxy failed for {}: {}", stream, exception.getMessage());
+            return false;
         }
     }
 

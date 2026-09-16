@@ -3651,15 +3651,6 @@
       grid-template-columns: 112px 1fr;
     }
 
-    .video-config-modal .modal-form-row.video-config-check {
-      align-items: center;
-    }
-
-    .video-config-modal .modal-form-row.video-config-check > .video-device-include {
-      padding-top: 0;
-      text-align: left;
-    }
-
     .modal-split {
       display: flex;
       gap: 20px;
@@ -4625,10 +4616,11 @@
       color: #98a2b3;
     }
 
-    /* 状态居左后，收藏星标仍居右；可点击，悬停显示手型 */
+    /* 状态居左后，收藏星标仍居右；可点击，悬停显示手型；星标图标放大便于点击 */
     .media-preview-page .exact-tree-device .link-blue {
       margin-left: auto;
       cursor: pointer;
+      font-size: 16px;
     }
 
     .deploy-tree-camera {
@@ -5300,38 +5292,36 @@
 
     .exact-query-panel .exact-query-box .textarea {
       min-height: 38px;
-      padding-right: 46px;
-      padding-bottom: 12px;
+      padding-right: 44px;
+      padding-bottom: 8px;
     }
 
-    .exact-query-send-btn {
+    .exact-query-send {
       position: absolute;
+      top: 50%;
       right: 8px;
-      bottom: 8px;
+      transform: translateY(-50%);
+    }
+
+    .exact-query-send .btn {
+      display: grid;
+      place-items: center;
       width: 30px;
+      min-width: 30px;
       height: 30px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 0;
+      padding: 0;
       border-radius: 50%;
-      background: var(--blue);
-      color: #fff;
-      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(22, 119, 255, .22);
     }
 
-    .exact-query-send-btn:hover {
-      filter: brightness(1.08);
+    .exact-send-btn .send-icon::before {
+      content: "\f1d8";
+      font-family: "FontAwesome";
+      font-size: 12px;
     }
 
-    .exact-query-send-btn:disabled {
-      opacity: .5;
-      cursor: default;
-    }
-
-    .exact-query-send-btn svg {
-      width: 14px;
-      height: 14px;
+    .exact-send-btn:disabled {
+      box-shadow: none;
     }
 
     .exact-query-panel .exact-chat-quick {
@@ -5557,17 +5547,16 @@
     }
 
     .exact-query-box {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 10px;
-      align-items: end;
+      position: relative;
+      display: block;
       margin-bottom: 14px;
       padding-bottom: 14px;
       border-bottom: 1px solid #edf0f5;
     }
 
     .exact-query-box .textarea {
-      min-height: 74px;
+      min-height: 38px;
+      padding-right: 44px;
     }
 
     .exact-dialog-panel {
@@ -5610,6 +5599,7 @@
 
     .exact-chat-messages {
       display: grid;
+      align-content: start;
       gap: 8px;
       max-height: 190px;
       overflow: auto;
@@ -5619,6 +5609,7 @@
     .exact-chat-message {
       max-width: 92%;
       padding: 8px 10px;
+      border: 0;
       border-radius: 6px;
       color: #475467;
       font-size: 11px;

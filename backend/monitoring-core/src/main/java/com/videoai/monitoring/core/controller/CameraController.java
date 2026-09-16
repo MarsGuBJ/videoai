@@ -11,6 +11,7 @@ import com.videoai.monitoring.common.vo.SourceProbeResponse;
 import com.videoai.monitoring.core.client.DeviceSourceProbe;
 import com.videoai.monitoring.core.service.CameraService;
 import com.videoai.monitoring.core.service.PtzService;
+import com.videoai.monitoring.core.service.impl.CameraStatusScanService;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -21,12 +22,15 @@ import java.util.UUID;
 public class CameraController implements CameraApi {
     private final CameraService cameraService;
     private final PtzService ptzService;
+    private final CameraStatusScanService statusScanService;
     /** 无状态工具，直接持有即可 */
     private final DeviceSourceProbe sourceProbe = new DeviceSourceProbe();
 
-    public CameraController(CameraService cameraService, PtzService ptzService) {
+    public CameraController(CameraService cameraService, PtzService ptzService,
+                            CameraStatusScanService statusScanService) {
         this.cameraService = cameraService;
         this.ptzService = ptzService;
+        this.statusScanService = statusScanService;
     }
 
     @Override
@@ -86,5 +90,16 @@ public class CameraController implements CameraApi {
     @Override
     public Map<String, Object> mediaList() {
         return cameraService.mediaList();
+    }
+
+    @Override
+    public Map<String, Object> statusScan() {
+        CameraStatusScanService.ScanResult result = statusScanService.scanOnce();
+        return Map.of(
+                "total", result.total(),
+                "online", result.online(),
+                "offline", result.offline(),
+                "unknown", result.unknown(),
+                "changed", result.changed());
     }
 }

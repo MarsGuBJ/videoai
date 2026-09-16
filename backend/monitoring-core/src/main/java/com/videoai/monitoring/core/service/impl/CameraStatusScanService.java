@@ -2,7 +2,6 @@ package com.videoai.monitoring.core.service.impl;
 
 import com.videoai.monitoring.core.dao.CameraDao;
 import com.videoai.monitoring.core.entity.CameraEntity;
-import com.videoai.monitoring.core.service.LiveRelayService;
 import com.videoai.monitoring.core.support.StreamUrls;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -24,30 +23,35 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * 设备在线状态定时扫描：每 10 分钟对 RUNNING/OFFLINE 摄像头的 sourceUrl 做
- * TCP connect 探测（线程池并行、单次 2.5s 超时），结果回写 cameras.status：
- * 探测失败 RUNNING → OFFLINE；恢复可达 OFFLINE → RUNNING 并重新挂 ZLM 流代理。
- * STOPPED（用户手动停止）与推流/地址不可解析的设备不探测，保持原状态。
+ * 设备在线状态定时扫描：每 10 分钟对**全部设备**（RUNNING / STOPPED / DISABLED，含从未启动过的设备）
+ * 的 sourceUrl 做 TCP connect 探测（线程池并行、单次 2 秒超时），结果写入 cameras.online_status：
+ * 可达 ONLINE、不可达 OFFLINE、地址不可解析或内部推流地址 UNKNOWN（保持原值，等待人工确认）。
+ *
+ * <p>职责边界：本扫描只维护"设备是否可达"，不再改写 cameras.status（拉流状态由
+ * {@link com.videoai.monitoring.core.service.CameraService} 的 start/stop 与
+ * {@link StreamGuardServiceImpl} 的挂流结果维护）。历史上 status=OFFLINE 混用了两种语义，
+ * V16 迁移已把历史 OFFLINE 拆成 status=RUNNING + online_status=OFFLINE。
  */
 @Service
 public class CameraStatusScanService {
     private static final Logger log = LoggerFactory.getLogger(CameraStatusScanService.class);
-    private static final int CONNECT_TIMEOUT_MS = 2500;
-    private static final long FUTURE_TIMEOUT_MS = 10000;
-    private static final String RUNNING = "RUNNING";
-    private static final String OFFLINE = "OFFLINE";
+    private static final int CONNECT_TIMEOUT_MS = 2000;
+    private static final long FUTURE_TIMEOUT_MS = 8000;
+    private static final int PROBE_THREADS = 12;
+
+    public static final String ONLINE = "ONLINE";
+    public static final String OFFLINE = "OFFLINE";
+    public static final String UNKNOWN = "UNKNOWN";
 
     private final CameraDao cameraDao;
-    private final LiveRelayService liveRelayService;
-    private final ExecutorService probeExecutor = Executors.newFixedThreadPool(4, runnable -> {
+    private final ExecutorService probeExecutor = Executors.newFixedThreadPool(PROBE_THREADS, runnable -> {
         Thread thread = new Thread(runnable, "camera-status-probe");
         thread.setDaemon(true);
         return thread;
     });
 
-    public CameraStatusScanService(CameraDao cameraDao, LiveRelayService liveRelayService) {
+    public CameraStatusScanService(CameraDao cameraDao) {
         this.cameraDao = cameraDao;
-        this.liveRelayService = liveRelayService;
     }
 
     @PreDestroy
@@ -55,51 +59,76 @@ public class CameraStatusScanService {
         probeExecutor.shutdownNow();
     }
 
-    @Scheduled(fixedDelay = 600000, initialDelay = 600000)
+    /** 本次扫描结果：total 为设备总数，其余为扫描后的分类计数，changed 为写库条数。 */
+    public record ScanResult(int total, int online, int offline, int unknown, int changed) {
+    }
+
+    @Scheduled(fixedDelay = 600000, initialDelay = 60000)
     public void scan() {
         try {
-            scanOnce();
+            ScanResult result = scanOnce();
+            log.info("camera_status_scan: total={} online={} offline={} unknown={} changed={}",
+                    result.total(), result.online(), result.offline(), result.unknown(), result.changed());
         } catch (Exception exception) {
             log.warn("camera_status_scan failed: {}", exception.getMessage());
         }
     }
 
-    void scanOnce() {
+    /** 扫描全部设备并回写 online_status（仅在与当前值不同时写库）。synchronized：定时扫描与手工触发串行。 */
+    public synchronized ScanResult scanOnce() {
         List<CameraEntity> probed = new ArrayList<>();
         List<CompletableFuture<Boolean>> futures = new ArrayList<>();
+        int total = 0;
+        int unknown = 0;
+        int changed = 0;
+
         for (CameraEntity camera : cameraDao.selectAllOrdered()) {
-            if (!RUNNING.equals(camera.getStatus()) && !OFFLINE.equals(camera.getStatus())) {
-                continue;
-            }
+            total += 1;
             HostPort target = parseTarget(camera.getSourceUrl());
             if (target == null) {
+                // 内部推流地址或无法解析的地址：无法探测，标记为未知
+                if (applyStatus(camera, UNKNOWN)) {
+                    changed += 1;
+                }
+                unknown += 1;
                 continue;
             }
             probed.add(camera);
-            futures.add(CompletableFuture.supplyAsync(() -> isReachable(target.host(), target.port()), probeExecutor));
+            futures.add(CompletableFuture.supplyAsync(
+                    () -> isReachable(target.host(), target.port()), probeExecutor));
         }
-        for (int i = 0; i < probed.size(); i++) {
-            applyResult(probed.get(i), await(futures.get(i)));
+
+        int online = 0;
+        int offline = 0;
+        for (int i = 0; i < probed.size(); i += 1) {
+            CameraEntity camera = probed.get(i);
+            Boolean reachable = await(futures.get(i));
+            if (reachable == null) {
+                // 探测未在超时内返回：保留原状态，只计入未知
+                unknown += 1;
+                continue;
+            }
+            String status = reachable ? ONLINE : OFFLINE;
+            if (applyStatus(camera, status)) {
+                changed += 1;
+                log.info("camera {} ({}) online_status -> {}", camera.getName(), camera.getId(), status);
+            }
+            if (reachable) {
+                online += 1;
+            } else {
+                offline += 1;
+            }
         }
+        return new ScanResult(total, online, offline, unknown, changed);
     }
 
-    /** 仅在状态需要变化时落库，避免每轮空写；恢复在线时重新挂主/子码流代理。 */
-    private void applyResult(CameraEntity camera, Boolean reachable) {
-        if (reachable == null) {
-            return;
+    /** 仅在状态需要变化时落库，避免每轮空写。 */
+    private boolean applyStatus(CameraEntity camera, String status) {
+        if (status.equals(camera.getOnlineStatus())) {
+            return false;
         }
-        if (!reachable && RUNNING.equals(camera.getStatus())) {
-            cameraDao.updateStatus(camera.getId(), OFFLINE);
-            log.info("camera {} ({}) unreachable, marked OFFLINE", camera.getName(), camera.getId());
-        } else if (reachable && OFFLINE.equals(camera.getStatus())) {
-            cameraDao.updateStatus(camera.getId(), RUNNING);
-            liveRelayService.addZlmediakitProxy(camera.getSourceUrl(), camera.getStreamName());
-            String subSourceUrl = StreamUrls.deriveSubSourceUrl(camera.getSourceUrl());
-            if (subSourceUrl != null) {
-                liveRelayService.addZlmediakitProxy(subSourceUrl, StreamUrls.subStreamName(camera.getStreamName()));
-            }
-            log.info("camera {} ({}) reachable again, marked RUNNING", camera.getName(), camera.getId());
-        }
+        cameraDao.updateOnlineStatus(camera.getId(), status);
+        return true;
     }
 
     /** TCP connect 探测：可达 true，拒绝/超时/地址非法 false。protected 便于测试覆盖。 */

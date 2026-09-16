@@ -108,6 +108,7 @@
 import { defineComponent } from "vue";
 import { api } from "../api";
 import type { DeploymentEventStats, SearchKeywordStatItem } from "../types";
+import { isStreaming, onlineStatusOf } from "../utils/device-status";
 
 const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
@@ -263,13 +264,14 @@ export default defineComponent({
       ];
     },
     applyCameras(cameras: any[]) {
-      const statusOf = (camera: any) => String(camera.status || "").toUpperCase();
-      const online = cameras.filter((camera) => statusOf(camera) === "RUNNING").length;
-      const disabled = cameras.filter((camera) => statusOf(camera) === "DISABLED").length;
-      const abnormal = cameras.length - online - disabled;
+      // 摄像头卡：在线/离线按设备可达性（onlineStatus），拉流中单独统计
+      const online = cameras.filter((camera) => onlineStatusOf(camera) === "ONLINE").length;
+      const offline = cameras.filter((camera) => onlineStatusOf(camera) === "OFFLINE").length;
+      const unknown = cameras.length - online - offline;
+      const streaming = cameras.filter((camera) => isStreaming(camera)).length;
       this.setCard("摄像头", {
         value: formatNumber(cameras.length),
-        desc: `在线 ${online} 路，异常 ${abnormal} 路`
+        desc: `在线 ${online} 路，离线 ${offline} 路${unknown ? `，未探测 ${unknown} 路` : ""}；拉流中 ${streaming} 路`
       });
       // 录像设备卡：关联 NVR 的设备数；今日新增按 createdAt 本地日期判断
       const nvrDevices = cameras.filter((camera) => camera.nvrId);

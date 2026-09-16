@@ -64,8 +64,11 @@
 - 前端 API 请求一律走同源 nginx 反代（`/api/cameras`、`/api/live`、`/api/streams`、`/api/access-config`、`/api/cloud-platforms` → backend-media，其余 `/api/` → backend-lite），构建时禁止注入 `VITE_API_BASE_URL`/`VITE_MEDIA_API_BASE_URL` 绝对地址——浏览器直连 8081/8083 等后端端口在现网客户端链路上可能被限速（10.10 现场实测直连 8083 拉取设备列表需 24 秒+，走 5173 反代约 1 秒）。
 - 实时预览和总览页的视频播放不要让浏览器直接依赖 ZLM 原始地址。普通摄像头应使用后端代理 `/api/live/{streamName}.live.flv`，DINO 物品识别摄像头使用后端 `/api/cameras/{cameraId}/annotated.mjpeg`，避免客户端网络无法直连视频流端口导致无画面。
 - 后端重建或重启后，所有持久化状态为 `RUNNING` 的摄像头必须恢复 ZLM 流代理（现由 backend-media 负责）；DINO 摄像头还必须恢复 Worker 识别流。不要只依赖 30 秒定时守护线程做首次恢复。
+- **设备状态两个维度必须分开看（2026-09-16 起，迁移 V16）**：`cameras.status` 只表示**拉流状态**（`RUNNING` 拉流中 / `STOPPED` 已停止 / `DISABLED` 停用），`cameras.online_status` 表示**设备可达性**（`ONLINE` / `OFFLINE` / `UNKNOWN` 未探测）。页面上的"在线/离线"一律指设备可达性；"拉流状态"单独展示（拉流中/拉流中断/已停止/停用/未启动）。历史 `status='OFFLINE'` 混用了两种语义，V16 已拆分为 `status=RUNNING + online_status=OFFLINE`。
+- 设备可达性由 `CameraStatusScanService` 每 10 分钟对**全部设备**（含 STOPPED/DISABLED 与从未启动过的设备）的 `sourceUrl` 做 TCP 连接探测后写入 `online_status`（12 线程、单次 2 秒超时），不再改写拉流状态。需要立即重扫时执行 `curl -fsS -X POST http://10.10.3.100:8083/api/cameras/status-scan`（返回 `{total, online, offline, unknown, changed}`，同步等待整轮探测完成）。
+- 拉流服务（ZLM `addStreamProxy`）拒绝地址时（如 `OPTIONS:404 Not Found`、`Unauthorized`），`CameraServiceImpl.start` 不再把设备置为 `RUNNING`，而是保持/回写 `STOPPED` 并返回 409；`StreamGuardServiceImpl` 对"设备可达但连续 3 次挂流失败"的设备也会把拉流状态降为 `STOPPED`，避免出现"页面显示拉流中但没有任何流"的假在线（设备本身 `OFFLINE` 时不降级，保留设备恢复后继续拉流的意图）。
 - MCP `search_recordings` 返回 `url` 依赖 MCP 容器内的 `ffmpeg` 推流到 ZLM；MCP 镜像必须安装 `ffmpeg` 和 `procps`。当 NVR 返回 `453 Not Enough Bandwidth` 时，使用 `/data/demo-recording-601.ps` 回退文件生成 FLV/HLS 代理流，避免返回结果缺少录像视频流链接。
-- 文搜视频链路：前端选定监控点+时段 → backend-lite `POST /api/video-analysis/recording-file`（透传 `cameraId` 与摄像头 `nvrTrackId`）→ MCP `export_recording`（优先 HCNetSDK 按时间下载为 MP4 上传 MinIO）→ 前端再调 `/api/video-analysis/analyze` 交给视频分析服务（`VIDEO_ANALYSIS_API_BASE_URL`）分析。**10.10 现场分析服务是宿主机 `backend-ai-platform` 容器（`http://10.10.3.100:18888`），必须在现场 `.env` 配 `VIDEO_ANALYSIS_API_BASE_URL=http://10.10.3.100:18888`**；代码/compose 默认值 `192.168.11.192:8775` 是开发网段地址，现场不可达（曾报 connect timeout 600s）。注意 18888 网关按会话认证，未带凭据时所有请求返回 `{"code":"401","message":"当前会话未登录"}`（HTTP 200 包裹）——认证信息待现场提供后接入 backend-lite 的 `video_analysis_api_post`。分析服务按 `videoUrl` 拉取视频文件，videoUrl 指向现场已绑定的 `cisdi-minio`（`10.10.3.100:9000`，`.env` 的 `MINIO_ENDPOINT`），两者同主机可互通。直连 IPC 摄像头由 MCP 端经 NVR 输入通道反查定位所属 NVR 与真实通道（平台 `nvrTrackId` 对直连 IPC 可能是脏数据，不作准）。只有绑定了 NVR track 的摄像头可用（远程 23 个摄像头中仅 3 个绑定：`1205会议室`→101、`1205会议室可控摄像头`→201、`金山12楼门口`→601）。导出自 2026-09 起默认走 HCNetSDK `NET_DVR_GetFileByTime` 按时间下载（非实时抓流，速度取决于网络带宽）：传 `cameraId` 时按摄像头 `sourceUrl` 内嵌凭据连接其绑定的 NVR/设备（多 NVR 路径，10.10 现场必须走此路径——现场 `.env` 的 `HIKVISION_NVR_BASE_URL=192.168.11.251` 在 10.10 网段不可达）；不传 `cameraId` 时按 `trackId` 对白名单 NVR 下载（trackId 换算 SDK 通道号），总上限 2 小时。白名单 trackId 路径下 SDK 下载不可用或失败时，20 分钟以内的时段自动回退 RTSP 回放抓流（约 1x 速度）；两侧都失败时报错同时包含两侧原因。
+- 文搜视频链路：前端选定监控点+时段 → backend-lite `POST /api/video-analysis/recording-file`（透传 `cameraId` 与摄像头 `nvrTrackId`）→ MCP `export_recording`（优先 HCNetSDK 按时间下载为 MP4 上传 MinIO）→ 前端再调 `/api/video-analysis/analyze` 交给视频分析服务（`VIDEO_ANALYSIS_API_BASE_URL`）分析。**10.10 现场分析服务直连地址是宿主机 `http://10.10.3.100:8775`（与开发网段 `192.168.11.192:8775` 同一服务，`/analyze_minio_video` 无需认证，2026-09-16 实测空 body 返回 422 校验错误），现场 `.env` 已配 `VIDEO_ANALYSIS_API_BASE_URL=http://10.10.3.100:8775`**；代码/compose 默认值 `192.168.11.192:8775` 是开发网段地址，现场不可达（曾报 connect timeout 600s）。注意 18888（宿主机 `backend-ai-platform` 容器）是 AI 平台网关，按会话认证，未带凭据时所有请求返回 `{"code":"401","message":"当前会话未登录"}`（HTTP 200 包裹），不要把它配成分析服务地址；`10.10.3.100:15501` 无服务监听（连接拒绝）。分析服务按 `videoUrl` 拉取视频文件，videoUrl 指向现场已绑定的 `cisdi-minio`（`10.10.3.100:9000`，`.env` 的 `MINIO_ENDPOINT`），两者同主机可互通。直连 IPC 摄像头由 MCP 端经 NVR 输入通道反查定位所属 NVR 与真实通道（平台 `nvrTrackId` 对直连 IPC 可能是脏数据，不作准）。只有绑定了 NVR track 的摄像头可用（远程 23 个摄像头中仅 3 个绑定：`1205会议室`→101、`1205会议室可控摄像头`→201、`金山12楼门口`→601）。导出自 2026-09 起默认走 HCNetSDK `NET_DVR_GetFileByTime` 按时间下载（非实时抓流，速度取决于网络带宽）：传 `cameraId` 时按摄像头 `sourceUrl` 内嵌凭据连接其绑定的 NVR/设备（多 NVR 路径，10.10 现场必须走此路径——现场 `.env` 的 `HIKVISION_NVR_BASE_URL=192.168.11.251` 在 10.10 网段不可达）；不传 `cameraId` 时按 `trackId` 对白名单 NVR 下载（trackId 换算 SDK 通道号），总上限 2 小时。白名单 trackId 路径下 SDK 下载不可用或失败时，20 分钟以内的时段自动回退 RTSP 回放抓流（约 1x 速度）；两侧都失败时报错同时包含两侧原因。
 - 远程 NVR（192.168.11.251）为手动对时时钟，2026-08-31 实测比真实时间慢约 15 小时 40 分。其 RTSP 回放的 `starttime`/`endtime`（`Z` 后缀）按 NVR 本地时钟解释，且 `endtime` 不生效（需 ffmpeg `-t` 截断）。`export_recording` 已通过 `/ISAPI/System/time` 自动测量偏差并补偿；若现场校时后偏差为 0 则自动无影响。`/Streaming/tracks/{id}/` 尾斜杠必需；`/Streaming/Channels/{id}?starttime=...` 只会返回实时流边缘，不能用于回放导出。
 - 浏览器实时预览通过 backend-media `/api/live/{streamName}.live.flv` 直接代理 ZLM 上的原始直播流，按摄像头源的原分辨率和编码播放，不经 ZLM `addFFmpegSource` ffmpeg 转码（`preview-{streamName}` 派生流已停用）。现场大部分摄像头为 H.265（ZLM 以 FLV CodecID 12 输出），前端 FLV 播放使用 mpegts.js（支持 H.264/H.265 passthrough，要求客户端浏览器支持 HEVC MSE，Windows Chrome 一般可用），不要使用 flv.js（仅支持 H.264）。
 - 10.10 现场 ZLM `addStreamProxy` 拉 RTSP 必须走 TCP（`rtp_type=0`，2026-09-12 起 `ZlmClient.addStreamProxy` 已固定带上）：10.10.3.x → 10.10.7.x 跨网段 UDP 不通，默认 UDP 拉流会被 NVR 断开报 `end of file`。NVR252（10.10.7.252）有效通道范围 75–284，平台里引用通道 8、22–32 的 `NVR252通道*` 摄像头为错误配置（NVR 对不存在的通道直接断开 RTSP），已连同 22 路 192.168.11.x 开发网段遗留摄像头一并停用（备份 `backups/20260912-083701`）。
@@ -80,6 +83,7 @@
 - 前端录像回放页 → backend-lite `POST /api/recordings/search|stream|download`（body 均为 `{cameraId, startTime, endTime}`，北京时间）→ MCP `search_recordings-http` / `download_recording-http`（均支持 `cameraId`）；`/api/recordings/stream` 只调 `search_recordings-http`（autoProxy=true）取 `/recording-live` 动态链接并追加 `&speed=` 倍速参数，MCP 侧 `get_recording_stream` 接口已移除。
 - 多 NVR 能力：MCP 按摄像头的 `nvrId`/`nvrTrackId`/`nvrChannel` 定位设备，凭据从摄像头 `sourceUrl`（`rtsp://user:pass@host:554/...`）解析，无需额外配置；ISAPI 检索录像段、HCNetSDK 按时间回放/下载，设备时钟偏差自动测量补偿。
 - 回放链路：SDK 回放 → ffmpeg `-re` 节流 + **libx264 转码**（现场 NVR 多为 smart265/HEVC，浏览器 flv.js 不支持，禁止改回 `-c:v copy`）→ ZLM FLV。等速流不支持倍速与真正的 seek，前端通过按新 startTime 重新起流实现跳转。
+- 浏览器播放 `/recording-live` 动态链接的两个硬性条件（2026-09-16 修复）：① MCP `GET /recording-live` 的 302/错误响应必须带 `Access-Control-Allow-Origin: *`（前端 5173 → 8097 跨源，302 第一跳无 CORS 头浏览器直接拦截；ZLM :82 自身会回 ACAO）；② 该链接不以 `.flv` 结尾，前端 `VideoPlayer` 只靠 URL 后缀识别 FLV 会落到原生 `<video>` 分支导致无法播放——录像回放三处调用（录像回放页、文搜在线回放、即时回放弹窗）必须显式传 `format="flv"` prop 走 mpegts.js。
 - ISAPI 检索返回的是与查询窗口相交的**整个连续录像块**（海康设备行为，不裁剪）；MCP `search_segments` 会把结果裁剪到用户查询窗口（`clip_segment_to_window`），recordingId 随裁剪后的时间重算，避免不同窗口共享缓存键。
 - SDK 点播回调为**不限速供流**（现场实测约 15MB/s ≈ 35 倍速），远超 ffmpeg 按倍速的消费速率；`PlaybackSession` 用队列高低水位 + `NET_DVR_PLAYPAUSE`/`PLAYRESTART` 做背压（实测该 NVR 支持暂停/续传且数据连续），禁止在队列满时丢块（破坏 PS 连续性 → 花屏或启流 ffmpeg 解复用失败）。`NET_DVR_PLAYSETSPEED` 在该 NVR 回调模式下不限速，不要用它做倍速。`ensure_playback` 起流失败（ffmpeg 偶发启流死亡）会重试至多 3 次。
 - backend-lite 调 MCP 的地址由 compose 注入 `MCP_SERVER_BASE_URL`（默认 `http://mcp-server:8097` 走内网服务名），不要写死现场 IP（历史上默认值 `192.168.11.194:8097` 导致 10.10 现场 502）。
@@ -271,6 +275,18 @@ ssh -p 3479 public@119.3.237.220 \
 ssh -p 3479 public@119.3.237.220 \
   'curl -fsS http://192.168.11.194:8083/api/cameras | python3 -c "import sys,json; print(len(json.load(sys.stdin)))"'
 ```
+
+设备在线状态验证（2026-09-16 起两个维度分开统计；扫描覆盖全部设备）：
+
+```bash
+ssh public@10.10.3.100 'cd /home/public/videoai && \
+  curl -fsS -X POST http://10.10.3.100:8083/api/cameras/status-scan && echo && \
+  docker compose exec -T postgres psql -U videoai -d videoai -At -F"|" \
+    -c "SELECT coalesce(online_status,'<null>'), count(*) FROM cameras GROUP BY 1" \
+    -c "SELECT status, count(*) FROM cameras GROUP BY 1"'
+```
+
+预期：`online_status` 的合计等于设备总数（可达设备为 `ONLINE`，不可达为 `OFFLINE`，地址不可解析/内部推流为 `UNKNOWN`）；`status` 仍只有 `RUNNING/STOPPED/DISABLED`。
 
 前端 API 代理验证（前端为构建产物，`/api/cameras`、`/api/live`、`/api/streams`、`/api/access-config` 由前端 nginx 反代到 backend-media，其余 `/api/` 反代到 backend-lite）：
 

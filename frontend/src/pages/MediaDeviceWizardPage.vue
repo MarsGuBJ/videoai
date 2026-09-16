@@ -12,9 +12,9 @@
     <div v-if="wizardStep === 1" class="panel form-panel" style="width:100%;">
       <h3 class="form-section-title">设备类型</h3>
       <div class="form-grid-3">
-        <div class="wide-field-row"><label>设备类别：</label><select class="select" v-model="form.deviceCategory"><option>编码设备</option><option>解码设备</option></select></div>
-        <div class="wide-field-row"><label>设备类型：</label><select class="select" v-model="form.deviceType"><option>IPC</option><option>NVR</option><option>DVR</option></select></div>
-        <div class="wide-field-row"><label>厂商类型：</label><select class="select" v-model="form.vendor"><option>海康威视</option><option>大华</option><option>宇视</option><option>华为</option><option>其他厂商</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>设备类别：</label><select class="select" v-model="form.deviceCategory"><option>编码设备</option><option>解码设备</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>设备类型：</label><select class="select" v-model="form.deviceType"><option>IPC</option><option>NVR</option><option>DVR</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>厂商类型：</label><select class="select" v-model="form.vendor"><option>海康威视</option><option>大华</option><option>宇视</option><option>华为</option><option>其他厂商</option></select></div>
       </div>
       <div class="button-row"><button class="btn primary" @click="wizardStep = 2">下一步</button><button class="btn" @click="setRoute('media')">取消</button></div>
     </div>
@@ -22,23 +22,23 @@
       <div class="modal-summary-strip"><span>设备类别：{{ form.deviceCategory }}</span><span>设备类型：{{ form.deviceType }}</span><span>厂商类型：{{ form.vendor }}</span></div>
       <h3 class="form-section-title">基本信息</h3>
       <div class="form-grid-3">
-        <div class="wide-field-row"><label>接入方式：</label><select class="select" v-model="form.protocol"><option>海康 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>大华 SDK</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></div>
-        <div class="wide-field-row"><label>协议版本：</label><select class="select" v-model="form.protocolVersion"><option>标准协议</option><option>海康 ISUP 5.0</option><option>GB/T 28181-2022</option><option>ONVIF Profile S</option></select></div>
-        <div class="wide-field-row"><label>设备名称：</label><input class="input" v-model.trim="form.name" placeholder="请输入设备名称" /></div>
-        <div class="wide-field-row"><label>拉流地址：</label><input class="input" v-model.trim="form.sourceUrl" placeholder="rtsp://user:pass@ip:port/stream" @input="onSourceUrlInput" @blur="probeSource" /></div>
-        <div class="wide-field-row"><label>IP地址：</label><IpInput v-model="form.ip" /></div>
-        <div class="wide-field-row"><label>端口号：</label><input class="input" v-model.trim="form.port" placeholder="554" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>接入方式：</label><select class="select" v-model="form.protocol"><option>海康 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>大华 SDK</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>协议版本：</label><select class="select" v-model="form.protocolVersion"><option>标准协议</option><option>海康 ISUP 5.0</option><option>GB/T 28181-2022</option><option>ONVIF Profile S</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>设备名称：</label><input class="input" v-model.trim="form.name" placeholder="请输入设备名称" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>拉流地址：</label><input class="input" v-model.trim="form.sourceUrl" placeholder="rtsp://user:pass@ip:port/stream" @input="onSourceUrlInput" @blur="probeSource" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>IP地址：</label><IpInput v-model="form.ip" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>端口号：</label><input class="input" v-model.trim="form.port" placeholder="554" /></div>
         <div class="wide-field-row"><label>用户名：</label><input class="input" v-model.trim="form.username" placeholder="admin" /></div>
         <div class="wide-field-row"><label>密码：</label><input class="input" type="password" v-model="form.password" placeholder="请输入设备密码" /></div>
-        <div class="wide-field-row"><label>所属区域：</label><select class="select" v-model="form.area"><option value="" disabled>请选择区域</option><option v-for="option in areaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>所属区域：</label><select class="select" v-model="form.area"><option value="" disabled>请选择区域</option><option v-for="option in areaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></div>
         <div class="wide-field-row"><label>设备能力：</label><span style="display:flex;gap:16px;flex-wrap:wrap;align-self:center;"><label class="video-device-include"><input type="checkbox" v-model="form.capabilityPtz" :disabled="ptzUnsupported" />云台控制</label></span></div>
       </div>
       <div class="wide-field-row"><label>描述：</label><textarea class="textarea" style="height:80px;" v-model.trim="form.description" placeholder="请输入设备描述"></textarea></div>
       <h3 class="form-section-title">高级配置</h3>
       <div class="form-grid-3">
-        <div class="wide-field-row"><label>注册有效期：</label><input class="input" v-model.trim="form.registerExpire" placeholder="3600" /></div>
-        <div class="wide-field-row"><label>心跳周期：</label><input class="input" v-model.trim="form.heartbeat" placeholder="60" /></div>
-        <div class="wide-field-row"><label>国标域编码：</label><input class="input" v-model.trim="form.gbCode" placeholder="请输入 20 位国标编码" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>注册有效期：</label><input class="input" v-model.trim="form.registerExpire" placeholder="3600" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>心跳周期：</label><input class="input" v-model.trim="form.heartbeat" placeholder="60" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>国标域编码：</label><input class="input" v-model.trim="form.gbCode" placeholder="请输入 20 位国标编码" /></div>
       </div>
       <div class="button-row"><button class="btn" @click="wizardStep = 1">上一步</button><button class="btn primary" @click="wizardStep = 3">下一步</button><button class="btn" @click="setRoute('media')">取消</button></div>
     </div>
@@ -46,9 +46,9 @@
       <h3 class="form-section-title">通道信息</h3>
       <p class="modal-hint">当前版本每台设备接入一个通道。</p>
       <div class="form-grid-3">
-        <div class="wide-field-row"><label>通道号：</label><input class="input" v-model.trim="form.nvrChannel" placeholder="1" /></div>
-        <div class="wide-field-row"><label>通道名称：</label><input class="input" v-model.trim="form.channelName" placeholder="默认使用设备名称" /></div>
-        <div class="wide-field-row"><label>码流类型：</label><select class="select" v-model="form.nvrStreamType"><option>主码流</option><option>子码流</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>通道号：</label><input class="input" v-model.trim="form.nvrChannel" placeholder="1" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>通道名称：</label><input class="input" v-model.trim="form.channelName" placeholder="默认使用设备名称" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>码流类型：</label><select class="select" v-model="form.nvrStreamType"><option>主码流</option><option>子码流</option></select></div>
       </div>
       <div class="button-row" style="margin-top:14px;"><button class="btn" @click="wizardStep = 2">上一步</button><button class="btn primary" :disabled="saving" @click="finishWizard">保存</button><button class="btn" @click="setRoute('media')">取消</button></div>
     </div>
@@ -59,7 +59,7 @@
 import { defineComponent } from "vue";
 import { api } from "../api";
 import IpInput from "../components/IpInput.vue";
-import { canComputeSourceUrl, computeSourceUrl, flattenRegionTree, hasSourceUrlCredentials, isValidChannelNo, isValidGbCode, isValidIPv4, isValidPort, loadRegionTree, MAX_CHANNEL_NO, parseSourceUrlParts } from "../utils/regions";
+import { computeSourceUrl, flattenRegionTree, hasSourceUrlCredentials, isValidChannelNo, isValidGbCode, isValidIPv4, isValidPort, loadRegionTree, MAX_CHANNEL_NO, parseSourceUrlParts } from "../utils/regions";
 import type { FlatRegionNode } from "../utils/regions";
 
 export default defineComponent({
@@ -163,77 +163,46 @@ export default defineComponent({
     async finishWizard() {
       if (this.saving) return;
       const form = this.form;
-      if (!form.name.trim()) {
-        this.showToast("请填写设备名称");
+      // 除用户名/密码/描述外均为必填：先校验第 2 步基本信息与高级配置，再校验第 3 步通道信息
+      const failStep2 = (msg: string) => {
+        this.showToast(msg);
         this.wizardStep = 2;
-        return;
-      }
+      };
+      if (!form.name.trim()) return failStep2("请填写设备名称");
+      if (!form.ip.trim()) return failStep2("请填写IP地址");
+      if (!isValidIPv4(form.ip)) return failStep2("IP地址格式不正确");
+      if (!form.port.trim()) return failStep2("请填写端口号");
+      if (!isValidPort(form.port)) return failStep2("端口号必须为1-65535的整数");
+      if (!form.area) return failStep2("请选择所属区域");
+      if (!form.registerExpire.trim()) return failStep2("请填写注册有效期");
+      const registerExpire = parseInt(form.registerExpire, 10);
+      if (Number.isNaN(registerExpire)) return failStep2("注册有效期必须为整数");
+      if (!form.heartbeat.trim()) return failStep2("请填写心跳周期");
+      const heartbeat = parseInt(form.heartbeat, 10);
+      if (Number.isNaN(heartbeat)) return failStep2("心跳周期必须为整数");
+      if (!form.gbCode.trim()) return failStep2("请填写国标域编码");
+      if (!isValidGbCode(form.gbCode)) return failStep2("国标域编码必须为20位数字");
+      // 未手填拉流地址时按协议由 IP/端口/用户名/密码自动拼装；无法拼装的协议必须手动填写
       let sourceUrl = form.sourceUrl.trim();
-      if (!sourceUrl && canComputeSourceUrl(form.protocol)) {
-        // 未手填拉流地址时，IP/端口是自动拼装的必要参数
-        if (!form.ip.trim()) {
-          this.showToast("请填写IP地址");
-          this.wizardStep = 2;
-          return;
-        }
-        if (!form.port.trim()) {
-          this.showToast("请填写端口号");
-          this.wizardStep = 2;
-          return;
-        }
+      if (!sourceUrl) {
+        const built = computeSourceUrl(form.protocol, form.ip, form.port, form.username, form.password);
+        if (!built) return failStep2("请填写拉流地址");
+        sourceUrl = built;
       }
-      if (form.ip.trim() && !isValidIPv4(form.ip)) {
-        this.showToast("IP地址格式不正确");
-        this.wizardStep = 2;
-        return;
-      }
-      if (form.port.trim() && !isValidPort(form.port)) {
-        this.showToast("端口号必须为1-65535的整数");
-        this.wizardStep = 2;
-        return;
-      }
-      if (form.gbCode.trim() && !isValidGbCode(form.gbCode)) {
-        this.showToast("国标域编码必须为20位数字");
-        this.wizardStep = 2;
+      if (!form.nvrChannel.trim()) {
+        this.showToast("请填写通道号");
         return;
       }
       if (!isValidChannelNo(form.nvrChannel)) {
         this.showToast(`通道号必须为1-${MAX_CHANNEL_NO}的整数`);
-        this.wizardStep = 3;
         return;
       }
-      if (!sourceUrl) {
-        const built = computeSourceUrl(form.protocol, form.ip, form.port, form.username, form.password);
-        if (!built) {
-          this.showToast("当前协议无法自动拼装拉流地址，请手动填写");
-          this.wizardStep = 2;
-          return;
-        }
-        sourceUrl = built;
+      if (!form.channelName.trim()) {
+        this.showToast("请填写通道名称");
+        return;
       }
       this.saving = true;
       try {
-        // 注册有效期/心跳周期解析为整数；空串视为未填写
-        let registerExpire: number | undefined;
-        if (form.registerExpire.trim()) {
-          const parsed = parseInt(form.registerExpire, 10);
-          if (Number.isNaN(parsed)) {
-            this.showToast("注册有效期必须为整数");
-            this.wizardStep = 2;
-            return;
-          }
-          registerExpire = parsed;
-        }
-        let heartbeat: number | undefined;
-        if (form.heartbeat.trim()) {
-          const parsed = parseInt(form.heartbeat, 10);
-          if (Number.isNaN(parsed)) {
-            this.showToast("心跳周期必须为整数");
-            this.wizardStep = 2;
-            return;
-          }
-          heartbeat = parsed;
-        }
         await api.createCamera({
           name: form.name.trim(),
           sourceUrl,

@@ -14,6 +14,8 @@ import com.videoai.monitoring.core.service.LiveRelayService;
 import com.videoai.monitoring.core.service.preview.PreviewRelayManager;
 import com.videoai.monitoring.core.support.AreaPaths;
 import com.videoai.monitoring.core.support.StreamUrls;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +35,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class CameraServiceImpl implements CameraService {
+    private static final Logger log = LoggerFactory.getLogger(CameraServiceImpl.class);
+
     private final CameraDao cameraDao;
     private final VideoAiProperties properties;
     private final ZlmClient zlmClient;
@@ -255,8 +259,15 @@ public class CameraServiceImpl implements CameraService {
     @Transactional
     public CameraResponse start(UUID id) {
         CameraResponse camera = get(id);
+        // 先挂流再置状态：拉流服务拒绝该地址时不得留下"拉流中"的假状态
+        boolean attached = liveRelayService.addZlmediakitProxy(camera.sourceUrl(), camera.streamName());
+        if (!attached) {
+            cameraDao.updateStatus(id, "STOPPED");
+            log.warn("camera start rejected by relay: {} ({}) url={}", camera.name(), id, camera.sourceUrl());
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "设备拉流失败：拉流服务拒绝了该地址，请检查拉流地址、通道号与凭据");
+        }
         cameraDao.updateStatus(id, "RUNNING");
-        liveRelayService.addZlmediakitProxy(camera.sourceUrl(), camera.streamName());
         // 可推导子码流地址的设备同时注册子码流代理（{streamName}-sub），供预览页切换
         String subSourceUrl = StreamUrls.deriveSubSourceUrl(camera.sourceUrl());
         if (subSourceUrl != null) {
@@ -322,6 +333,7 @@ public class CameraServiceImpl implements CameraService {
                 entity.getDescription(),
                 entity.getArea(),
                 entity.getStatus(),
+                entity.getOnlineStatus() != null ? entity.getOnlineStatus() : "UNKNOWN",
                 playbackUrl,
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),

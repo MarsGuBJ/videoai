@@ -69,6 +69,8 @@ export default defineComponent({
   name: 'VideoPlayer',
   props: {
     url: { type: String, default: undefined },
+    // 流格式提示（如 'flv'）：动态链接（/recording-live?...）不带 .flv 后缀时由调用方显式指定
+    format: { type: String, default: '' },
     fit: { type: String, default: 'contain' },
     showZoomBar: { type: Boolean, default: true },
   },
@@ -333,7 +335,7 @@ export default defineComponent({
           this.message = '当前浏览器不支持 HLS 播放';
           return;
         }
-      } else if (mpegts.isSupported() && url.endsWith('.flv')) {
+      } else if (mpegts.isSupported() && (this.format === 'flv' || url.endsWith('.flv'))) {
         // mpegts.js 兼容 flv.js API，同时支持 H.264 和 H.265（FLV CodecID 12）passthrough
         const player = markRaw(
           mpegts.createPlayer(

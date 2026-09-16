@@ -13,6 +13,7 @@ public record CameraResponse(
         String description,
         String area,
         String status,
+        String onlineStatus,
         String playbackUrl,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt,

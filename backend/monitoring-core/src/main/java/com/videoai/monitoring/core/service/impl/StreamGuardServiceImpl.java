@@ -2,6 +2,7 @@ package com.videoai.monitoring.core.service.impl;
 
 import com.videoai.monitoring.common.vo.CameraResponse;
 import com.videoai.monitoring.core.client.ZlmClient;
+import com.videoai.monitoring.core.dao.CameraDao;
 import com.videoai.monitoring.core.service.CameraService;
 import com.videoai.monitoring.core.service.LiveRelayService;
 import com.videoai.monitoring.core.service.StreamGuardService;
@@ -17,20 +18,31 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Order(2)
 public class StreamGuardServiceImpl implements StreamGuardService {
     private static final Logger log = LoggerFactory.getLogger(StreamGuardServiceImpl.class);
+    /**
+     * 连续挂流失败次数达到该值、且设备可达（online_status 不是 OFFLINE）时，判定为拉流地址/通道不可用，
+     * 把拉流状态降为 STOPPED，避免设备长期显示"拉流中"却没有任何流（假在线）。
+     */
+    private static final int MAX_ATTACH_FAILURES = 3;
 
     private final CameraService cameraService;
     private final LiveRelayService liveRelayService;
     private final ZlmClient zlmClient;
+    private final CameraDao cameraDao;
+    /** streamName -> 连续挂流失败次数（仅内存计数，重启后重新统计）。 */
+    private final Map<String, Integer> attachFailures = new ConcurrentHashMap<>();
 
-    public StreamGuardServiceImpl(CameraService cameraService, LiveRelayService liveRelayService, ZlmClient zlmClient) {
+    public StreamGuardServiceImpl(CameraService cameraService, LiveRelayService liveRelayService,
+                                  ZlmClient zlmClient, CameraDao cameraDao) {
         this.cameraService = cameraService;
         this.liveRelayService = liveRelayService;
         this.zlmClient = zlmClient;
+        this.cameraDao = cameraDao;
     }
 
     @Override
@@ -60,11 +72,16 @@ public class StreamGuardServiceImpl implements StreamGuardService {
             Set<String> activeStreams = fetchActiveStreams();
             for (CameraResponse camera : cameraService.list()) {
                 if (!"RUNNING".equals(camera.status())) {
+                    attachFailures.remove(camera.streamName());
                     continue;
                 }
-                if (!activeStreams.contains(camera.streamName())) {
+                if (activeStreams.contains(camera.streamName())) {
+                    attachFailures.remove(camera.streamName());
+                } else {
                     log.info("stream_proxy_guard: re-adding proxy for {}", camera.streamName());
-                    liveRelayService.addZlmediakitProxy(camera.sourceUrl(), camera.streamName(), true);
+                    boolean attached = liveRelayService.addZlmediakitProxy(
+                            camera.sourceUrl(), camera.streamName(), true);
+                    recordAttachResult(camera, attached);
                 }
                 String subStreamName = camera.subStreamName();
                 if (subStreamName != null && !activeStreams.contains(subStreamName)) {
@@ -75,6 +92,25 @@ public class StreamGuardServiceImpl implements StreamGuardService {
             }
         } catch (Exception exception) {
             log.warn("stream_proxy_guard failed: {}", exception.getMessage());
+        }
+    }
+
+    /**
+     * 挂流失败且设备可达（不是 OFFLINE）：连续失败 {@link #MAX_ATTACH_FAILURES} 次后把拉流状态降为 STOPPED。
+     * 设备本身不可达（OFFLINE）时不降级——保留 RUNNING 表示"设备恢复后继续拉流"的意图，
+     * 由 {@link CameraStatusScanService} 维护的设备可达性表达离线。
+     */
+    private void recordAttachResult(CameraResponse camera, boolean attached) {
+        if (attached) {
+            attachFailures.remove(camera.streamName());
+            return;
+        }
+        int failures = attachFailures.merge(camera.streamName(), 1, Integer::sum);
+        if (failures >= MAX_ATTACH_FAILURES && !CameraStatusScanService.OFFLINE.equalsIgnoreCase(camera.onlineStatus())) {
+            attachFailures.remove(camera.streamName());
+            cameraDao.updateStatus(camera.id(), "STOPPED");
+            log.warn("stream_proxy_guard: {} 连续 {} 次挂流失败且设备可达，拉流状态置为 STOPPED（请检查拉流地址/通道）",
+                    camera.streamName(), failures);
         }
     }
 

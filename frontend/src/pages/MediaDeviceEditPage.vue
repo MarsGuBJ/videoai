@@ -7,37 +7,37 @@
     <div class="panel form-panel" style="width:100%;">
       <h3 class="form-section-title">设备类型</h3>
       <div class="form-grid-3">
-        <div class="wide-field-row"><label>设备类别：</label><select class="select" v-model="form.deviceCategory"><option>编码设备</option><option>解码设备</option></select></div>
-        <div class="wide-field-row"><label>设备类型：</label><select class="select" v-model="form.deviceType"><option>IPC</option><option>NVR</option><option>DVR</option></select></div>
-        <div class="wide-field-row"><label>厂商类型：</label><select class="select" v-model="form.vendor"><option>海康威视</option><option>大华</option><option>宇视</option><option>华为</option><option>其他</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>设备类别：</label><select class="select" v-model="form.deviceCategory"><option>编码设备</option><option>解码设备</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>设备类型：</label><select class="select" v-model="form.deviceType"><option>IPC</option><option>NVR</option><option>DVR</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>厂商类型：</label><select class="select" v-model="form.vendor"><option>海康威视</option><option>大华</option><option>宇视</option><option>华为</option><option>其他</option></select></div>
       </div>
       <h3 class="form-section-title">基本信息</h3>
       <div class="form-grid-3">
-        <div class="wide-field-row"><label>接入方式：</label><select class="select" v-model="form.protocol"><option>海康 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>大华 SDK</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></div>
-        <div class="wide-field-row"><label>协议版本：</label><select class="select" v-model="form.protocolVersion"><option>标准协议</option><option>海康 ISUP 5.0</option><option>GB/T 28181-2022</option><option>ONVIF Profile S</option></select></div>
-        <div class="wide-field-row"><label>设备名称：</label><input class="input" v-model.trim="form.name" placeholder="请输入设备名称" /></div>
-        <div class="wide-field-row"><label>设备编号：</label><input class="input" v-model.trim="form.deviceCode" placeholder="请输入设备编号" /></div>
-        <div class="wide-field-row"><label>设备序列号：</label><input class="input" v-model.trim="form.serialNumber" placeholder="请输入设备序列号" /></div>
-        <div class="wide-field-row"><label>拉流地址：</label><input class="input" v-model.trim="form.sourceUrl" placeholder="rtsp://user:pass@ip:port/stream" @input="onSourceUrlInput" @blur="probeSource" /></div>
-        <div class="wide-field-row"><label>IP地址：</label><IpInput v-model="form.ip" /></div>
-        <div class="wide-field-row"><label>端口号：</label><input class="input" v-model.trim="form.port" placeholder="554" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>接入方式：</label><select class="select" v-model="form.protocol"><option>海康 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>大华 SDK</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>协议版本：</label><select class="select" v-model="form.protocolVersion"><option>标准协议</option><option>海康 ISUP 5.0</option><option>GB/T 28181-2022</option><option>ONVIF Profile S</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>设备名称：</label><input class="input" v-model.trim="form.name" placeholder="请输入设备名称" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>设备编号：</label><input class="input" v-model.trim="form.deviceCode" placeholder="请输入设备编号" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>设备序列号：</label><input class="input" v-model.trim="form.serialNumber" placeholder="请输入设备序列号" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>拉流地址：</label><input class="input" v-model.trim="form.sourceUrl" placeholder="rtsp://user:pass@ip:port/stream" @input="onSourceUrlInput" @blur="probeSource" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>IP地址：</label><IpInput v-model="form.ip" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>端口号：</label><input class="input" v-model.trim="form.port" placeholder="554" /></div>
         <div class="wide-field-row"><label>用户名：</label><input class="input" v-model.trim="form.username" placeholder="admin" /></div>
         <div class="wide-field-row"><label>密码：</label><input class="input" type="password" v-model="form.password" placeholder="留空则不修改密码" /></div>
-        <div class="wide-field-row"><label>所属区域：</label><select class="select" v-model="form.area"><option value="" disabled>请选择区域</option><option v-for="option in areaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></div>
-        <div class="wide-field-row"><label>设备能力：</label><span style="display:flex;gap:16px;flex-wrap:wrap;align-self:center;"><label class="video-device-include"><input type="checkbox" v-model="form.capabilityPtz" :disabled="ptzUnsupported" />云台控制</label></span></div>
+        <div class="wide-field-row"><label><span class="required">*</span>所属区域：</label><select class="select" v-model="form.area"><option value="" disabled>请选择区域</option><option v-for="option in areaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></div>
+        <div class="wide-field-row"><label>设备能力：</label><span style="display:flex;gap:16px;flex-wrap:wrap;align-self:center;"><label class="video-device-include"><input type="checkbox" :checked="form.capabilityPtz" :disabled="ptzChecking" @change="onPtzToggle" />云台控制</label></span></div>
       </div>
       <div class="wide-field-row"><label>描述：</label><textarea class="textarea" style="height:80px;" v-model.trim="form.description" placeholder="请输入设备描述"></textarea></div>
       <h3 class="form-section-title">高级配置</h3>
       <div class="form-grid-3">
-        <div class="wide-field-row"><label>注册有效期：</label><input class="input" v-model.trim="form.registerExpire" placeholder="3600" /></div>
-        <div class="wide-field-row"><label>心跳周期：</label><input class="input" v-model.trim="form.heartbeat" placeholder="60" /></div>
-        <div class="wide-field-row"><label>国标域编码：</label><input class="input" v-model.trim="form.gbCode" placeholder="请输入 20 位国标编码" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>注册有效期：</label><input class="input" v-model.trim="form.registerExpire" placeholder="3600" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>心跳周期：</label><input class="input" v-model.trim="form.heartbeat" placeholder="60" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>国标域编码：</label><input class="input" v-model.trim="form.gbCode" placeholder="请输入 20 位国标编码" /></div>
       </div>
       <h3 class="form-section-title">通道信息</h3>
       <div class="form-grid-3">
-        <div class="wide-field-row"><label>通道号：</label><input class="input" v-model.trim="form.nvrChannel" placeholder="1" /></div>
-        <div class="wide-field-row"><label>通道名称：</label><input class="input" v-model.trim="form.channelName" placeholder="默认使用设备名称" /></div>
-        <div class="wide-field-row"><label>码流类型：</label><select class="select" v-model="form.nvrStreamType"><option>主码流</option><option>子码流</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>通道号：</label><input class="input" v-model.trim="form.nvrChannel" placeholder="1" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>通道名称：</label><input class="input" v-model.trim="form.channelName" placeholder="默认使用设备名称" /></div>
+        <div class="wide-field-row"><label><span class="required">*</span>码流类型：</label><select class="select" v-model="form.nvrStreamType"><option>主码流</option><option>子码流</option></select></div>
       </div>
       <div class="button-row"><button class="btn primary" :disabled="saving" @click="saveDevice">保存修改</button><button class="btn" @click="setRoute(cancelTarget)">取消</button></div>
     </div>
@@ -67,6 +67,8 @@ export default defineComponent({
       regionFlat: [] as FlatRegionNode[],
       // 云台能力探测：设备源不支持云台前禁用勾选框
       ptzUnsupported: false,
+      // 勾选云台控制时的探测中标记：防止重复点击触发并发探测
+      ptzChecking: false,
       sourceProbeTimer: null as ReturnType<typeof setTimeout> | null,
       lastProbedSource: "",
       form: {
@@ -149,6 +151,37 @@ export default defineComponent({
         // 探测失败静默：不阻塞表单填写
       }
     },
+    // 勾选云台控制时实时探测设备源：不支持云台则提示并保持未勾选；取消勾选直接生效
+    async onPtzToggle(event: Event) {
+      const input = event.target as HTMLInputElement;
+      if (!input.checked) {
+        this.form.capabilityPtz = false;
+        return;
+      }
+      input.checked = false;
+      if (this.ptzChecking) return;
+      const sourceUrl = (this.form.sourceUrl || "").trim();
+      if (!sourceUrl) {
+        (this as any).showToast("请先填写拉流地址");
+        return;
+      }
+      this.ptzChecking = true;
+      try {
+        const result = await api.probeCameraSource(sourceUrl);
+        if (result.reachable && result.ptzSupported === true) {
+          this.form.capabilityPtz = true;
+          this.ptzUnsupported = false;
+        } else {
+          this.form.capabilityPtz = false;
+          (this as any).showToast("此设备没有云台控制功能");
+        }
+      } catch {
+        this.form.capabilityPtz = false;
+        (this as any).showToast("此设备没有云台控制功能");
+      } finally {
+        this.ptzChecking = false;
+      }
+    },
     fillForm(camera: Camera) {
       this.form.name = camera.name || "";
       this.form.deviceCode = camera.deviceCode || "";
@@ -182,26 +215,28 @@ export default defineComponent({
       if (this.saving) return;
       const camera = this.selectedCamera as Camera | null;
       if (!camera) return;
-      if (!this.form.name.trim()) {
-        (this as any).showToast("请填写设备名称");
-        return;
-      }
-      if (this.form.ip.trim() && !isValidIPv4(this.form.ip)) {
-        (this as any).showToast("IP地址格式不正确");
-        return;
-      }
-      if (this.form.port.trim() && !isValidPort(this.form.port)) {
-        (this as any).showToast("端口号必须为1-65535的整数");
-        return;
-      }
-      if (this.form.nvrChannel.trim() && !isValidChannelNo(this.form.nvrChannel)) {
-        (this as any).showToast(`通道号必须为1-${MAX_CHANNEL_NO}的整数`);
-        return;
-      }
-      if (this.form.gbCode.trim() && !isValidGbCode(this.form.gbCode)) {
-        (this as any).showToast("国标域编码必须为20位数字");
-        return;
-      }
+      // 除用户名/密码/描述外均为必填
+      const fail = (msg: string) => (this as any).showToast(msg);
+      if (!this.form.name.trim()) return fail("请填写设备名称");
+      if (!this.form.deviceCode.trim()) return fail("请填写设备编号");
+      if (!this.form.serialNumber.trim()) return fail("请填写设备序列号");
+      if (!this.form.sourceUrl.trim()) return fail("请填写拉流地址");
+      if (!this.form.ip.trim()) return fail("请填写IP地址");
+      if (!isValidIPv4(this.form.ip)) return fail("IP地址格式不正确");
+      if (!this.form.port.trim()) return fail("请填写端口号");
+      if (!isValidPort(this.form.port)) return fail("端口号必须为1-65535的整数");
+      if (!this.form.area) return fail("请选择所属区域");
+      if (!this.form.registerExpire.trim()) return fail("请填写注册有效期");
+      const registerExpire = parseInt(this.form.registerExpire, 10);
+      if (Number.isNaN(registerExpire)) return fail("注册有效期必须为整数");
+      if (!this.form.heartbeat.trim()) return fail("请填写心跳周期");
+      const heartbeat = parseInt(this.form.heartbeat, 10);
+      if (Number.isNaN(heartbeat)) return fail("心跳周期必须为整数");
+      if (!this.form.gbCode.trim()) return fail("请填写国标域编码");
+      if (!isValidGbCode(this.form.gbCode)) return fail("国标域编码必须为20位数字");
+      if (!this.form.nvrChannel.trim()) return fail("请填写通道号");
+      if (!isValidChannelNo(this.form.nvrChannel)) return fail(`通道号必须为1-${MAX_CHANNEL_NO}的整数`);
+      if (!this.form.channelName.trim()) return fail("请填写通道名称");
       const payload: any = {
         name: this.form.name.trim(),
         sourceUrl: this.form.sourceUrl || undefined,
@@ -221,32 +256,16 @@ export default defineComponent({
         ptzEnabled: this.form.capabilityPtz,
         talkbackEnabled: this.form.capabilityTalkback,
         smartAnalysisEnabled: this.form.capabilitySmartAnalysis,
-        alarmIoEnabled: this.form.capabilityAlarmIo
+        alarmIoEnabled: this.form.capabilityAlarmIo,
+        // 新扩展字段：文本空串视为未填写；注册有效期/心跳周期必填且已解析为整数
+        deviceCategory: this.form.deviceCategory || undefined,
+        deviceType: this.form.deviceType || undefined,
+        protocolVersion: this.form.protocolVersion || undefined,
+        gbCode: this.form.gbCode || undefined,
+        channelName: this.form.channelName || undefined,
+        registerExpire,
+        heartbeat
       };
-      // 新扩展字段：文本空串视为未填写；注册有效期/心跳周期解析为整数
-      payload.deviceCategory = this.form.deviceCategory || undefined;
-      payload.deviceType = this.form.deviceType || undefined;
-      payload.protocolVersion = this.form.protocolVersion || undefined;
-      payload.gbCode = this.form.gbCode || undefined;
-      payload.channelName = this.form.channelName || undefined;
-      const registerExpire = this.form.registerExpire.trim();
-      if (registerExpire) {
-        const parsed = parseInt(registerExpire, 10);
-        if (Number.isNaN(parsed)) {
-          (this as any).showToast("注册有效期必须为整数");
-          return;
-        }
-        payload.registerExpire = parsed;
-      }
-      const heartbeat = this.form.heartbeat.trim();
-      if (heartbeat) {
-        const parsed = parseInt(heartbeat, 10);
-        if (Number.isNaN(parsed)) {
-          (this as any).showToast("心跳周期必须为整数");
-          return;
-        }
-        payload.heartbeat = parsed;
-      }
       if (this.form.password) payload.password = this.form.password;
       this.saving = true;
       try {

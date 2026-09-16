@@ -7,7 +7,7 @@
           <div class="video-device-filter">
             <label>设备名称<input class="input" v-model.trim="nameQuery" placeholder="请输入设备名称/编号/IP" /></label>
             <label>接入协议<select class="select" v-model="protocolFilter"><option>全部协议</option><option>海康 SDK</option><option>大华 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></label>
-            <label>在线状态<select class="select" v-model="statusFilter"><option>全部状态</option><option>在线</option><option>离线</option></select></label>
+            <label>设备状态<select class="select" v-model="statusFilter"><option>全部状态</option><option>在线</option><option>离线</option></select></label>
             <label>厂商<select class="select" v-model="vendorFilter"><option>全部厂商</option><option>海康威视</option><option>大华</option><option>宇视</option><option>华为</option><option>其他</option></select></label>
             <label>所在区域<select class="select" v-model="areaFilter"><option>全部区域</option><option v-for="option in areaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></label>
             <button class="btn primary" @click="loadCameras">查询</button>
@@ -20,12 +20,12 @@
           <div class="video-device-tabs"><button v-for="tab in quickTabs" :key="tab.key" class="video-device-tab" :class="{ active: activeQuickTab === tab.key }" @click="activeQuickTab = tab.key">{{ tab.label }} {{ tab.count }}</button></div>
           <div class="video-device-table-wrap">
             <table class="prototype-table video-device-table">
-              <thead><tr><th><input type="checkbox" aria-label="全选设备" :checked="allPageSelected" @change="toggleSelectAll" /></th><th class="left">设备名称</th><th>所在区域</th><th>接入协议</th><th>IP地址及端口</th><th>设备编号</th><th>设备序列号</th><th class="left">描述</th><th>密码强度</th><th>状态</th><th>操作</th></tr></thead>
+              <thead><tr><th><input type="checkbox" aria-label="全选设备" :checked="allPageSelected" @change="toggleSelectAll" /></th><th class="left">设备名称</th><th>所在区域</th><th>接入协议</th><th>IP地址及端口</th><th>设备编号</th><th>设备序列号</th><th class="left">描述</th><th>密码强度</th><th>拉流状态</th><th>设备状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="row in pagedCameras" :key="row.id">
-                  <td><input type="checkbox" v-model="selectedIds" :value="row.id" :aria-label="'选择设备' + row.name" /></td><td class="left video-device-name">{{ row.name }}</td><td>{{ row.area }}</td><td>{{ row.protocol }}</td><td>{{ row.address }}</td><td>{{ row.code }}</td><td>{{ row.serial }}</td><td class="left ellipsis">{{ row.desc }}</td><td><span class="password-strength" :class="row.strengthClass">{{ row.strength }}</span></td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td><div class="video-device-row-actions"><button class="link-blue" @click="openCameraDetail(row.raw)">查看</button><button class="link-blue" @click="openCameraEdit(row.raw)">编辑</button><button class="link-red" @click="openModal('mediaDelete', { rows: [row] })">删除</button></div></td>
+                  <td><input type="checkbox" v-model="selectedIds" :value="row.id" :aria-label="'选择设备' + row.name" /></td><td class="left video-device-name">{{ row.name }}</td><td>{{ row.area }}</td><td>{{ row.protocol }}</td><td>{{ row.address }}</td><td>{{ row.code }}</td><td>{{ row.serial }}</td><td class="left ellipsis">{{ row.desc }}</td><td><span class="password-strength" :class="row.strengthClass">{{ row.strength }}</span></td><td><span class="status-pill" :class="streamClass(row.streamLabel)">{{ row.streamLabel }}</span></td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td><div class="video-device-row-actions"><button class="link-blue" @click="openCameraDetail(row.raw)">查看</button><button class="link-blue" @click="openCameraEdit(row.raw)">编辑</button><button class="link-red" @click="openModal('mediaDelete', { rows: [row] })">删除</button></div></td>
                 </tr>
-                <tr v-if="!pagedCameras.length"><td colspan="11">{{ loading ? '设备列表加载中…' : '暂无符合条件的设备' }}</td></tr>
+                <tr v-if="!pagedCameras.length"><td colspan="12">{{ loading ? '设备列表加载中…' : '暂无符合条件的设备' }}</td></tr>
               </tbody>
             </table>
           </div>
@@ -41,6 +41,7 @@ import { defineComponent } from "vue";
 import { api } from "../api";
 import type { Camera } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
+import { deviceStatusLabel, onlineStatusOf, streamStatusLabel } from "../utils/device-status";
 import { flattenRegionTree, loadRegionTree, normalizePath, passwordStrength } from "../utils/regions";
 import type { FlatRegionNode } from "../utils/regions";
 
@@ -61,13 +62,11 @@ function extractAddress(sourceUrl: string): string {
   }
 }
 
-function statusLabel(status: string): string {
-  const value = (status || "").toUpperCase();
-  if (value === "RUNNING") return "在线";
-  if (value === "STOPPED") return "离线";
-  if (value === "OFFLINE") return "离线";
-  if (value === "DISABLED") return "停用";
-  return "未成功连接";
+/** 拉流状态样式：拉流中 green，其余弱化。 */
+function streamClass(label: string): string {
+  if (label === "拉流中") return "pass";
+  if (label === "拉流中断") return "waiting";
+  return "reject";
 }
 
 export default defineComponent({
@@ -106,13 +105,16 @@ export default defineComponent({
     regionPaths(): string[] {
       return this.regionFlat.map((item) => item.fullPath);
     },
+    // 页签口径：在线/离线按"设备可达性"（onlineStatus），"未启动拉流"按拉流状态 STOPPED，
+    // "从未连接成功"为扫描无法判定可达性的设备（UNKNOWN）。
     quickTabs(): any[] {
       const rows = this.cameras;
       return [
         { key: "all", label: "全部设备", count: rows.length },
-        { key: "online", label: "在线", count: rows.filter((row: any) => row.status === "在线").length },
-        { key: "offline", label: "离线", count: rows.filter((row: any) => row.status === "离线").length },
-        { key: "never", label: "从未连接成功", count: rows.filter((row: any) => row.status === "未成功连接").length },
+        { key: "online", label: "在线", count: rows.filter((row: any) => row.onlineStatus === "ONLINE").length },
+        { key: "offline", label: "离线", count: rows.filter((row: any) => row.onlineStatus === "OFFLINE").length },
+        { key: "idle", label: "未启动拉流", count: rows.filter((row: any) => row.streamStatus === "STOPPED").length },
+        { key: "never", label: "从未连接成功", count: rows.filter((row: any) => row.onlineStatus === "UNKNOWN").length },
         { key: "weak", label: "弱密码", count: rows.filter((row: any) => row.strength === "弱").length }
       ];
     },
@@ -127,9 +129,10 @@ export default defineComponent({
             ? row.area === this.areaFilter || String(row.area).startsWith(this.areaFilter + " / ")
             : row.area === this.areaFilter);
         const matchesQuick = this.activeQuickTab === "all"
-          || (this.activeQuickTab === "online" && row.status === "在线")
-          || (this.activeQuickTab === "offline" && row.status === "离线")
-          || (this.activeQuickTab === "never" && row.status === "未成功连接")
+          || (this.activeQuickTab === "online" && row.onlineStatus === "ONLINE")
+          || (this.activeQuickTab === "offline" && row.onlineStatus === "OFFLINE")
+          || (this.activeQuickTab === "idle" && row.streamStatus === "STOPPED")
+          || (this.activeQuickTab === "never" && row.onlineStatus === "UNKNOWN")
           || (this.activeQuickTab === "weak" && row.strength === "弱");
         return matchesQuery && matchesProtocol && matchesStatus && matchesVendor && matchesArea && matchesQuick;
       });
@@ -182,6 +185,7 @@ export default defineComponent({
   },
   methods: {
     statusClass,
+    streamClass,
     // Aliased injections (openCameraDetailImpl/openCameraEditImpl) re-exposed as
     // same-named methods so the template calls type-check, matching the
     // wrapper pattern used by other pages.
@@ -204,8 +208,11 @@ export default defineComponent({
         desc: camera.description || "-",
         strength: strength.label,
         strengthClass: strength.cls,
-        status: statusLabel(camera.status),
-        rawStatus: camera.status,
+        // 状态列展示"设备可达性"，拉流状态单独一列
+        status: deviceStatusLabel(camera),
+        onlineStatus: onlineStatusOf(camera),
+        streamLabel: streamStatusLabel(camera),
+        streamStatus: String(camera.status || "").toUpperCase(),
         vendor: camera.vendor || "其他",        raw: camera
       };
     },

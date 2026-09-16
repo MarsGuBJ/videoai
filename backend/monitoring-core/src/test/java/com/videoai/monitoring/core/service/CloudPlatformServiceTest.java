@@ -189,7 +189,7 @@ class CloudPlatformServiceTest {
     private static CameraResponse camera(UUID id, String ip) {
         return new CameraResponse(
                 id, "本地-" + ip, "rtsp://" + ip + "/stream", "live", "s-" + ip, null, null, "办公楼",
-                "RUNNING", null, OffsetDateTime.now(), OffsetDateTime.now(),
+                "RUNNING", "ONLINE", null, OffsetDateTime.now(), OffsetDateTime.now(),
                 null, null, null, null, null, null, ip, "554",
                 null, null, null, null, false, true, false, false, false, false, false, null, null,
                 null, null, null, null, null, null, null);

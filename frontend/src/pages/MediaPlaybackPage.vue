@@ -8,7 +8,7 @@
       </aside>
       <section class="panel media-stage-panel">
         <div class="media-playback-player" :class="{ 'fit-video': !!playbackAspect }" :style="playbackAspect ? { aspectRatio: playbackAspect } : null">
-          <video-player v-if="playbackStreamUrl" ref="playbackPlayer" :url="playbackStreamUrl" @resolution="onPlaybackResolution"></video-player>
+          <video-player v-if="playbackStreamUrl" ref="playbackPlayer" :url="playbackStreamUrl" format="flv" @resolution="onPlaybackResolution"></video-player>
           <div v-else style="display:flex;align-items:center;justify-content:center;height:100%;color:#98a2b3;font-size:13px;">选择左侧摄像头并查询录像，点击录像结果开始回放</div>
           <div class="media-playback-player-title">录像回放 · {{ playbackTitle }}</div>
           <div class="media-playback-overlay-controls">
@@ -34,6 +34,7 @@
 import { defineComponent } from "vue";
 import { api } from "../api";
 import type { RecordingSegment, RegionTreeNode } from "../api";
+import { deviceStatusLabel, deviceStatusRank } from "../utils/device-status";
 import { flattenRegionTree, loadRegionTree, normalizePath, type RegionNode } from "../utils/regions";
 import VideoPlayer from "../components/VideoPlayer.vue";
 
@@ -75,16 +76,7 @@ function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<st
   return regions;
 }
 
-function statusLabel(status: string): string {
-  const value = (status || "").toUpperCase();
-  if (value === "RUNNING") return "在线";
-  if (value === "STOPPED") return "离线";
-  if (value === "OFFLINE") return "离线";
-  if (value === "DISABLED") return "停用";
-  return "未成功连接";
-}
-
-// 排序权重：在线在前，其后离线/停用/未连接，同状态按名称排序
+/** 拉流状态排序权重：拉流中在前，其后已停止/停用/未启动。 */
 function statusRank(status: string): number {
   const value = (status || "").toUpperCase();
   if (value === "RUNNING") return 0;
@@ -212,7 +204,8 @@ export default defineComponent({
           name: cam.name,
           code: cam.id,
           type: cam.protocol || cam.streamApp || "IPC",
-          status: statusLabel(cam.status),
+          status: deviceStatusLabel(cam),
+          onlineStatus: cam.onlineStatus,
           statusRaw: cam.status,
           streamName: cam.streamName,
           image: this.store.img.car,
@@ -220,7 +213,10 @@ export default defineComponent({
         });
       }
       for (const list of Object.values(regionCameras)) {
-        list.sort((a, b) => statusRank(a.statusRaw) - statusRank(b.statusRaw) || a.name.localeCompare(b.name, "zh"));
+        // 先按设备可达性（在线→未探测→离线），再按拉流状态，最后按名称
+        list.sort((a, b) => deviceStatusRank(a) - deviceStatusRank(b)
+          || statusRank(a.statusRaw) - statusRank(b.statusRaw)
+          || a.name.localeCompare(b.name, "zh"));
       }
       const regions = regionsFromTree(tree, regionCameras);
       const expanded: Record<string, boolean> = {};

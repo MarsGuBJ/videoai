@@ -24,7 +24,10 @@ public class CameraEntity {
     private String ffmpegKey;
     private String description;
     private String area;
+    /** 拉流状态：RUNNING/STOPPED/DISABLED。 */
     private String status;
+    /** 设备可达性（V16）：ONLINE/OFFLINE/UNKNOWN，由状态扫描写入。 */
+    private String onlineStatus;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
     private String nvrId;

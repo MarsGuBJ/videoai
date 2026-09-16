@@ -51,6 +51,10 @@
         UPDATE cameras SET status = #{status}, updated_at = now() WHERE id = #{id}
     </update>
 
+    <update id="updateOnlineStatus">
+        UPDATE cameras SET online_status = #{onlineStatus}, updated_at = now() WHERE id = #{id}
+    </update>
+
     <insert id="insertIgnore" parameterType="com.videoai.monitoring.core.entity.CameraEntity">
         INSERT INTO cameras (id, name, source_url, stream_app, stream_name, ffmpeg_key,
                              description, area, status, created_at, updated_at,

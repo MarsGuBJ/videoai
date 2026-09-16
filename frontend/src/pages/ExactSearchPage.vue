@@ -27,7 +27,7 @@
       <div class="panel exact-left-workspace">
       <div class="exact-video-panel">
         <div class="exact-player" ref="exactPlayer">
-          <div class="exact-player-media"><video v-if="selectedSource.videoUrl" ref="exactVideo" :src="selectedSource.videoUrl" muted playsinline @timeupdate="syncVideoTime" @loadedmetadata="syncVideoTime" @ended="playerPlaying = false"></video><video-player v-else-if="selectedSource.streamUrl" ref="exactStreamPlayer" :url="selectedSource.streamUrl"></video-player><img v-else :src="selectedSource.image" :alt="selectedSource.name" /></div>
+          <div class="exact-player-media"><video v-if="selectedSource.videoUrl" ref="exactVideo" :src="selectedSource.videoUrl" muted playsinline @timeupdate="syncVideoTime" @loadedmetadata="syncVideoTime" @ended="playerPlaying = false"></video><video-player v-else-if="selectedSource.streamUrl" ref="exactStreamPlayer" :url="selectedSource.streamUrl" format="flv"></video-player><img v-else :src="selectedSource.image" :alt="selectedSource.name" /></div>
           <button class="exact-fullscreen-btn" type="button" :title="playerFullscreen ? '退出全屏' : '全屏播放'" :aria-label="playerFullscreen ? '退出全屏' : '全屏播放'" @click="togglePlayerFullscreen">
             <svg v-if="!playerFullscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
             <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
@@ -50,8 +50,8 @@
             </div>
             <div v-if="questionBusy" class="exact-chat-loading">分析助手正在结合视频内容整理答案...</div>
           </div>
-          <div class="exact-chat-quick"><button v-for="prompt in quickQuestions" :key="prompt" :class="{ active: activeQuickPrompt === prompt || query === prompt }" @click="fillQuickPrompt(prompt)">{{ prompt }}</button></div>
-          <div class="exact-query-box"><textarea ref="exactQueryInput" class="textarea" v-model="query" :placeholder="analyzed ? '可继续围绕当前视频事件、车辆、人员与时间线提问' : '输入目标、场景、行为或时间特征，系统将生成事件结论。'" @keydown.enter.exact.prevent="submitVideoChat"></textarea><button class="exact-query-send-btn" type="button" :disabled="questionBusy" aria-label="发送" @click="submitVideoChat"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button></div>
+          <div class="exact-chat-quick"><button v-for="prompt in quickQuestions" :key="prompt.label" :class="{ active: activeQuickPrompt === prompt.label }" @click="fillQuickPrompt(prompt)">{{ prompt.label }}</button></div>
+          <div class="exact-query-box"><textarea ref="exactQueryInput" class="textarea" v-model="query" :placeholder="queryPlaceholder" @keydown.enter.exact.prevent="submitVideoChat"></textarea><div class="exact-query-send"><button class="btn primary exact-send-btn" :disabled="questionBusy" aria-label="发送" title="发送" @click="submitVideoChat"><span class="send-icon" aria-hidden="true"></span></button></div></div>
         </div>
       </section>
       </div>
@@ -210,17 +210,13 @@
       <div class="drawer-head"><h3>分析详情</h3><button class="close" aria-label="关闭" @click="closeMessageDetail">×</button></div>
       <div class="drawer-body exact-message-detail-body">
         <p class="exact-message-detail-query">检索内容：{{ messageDetailSnapshot.query || '-' }}</p>
-        <div v-if="messageDetailSnapshot.events.length" class="exact-message-detail-events">
-          <article v-for="event in messageDetailSnapshot.events" :key="event.name + event.time" class="exact-message-detail-event">
+        <div class="exact-message-detail-events">
+          <article v-for="event in messageDetailSnapshot.events" :key="event.name" class="exact-message-detail-event">
             <img :src="event.image" :alt="event.name" />
             <div><h4>{{ event.time }} {{ event.name }}</h4><p>{{ event.detail }}</p></div>
           </article>
         </div>
         <dl class="detail-list" style="margin-top:12px;">
-          <dt>分析结论</dt><dd>{{ messageDetailSnapshot.answer }}</dd>
-          <dt>事件分段</dt><dd>共 {{ messageDetailSnapshot.events.length }} 个</dd>
-          <dt>涉及人员</dt><dd>{{ messageDetailSnapshot.summary.persons.join('；') || '无' }}</dd>
-          <dt>涉及车辆</dt><dd>{{ messageDetailSnapshot.summary.vehicles.join('；') || '无' }}</dd>
           <template v-for="result in messageDetailSnapshot.results" :key="result.title"><dt>{{ result.title }}</dt><dd>{{ result.value }}。{{ result.detail }}</dd></template>
         </dl>
       </div>
@@ -238,17 +234,9 @@ import VideoPlayer from "../components/VideoPlayer.vue";
 import { api, assetUrl, videoAnalysisFrameUrl } from "../api";
 import type { PersonSearchBboxPoint, SimilarPersonResult } from "../api";
 import type { DeploymentTaskCreate } from "../types";
+import { deviceStatusLabel } from "../utils/device-status";
 import { cropImageToFile, cropToPixelBbox } from "../utils/person-search";
 import type { ImageCropSelection } from "../utils/person-search";
-
-function statusLabel(status?: string): string {
-  const value = (status || "").toUpperCase();
-  if (value === "RUNNING") return "在线";
-  if (value === "STOPPED") return "离线";
-  if (value === "OFFLINE") return "离线";
-  if (value === "DISABLED") return "停用";
-  return "未成功连接";
-}
 
 function isHttpUrl(url?: string | null): boolean {
   return !!url && /^https?:\/\//i.test(url);
@@ -532,7 +520,11 @@ export default defineComponent({
       activeResultTab: "summary",
       resultTabSeq: 0,
       deployAlgorithmOptions: [] as any[],
-      quickQuestions: ["这段视频发生了什么？", "车辆的特征是什么？", "按时间梳理事件", "是否需要布控？"],
+      quickQuestions: [
+        { label: "提问画面", placeholder: "请描述当前视频画面中的内容，包括人物、车辆、物体、场景以及正在发生的行为" },
+        { label: "查找目标", placeholder: "请输入目标特征，例如：穿红色上衣的人、白色轿车、背双肩包的人" },
+        { label: "重点事件摘要", placeholder: "这段视频发生了哪些重点事件？" }
+      ],
       lastQuery: "",
       selectedEventIndex: 0,
       currentTime: 0,
@@ -576,6 +568,11 @@ export default defineComponent({
     },
     videoViewLabel() {
       return this.videoView === "live" ? "实时视频" : "录像回放";
+    },
+    queryPlaceholder() {
+      const quick = this.quickQuestions.find(item => item.label === this.activeQuickPrompt);
+      if (quick) return quick.placeholder;
+      return this.analyzed ? "可继续围绕当前视频事件、车辆、人员与时间线提问" : "输入目标、场景、行为或时间特征，系统将生成事件结论。";
     }
   },
   methods: {
@@ -591,7 +588,8 @@ export default defineComponent({
             name: cam.name,
             code: cam.id,
             type: cam.protocol || cam.streamApp || "IPC",
-            status: statusLabel(cam.status),
+            status: deviceStatusLabel(cam),
+            onlineStatus: cam.onlineStatus,
             image: (this as any).store.img.car,
             playbackUrl: cam.playbackUrl,
             sourceUrl: cam.sourceUrl,
@@ -702,8 +700,8 @@ export default defineComponent({
       this.cancelPendingSourceChange();
     },
     fillQuickPrompt(prompt) {
-      this.query = prompt;
-      this.activeQuickPrompt = prompt;
+      this.query = "";
+      this.activeQuickPrompt = prompt.label;
       this.$nextTick(() => {
         const input = this.$refs.exactQueryInput as HTMLTextAreaElement;
         if (input && input.focus) input.focus();

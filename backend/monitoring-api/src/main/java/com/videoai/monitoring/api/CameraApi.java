@@ -60,4 +60,11 @@ public interface CameraApi {
 
     @GetMapping("/media")
     Map<String, Object> mediaList();
+
+    /**
+     * 立即重新扫描全部设备的在线状态（设备可达性），返回
+     * {@code {total, online, offline, unknown, changed}}。
+     */
+    @PostMapping("/status-scan")
+    Map<String, Object> statusScan();
 }

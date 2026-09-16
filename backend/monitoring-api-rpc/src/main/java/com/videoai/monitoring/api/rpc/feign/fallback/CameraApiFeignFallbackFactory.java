@@ -65,6 +65,11 @@ public class CameraApiFeignFallbackFactory implements FallbackFactory<CameraApiF
             public Map<String, Object> mediaList() {
                 return null;
             }
+
+            @Override
+            public Map<String, Object> statusScan() {
+                return Map.of();
+            }
         };
     }
 }

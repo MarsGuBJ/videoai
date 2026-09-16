@@ -4,6 +4,7 @@ import { api } from "../api";
 import type { RecordingSegment } from "../api";
 import type { Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
+import { deviceStatusLabel, onlineStatusOf, streamStatusLabel } from "../utils/device-status";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
 import { computeSourceUrl, flattenRegionTree, loadRegionTree } from "../utils/regions";
 import type { FlatRegionNode } from "../utils/regions";
@@ -87,12 +88,7 @@ export default {
       exportRange: "filtered",
       exportFields: "all",
       moveArea: "",
-      capabilityVideoPreview: true,
-      capabilityAudio: false,
-      capabilityTalkback: false,
       capabilityPtz: false,
-      capabilitySmartAnalysis: false,
-      capabilityAlarmIo: false,
       capabilityStrategy: "overwrite",
       capabilitySaving: false,
       // 区域管理弹窗：后端区域树（/api/regions）树形编辑器
@@ -432,17 +428,12 @@ export default {
     showToast(message: string) {
       (this as any).toastImpl(message);
     },
-    // 能力配置弹窗：回填勾选设备当前的能力开关（全部勾选设备都开启时才勾上），用户可再编辑
+    // 能力配置弹窗：回填勾选设备当前的云台开关（全部勾选设备都开启时才勾上），用户可再编辑
     initCapabilityForm() {
       const rows = ((this.modal.item && this.modal.item.rows) || []).map((row: any) => row.raw || row);
       const every = (key: string, fallback: boolean) =>
         rows.length ? rows.every((raw: any) => raw[key] === true) : fallback;
-      this.capabilityVideoPreview = every("videoPreviewEnabled", true);
-      this.capabilityAudio = every("audioEnabled", false);
-      this.capabilityTalkback = every("talkbackEnabled", false);
       this.capabilityPtz = every("ptzEnabled", false);
-      this.capabilitySmartAnalysis = every("smartAnalysisEnabled", false);
-      this.capabilityAlarmIo = every("alarmIoEnabled", false);
       this.capabilityStrategy = "overwrite";
       this.capabilitySaving = false;
     },
@@ -454,17 +445,14 @@ export default {
       }
       if (this.capabilitySaving) return;
       this.capabilitySaving = true;
+      // 弹窗只保留云台控制一项：只下发 ptzEnabled，设备其余能力配置保持不变
       const desired: Record<string, boolean> = {
-        videoPreviewEnabled: this.capabilityVideoPreview,
-        audioEnabled: this.capabilityAudio,
-        talkbackEnabled: this.capabilityTalkback,
-        ptzEnabled: this.capabilityPtz,
-        smartAnalysisEnabled: this.capabilitySmartAnalysis,
-        alarmIoEnabled: this.capabilityAlarmIo
+        ptzEnabled: this.capabilityPtz
       };
       let targets = rows;
       if (this.capabilityStrategy === "onlineOnly") {
-        targets = rows.filter((raw: any) => String(raw.status || "").toUpperCase() === "RUNNING");
+        // "仅应用到在线设备"按设备可达性（onlineStatus）筛选，与页面在线口径一致
+        targets = rows.filter((raw: any) => onlineStatusOf(raw) === "ONLINE");
         if (!targets.length) {
           this.capabilitySaving = false;
           this.showToast("所选设备中没有在线设备");
@@ -474,7 +462,7 @@ export default {
       let succeeded = 0;
       const failures: string[] = [];
       for (const raw of targets) {
-        // 覆盖：六项全量下发；追加：只下发勾选为开的项，其余保持原值
+        // 覆盖：下发云台控制开关（其余能力不动）；追加：仅勾选为开时才下发，否则保持原值
         const payload: Record<string, boolean> = {};
         Object.keys(desired).forEach((key) => {
           if (this.capabilityStrategy !== "append" || desired[key]) payload[key] = desired[key];
@@ -707,13 +695,9 @@ export default {
         ? this.deploySelectedCameras.filter(item => item !== id)
         : this.deploySelectedCameras.concat(id);
     },
-    cameraStatusText(status?: string) {
-      const value = (status || "").toUpperCase();
-      if (value === "RUNNING") return "在线";
-      if (value === "STOPPED") return "离线";
-  if (value === "OFFLINE") return "离线";
-      if (value === "DISABLED") return "停用";
-      return "未成功连接";
+    // 部署树里的设备状态：展示设备可达性（在线/离线/未探测）
+    cameraStatusText(camera?: Camera) {
+      return deviceStatusLabel(camera);
     },
     initAlgorithmForm() {
       const item = this.modal.item;
@@ -1039,14 +1023,9 @@ export default {
         this.showToast("没有可导出的设备");
         return;
       }
-      const statusText = (status?: string) => {
-        const value = (status || "").toUpperCase();
-        if (value === "RUNNING") return "在线";
-        if (value === "STOPPED") return "离线";
-  if (value === "OFFLINE") return "离线";
-        if (value === "DISABLED") return "停用";
-        return "未成功连接";
-      };
+      // 导出列：设备状态按"设备可达性"，拉流状态单独一列（与设备管理页口径一致）
+      const statusText = (camera?: Camera) => deviceStatusLabel(camera);
+      const streamText = (status?: string) => streamStatusLabel({ status });
       const columnSets: any = {
         all: [
           ["设备名称", (c: Camera) => c.name],
@@ -1057,7 +1036,8 @@ export default {
           ["设备编号", (c: Camera) => c.deviceCode || ""],
           ["设备序列号", (c: Camera) => c.serialNumber || ""],
           ["厂商", (c: Camera) => c.vendor || ""],
-          ["状态", (c: Camera) => statusText(c.status)],
+          ["设备状态", (c: Camera) => statusText(c)],
+          ["拉流状态", (c: Camera) => streamText(c.status)],
           ["描述", (c: Camera) => c.description || ""],
           ["拉流地址", (c: Camera) => c.sourceUrl || ""]
         ],
@@ -1067,7 +1047,7 @@ export default {
           ["设备编号", (c: Camera) => c.deviceCode || ""],
           ["设备序列号", (c: Camera) => c.serialNumber || ""],
           ["厂商", (c: Camera) => c.vendor || ""],
-          ["状态", (c: Camera) => statusText(c.status)]
+          ["设备状态", (c: Camera) => statusText(c)]
         ],
         connect: [
           ["设备名称", (c: Camera) => c.name],
@@ -1380,7 +1360,7 @@ export default {
                 <div v-for="area in deployCameraAreas" :key="area.name">
                   <button class="exact-tree-area-row" type="button" @click="toggleDeployArea(area.name)"><span>{{ deployAreaExpanded[area.name] ? '⌄' : '›' }} {{ area.name }}</span><span>{{ area.cameras.length }} 台设备</span></button>
                   <div v-if="deployAreaExpanded[area.name]" class="exact-tree-children">
-                    <label v-for="camera in area.cameras" :key="camera.id" class="exact-tree-device deploy-tree-camera"><input type="checkbox" :checked="deploySelectedCameras.includes(camera.id)" :aria-label="'选择' + camera.name" @change="toggleDeployCamera(camera.id)" /><span class="camera-name">{{ camera.name }}</span><span>{{ cameraStatusText(camera.status) }}</span></label>
+                    <label v-for="camera in area.cameras" :key="camera.id" class="exact-tree-device deploy-tree-camera"><input type="checkbox" :checked="deploySelectedCameras.includes(camera.id)" :aria-label="'选择' + camera.name" @change="toggleDeployCamera(camera.id)" /><span class="camera-name">{{ camera.name }}</span><span>{{ cameraStatusText(camera) }}</span></label>
                   </div>
                 </div>
                 <div v-if="!deployCameraAreas.length" class="exact-tree-children"><span style="padding:8px 12px;display:block;">暂无摄像机，请先在设备管理中接入</span></div>
@@ -1497,12 +1477,7 @@ export default {
         <template v-if="modal.type === 'mediaCapability'">
           <p class="modal-hint">将为已选择的 {{ (modal.item && modal.item.rows ? modal.item.rows.length : 0) }} 台设备设置能力参数；勾选项已按设备当前配置回填，可直接编辑修改。</p>
           <div class="modal-check-grid">
-            <label class="video-device-include"><input type="checkbox" v-model="capabilityVideoPreview" />视频预览</label>
-            <label class="video-device-include"><input type="checkbox" v-model="capabilityAudio" />音频采集</label>
-            <label class="video-device-include"><input type="checkbox" v-model="capabilityTalkback" />语音对讲</label>
             <label class="video-device-include"><input type="checkbox" v-model="capabilityPtz" />云台控制</label>
-            <label class="video-device-include"><input type="checkbox" v-model="capabilitySmartAnalysis" />智能分析</label>
-            <label class="video-device-include"><input type="checkbox" v-model="capabilityAlarmIo" />告警输入输出</label>
           </div>
           <div class="modal-form-row"><label>配置策略：</label><select class="select" v-model="capabilityStrategy"><option value="overwrite">覆盖原能力配置</option><option value="append">仅追加新增能力</option><option value="onlineOnly">仅应用到在线设备</option></select></div>
         </template>
@@ -1591,10 +1566,6 @@ export default {
             </table>
           </div>
         </template>
-        <template v-if="modal.type === 'mediaDelete'">
-          <p class="modal-hint danger">将删除 {{ (modal.item && modal.item.rows ? modal.item.rows.length : 0) }} 台设备。删除后将解除设备、通道、预览分组和告警联动关系。历史录像索引可按策略保留。</p>
-          <div class="modal-form-row"><label>删除选项：</label><span><label class="video-device-include"><input type="checkbox" />同时删除通道配置</label></span></div>
-        </template>
         <template v-if="modal.type === 'videoConfig'">
           <div class="modal-split video-config-modal">
             <div class="modal-split-main">
@@ -1602,10 +1573,6 @@ export default {
               <div class="modal-form-grid">
                 <div class="modal-form-row"><label>保存路径：</label><input class="input" v-model="videoSettings.savePath" /></div>
                 <div class="modal-form-row"><label>启动窗口：</label><select class="select" v-model.number="videoSettings.startupLayout"><option :value="4">2x2</option><option :value="1">1x1</option><option :value="9">3x3</option><option :value="16">4x4</option></select></div>
-                <div class="modal-form-row video-config-check"><span></span><label class="video-device-include"><input type="checkbox" v-model="videoSettings.perfWarning" />播放性能不足提示</label></div>
-                <div class="modal-form-row video-config-check"><span></span><label class="video-device-include"><input type="checkbox" v-model="videoSettings.gpuDecode" />GPU 硬件解码</label></div>
-                <div class="modal-form-row video-config-check"><span></span><label class="video-device-include"><input type="checkbox" v-model="videoSettings.recordWarning" />录像预警提示</label></div>
-                <div class="modal-form-row video-config-check"><span></span><label class="video-device-include"><input type="checkbox" v-model="videoSettings.multicast" />是否组播</label></div>
               </div>
               <h4 class="modal-block-title" id="video-config-video">视频配置</h4>
               <div class="modal-form-grid">
@@ -1646,7 +1613,7 @@ export default {
         <template v-if="modal.type === 'quickReplay'">
           <p class="modal-hint">回放当前窗口设备{{ quickReplayCamera ? `「${quickReplayCamera.name}」` : '' }}最近 {{ quickReplaySeconds }} 秒的录像画面。</p>
           <div class="modal-replay-preview">
-            <div v-if="quickReplayUrl" style="height:260px;"><video-player :url="quickReplayUrl" :show-zoom-bar="false" /></div>
+            <div v-if="quickReplayUrl" style="height:260px;"><video-player :url="quickReplayUrl" format="flv" :show-zoom-bar="false" /></div>
             <template v-else>
               <span>{{ (quickReplayCamera && quickReplayCamera.name) || '未选择设备' }}</span>
               <b v-if="quickReplayLoading">正在查询录像…</b>

@@ -34,6 +34,10 @@ from .tools import (
 
 logger = logging.getLogger(__name__)
 
+# 浏览器播放器（mpegts.js fetch）跨源直连 /recording-live（前端 5173 -> MCP 8097 -> ZLM :82），
+# 302 与错误响应都必须带 CORS 头，否则浏览器在跳转第一跳就拦截
+RECORDING_LIVE_CORS_HEADERS = {"Access-Control-Allow-Origin": "*"}
+
 
 def register_http_tool_routes() -> None:
     tool_handlers = {
@@ -105,12 +109,12 @@ def register_recording_live_route() -> None:
                 proxy = hcnetsdk_playback
                 recording = proxy.build_recording(start, end)
             url = await proxy.ensure_playback(recording, speed)
-            return RedirectResponse(url, status_code=302)
+            return RedirectResponse(url, status_code=302, headers=RECORDING_LIVE_CORS_HEADERS)
         except ValueError as exc:
-            return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)
+            return JSONResponse(error_payload("ValueError", str(exc)), status_code=400, headers=RECORDING_LIVE_CORS_HEADERS)
         except Exception as exc:  # noqa: BLE001  # 兜底：与 -http 接口一致，细节只进服务端日志
             logger.exception("recording-live failed with %s", type(exc).__name__)
-            return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500)
+            return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500, headers=RECORDING_LIVE_CORS_HEADERS)
 
 
 def register_http_tool_route(tool_name: str, handler: Callable[..., Awaitable[dict]]) -> None:

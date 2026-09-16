@@ -19,6 +19,9 @@ public interface CameraDao extends BaseMapper<CameraEntity> {
 
     int updateStatus(@Param("id") UUID id, @Param("status") String status);
 
+    /** 设备可达性回写（V16）：ONLINE/OFFLINE/UNKNOWN。 */
+    int updateOnlineStatus(@Param("id") UUID id, @Param("onlineStatus") String onlineStatus);
+
     /** Legacy cameras.json import: INSERT ... ON CONFLICT (id) DO NOTHING. */
     int insertIgnore(CameraEntity entity);
 

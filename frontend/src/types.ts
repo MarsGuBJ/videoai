@@ -8,6 +8,8 @@ export type Camera = {
   description?: string | null;
   area?: string | null;
   status: string;
+  /** 设备可达性（V16）：ONLINE / OFFLINE / UNKNOWN，由后端状态扫描写入。 */
+  onlineStatus?: string | null;
   playbackUrl: string;
   createdAt: string;
   updatedAt: string;
