@@ -100,6 +100,8 @@ export default defineComponent({
       hls: null as Hls | null,
       retryTimer: null as number | null,
       retryCount: 0,
+      // 出帧看门狗：load 后迟迟无画面时兜底（见 startStallWatchdog）
+      stallTimer: null as number | null,
       // 当前流是否已禁用音轨：现场部分摄像头（如 4号楼枪机）主码流带 G.711(PCMA) 音频，
       // mpegts.js 不支持会抛 DemuxException/CodecUnsupported 导致整体播放失败，此时按无音频重建
       noAudio: false,
@@ -169,6 +171,37 @@ export default defineComponent({
         this.retryTimer = null;
       }
     },
+    cancelStallWatchdog() {
+      if (this.stallTimer !== null) {
+        window.clearTimeout(this.stallTimer);
+        this.stallTimer = null;
+      }
+    },
+    // 出帧看门狗：流加载后 5 秒仍无画面（既无 error 也无 media_info 的静默卡死，
+    // 典型如 FLV 元数据声明了音轨但音频包迟迟不到，解复用器一直等待音频初始元数据），
+    // 先按无音频重建一次；已经禁过音轨仍无画面则转入指数退避重连
+    startStallWatchdog(token: number, player: mpegts.Player) {
+      this.cancelStallWatchdog();
+      this.stallTimer = window.setTimeout(() => {
+        this.stallTimer = null;
+        if (token !== this.streamToken || this.player !== player) {
+          return;
+        }
+        if (this.hevcUnsupported) {
+          return;
+        }
+        const video = this.videoElement;
+        if (video && video.readyState >= 2 && video.videoWidth > 0) {
+          return;
+        }
+        if (!this.noAudio) {
+          this.noAudio = true;
+          this.restart();
+          return;
+        }
+        this.scheduleRetry();
+      }, 5000);
+    },
     clearRetry() {
       this.cancelRetryTimer();
       this.retryCount = 0;
@@ -202,6 +235,7 @@ export default defineComponent({
     },
     destroy() {
       this.cancelRetryTimer();
+      this.cancelStallWatchdog();
       const hls = this.hls;
       this.hls = null;
       if (hls) {
@@ -363,7 +397,11 @@ export default defineComponent({
         // mpegts.js 兼容 flv.js API，同时支持 H.264 和 H.265（FLV CodecID 12）passthrough
         const player = markRaw(
           mpegts.createPlayer(
-            { type: 'flv', url, isLive: true, hasAudio: !this.noAudio },
+            // 不显式传 hasAudio：显式 true 会强制解复用器等待音频初始元数据才出帧，
+            // 纯视频流（如 4号楼2#房枪机，FLV 头声明无音轨）会因此静默卡死；
+            // 不传则由 mpegts.js 按 FLV 头/元数据自动探测。仅在确认音轨无法解码时
+            // （noAudio）显式传 false 忽略音轨
+            { type: 'flv', url, isLive: true, ...(this.noAudio ? { hasAudio: false } : {}) },
             {
               enableWorker: false,
               enableStashBuffer: false,
@@ -408,6 +446,7 @@ export default defineComponent({
         });
         player.attachMediaElement(video);
         player.load();
+        this.startStallWatchdog(token, player);
         Promise.resolve(player.play()).then(this.clearMessage).catch(() => {
           this.message = '点击视频播放后端流';
         });
