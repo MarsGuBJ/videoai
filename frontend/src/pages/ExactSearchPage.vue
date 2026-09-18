@@ -19,7 +19,7 @@
     </div>
 
     <!-- 与文搜图页一致的占位区域：确认视频源前提示操作路径 -->
-    <div v-if="!sourceConfirmed" class="search-empty-state exact-source-empty"><strong>还没有开始检索</strong><span>选择在线监控点或上传本地视频后，点击「搜索回放」</span></div>
+    <div v-if="!sourceConfirmed" class="search-empty-state exact-source-empty"><strong>暂无搜索结果</strong><strong>选择在线监控点或上传本地视频后，点击「搜索回放」</strong></div>
 
     <div v-if="sourceConfirmed" class="exact-analysis-shell">
       <div v-if="pendingSourceChange" class="exact-pending-mask" @click="cancelPendingSourceChange"><div><strong>视频源已调整，尚未生效</strong><p>下方结果仍保留。点击「搜索回放」生效，点击空白区域可还原到之前的选择与结果</p></div></div>
