@@ -3,6 +3,7 @@ package com.videoai.monitoring.api.rpc.feign.fallback;
 import com.videoai.monitoring.api.rpc.feign.AccessConfigApiFeign;
 import com.videoai.monitoring.common.dto.CertificateCreateRequest;
 import com.videoai.monitoring.common.dto.CheckPortRequest;
+import com.videoai.monitoring.common.dto.CloudSyncRequest;
 import com.videoai.monitoring.common.dto.Ga1400Config;
 import com.videoai.monitoring.common.dto.Ga1400EntryRequest;
 import com.videoai.monitoring.common.dto.Gb28181Config;
@@ -10,6 +11,8 @@ import com.videoai.monitoring.common.dto.Gb28181EntryRequest;
 import com.videoai.monitoring.common.vo.AccessConfigResponse;
 import com.videoai.monitoring.common.vo.CertificateResponse;
 import com.videoai.monitoring.common.vo.CheckPortResponse;
+import com.videoai.monitoring.common.vo.CloudSyncPrecheckResponse;
+import com.videoai.monitoring.common.vo.CloudSyncResultResponse;
 import com.videoai.monitoring.common.vo.Ga1400EntryResponse;
 import com.videoai.monitoring.common.vo.Gb28181EntryResponse;
 import com.videoai.monitoring.common.vo.HostIpsResponse;
@@ -80,6 +83,16 @@ public class AccessConfigApiFeignFallbackFactory implements FallbackFactory<Acce
 
             @Override
             public Map<String, Object> deleteGb28181Entry(UUID id) {
+                return null;
+            }
+
+            @Override
+            public CloudSyncPrecheckResponse precheckGb28181Entry(UUID id) {
+                return null;
+            }
+
+            @Override
+            public CloudSyncResultResponse syncGb28181Entry(UUID id, CloudSyncRequest request) {
                 return null;
             }
 

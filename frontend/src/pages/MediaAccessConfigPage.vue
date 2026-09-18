@@ -23,21 +23,43 @@
       <section v-show="activeProtocol === 'gb28181'" id="access-panel-gb28181" role="tabpanel" aria-labelledby="access-tab-gb28181">
         <div class="access-config-heading"><h2>国标GB28181配置</h2></div>
         <div class="access-certificate-toolbar">
-          <button ref="gb28181OpenButton" class="btn primary" type="button" @click="openGb28181Dialog('add')">＋ 新增配置</button>
+          <button ref="gb28181OpenButton" class="btn primary" type="button" @click="openGb28181Dialog('add')">＋ 新增级联服务器</button>
+          <button ref="gbBaseOpenButton" class="btn ghost" type="button" @click="openGbBaseDialog">✎ 编辑基础服务器配置</button>
         </div>
-        <div class="access-certificate-table-wrap">
-          <table class="prototype-table access-certificate-table">
-            <thead><tr><th>平台名称</th><th>SIP ID</th><th>SIP 域</th><th>SIP IP</th><th>SIP 端口</th><th>收流端口范围</th><th>是否启用</th><th>更新时间</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody>
-              <tr v-for="row in gb28181Entries" :key="row.id">
-                <td>{{ row.name || "-" }}</td><td>{{ row.sipId }}</td><td>{{ row.sipDomain }}</td><td>{{ row.sipIp }}</td><td>{{ row.sipPort }}</td><td>{{ row.receivePortStart }} ~ {{ row.receivePortEnd }}</td><td>{{ row.enabled ? "开启" : "关闭" }}</td><td>{{ formatDateTime(row.updatedAt) }}</td><td>{{ onlineStatusLabel(row.onlineStatus) }}</td>
-                <td><span class="access-cert-actions"><button class="link-blue" type="button" @click="openGb28181Dialog('edit', row)">编辑</button><button class="link-red" type="button" @click="removeGb28181Entry(row)">删除</button></span></td>
-              </tr>
-              <tr v-if="!gb28181Entries.length" class="access-certificate-empty">
-                <td colspan="10"><div class="access-empty-state"><span class="access-empty-icon" aria-hidden="true">&#xf01c;</span><span>暂无数据</span></div></td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="access-gb-section">
+          <h3 class="access-gb-section-title">基础服务器配置</h3>
+          <div class="access-gb-base-card">
+            <div class="access-gb-base-icon" aria-hidden="true">▤</div>
+            <dl class="access-gb-base-fields">
+              <div v-for="item in gb28181BaseFields" :key="item.label" class="access-gb-base-field">
+                <dt>{{ item.label }}</dt>
+                <dd>{{ item.value || "-" }}</dd>
+                <button v-if="item.value" class="access-gb-copy" type="button" :aria-label="'复制' + item.label" @click="copyText(item.value)">⧉</button>
+              </div>
+            </dl>
+          </div>
+        </div>
+        <div class="access-gb-section">
+          <h3 class="access-gb-section-title">级联服务器配置</h3>
+          <div v-if="gb28181Entries.length" class="access-gb-cascade-list">
+            <div v-for="row in gb28181Entries" :key="row.id" class="access-gb-cascade-card">
+              <div class="access-gb-cascade-avatar" aria-hidden="true">▦</div>
+              <div class="access-gb-cascade-info">
+                <h4>{{ row.name || "-" }}</h4>
+                <p>SIP 服务器地址：{{ row.sipIp }}</p>
+                <p>SIP 服务器端口：{{ row.sipPort }}</p>
+                <p>级联服务器SIP ID：{{ row.sipId || "-" }}</p>
+                <p>用户名：{{ row.username }}</p>
+                <p>密码：********</p>
+                <p>状态：{{ onlineStatusLabel(row.onlineStatus) }}</p>
+              </div>
+              <div class="access-gb-cascade-actions">
+                <button class="link-blue" type="button" @click="openGb28181Dialog('edit', row)">编辑</button>
+                <button class="link-red" type="button" @click="removeGb28181Entry(row)">删除</button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="access-empty-state access-gb-empty"><span class="access-empty-icon" aria-hidden="true">&#xf01c;</span><span>暂无级联服务器</span></div>
         </div>
       </section>
 
@@ -137,67 +159,112 @@
     <div v-if="gb28181DialogOpen" class="access-modal-mask" role="presentation" @click.self="closeGb28181Dialog" @keydown.esc="closeGb28181Dialog" @keydown="trapGb28181Focus">
       <section ref="gb28181Dialog" class="access-modal" role="dialog" aria-modal="true" aria-labelledby="gb28181-dialog-title">
         <header class="access-modal-head">
-          <h3 id="gb28181-dialog-title">{{ gb28181DialogMode === 'edit' ? '修改配置' : '新增配置' }}</h3>
+          <h3 id="gb28181-dialog-title">{{ gb28181DialogMode === 'edit' ? '编辑级联服务器' : '新增级联服务器' }}</h3>
           <button class="access-modal-close" type="button" aria-label="关闭" @click="closeGb28181Dialog">×</button>
         </header>
         <form @submit.prevent="saveGb28181Entry">
         <div class="access-modal-body">
+          <label class="access-field">
+            <span class="access-field-label required">级联服务器名称</span>
+            <input ref="gb28181Name" v-model.trim="gb28181Form.name" class="input" maxlength="64" placeholder="请输入级联服务器名称" aria-label="级联服务器名称" :aria-invalid="!!gb28181Errors.name" :aria-describedby="gb28181Errors.name ? 'gb28181-name-error' : null" @input="gb28181Errors.name = ''" />
+            <span v-if="gb28181Errors.name" id="gb28181-name-error" class="access-field-error" role="alert">{{ gb28181Errors.name }}</span>
+          </label>
+          <label class="access-field">
+            <span class="access-field-label required">级联服务器IP</span>
+            <input v-model.trim="gb28181Form.sipIp" class="input" maxlength="64" placeholder="请输入级联服务器IP" aria-label="级联服务器IP" :aria-invalid="!!gb28181Errors.sipIp" :aria-describedby="gb28181Errors.sipIp ? 'gb28181-ip-error' : null" @input="gb28181Errors.sipIp = ''" />
+            <span v-if="gb28181Errors.sipIp" id="gb28181-ip-error" class="access-field-error" role="alert">{{ gb28181Errors.sipIp }}</span>
+          </label>
+          <label class="access-field">
+            <span class="access-field-label required">级联服务器端口</span>
+            <input v-model.trim="gb28181Form.sipPort" class="input" inputmode="numeric" maxlength="5" placeholder="请输入级联服务器端口" aria-label="级联服务器端口" :aria-invalid="!!gb28181Errors.sipPort" :aria-describedby="gb28181Errors.sipPort ? 'gb28181-port-error' : null" @input="gb28181Errors.sipPort = ''" />
+            <span v-if="gb28181Errors.sipPort" id="gb28181-port-error" class="access-field-error" role="alert">{{ gb28181Errors.sipPort }}</span>
+          </label>
+          <label class="access-field">
+            <span class="access-field-label">级联服务器SIP ID</span>
+            <input v-model.trim="gb28181Form.sipId" class="input" maxlength="64" placeholder="请输入级联服务器SIP ID（选填）" aria-label="级联服务器SIP ID" />
+          </label>
+          <label class="access-field">
+            <span class="access-field-label required">用户名</span>
+            <input v-model.trim="gb28181Form.username" class="input" maxlength="64" placeholder="请输入用户名" aria-label="用户名" :aria-invalid="!!gb28181Errors.username" :aria-describedby="gb28181Errors.username ? 'gb28181-username-error' : null" @input="gb28181Errors.username = ''" />
+            <span v-if="gb28181Errors.username" id="gb28181-username-error" class="access-field-error" role="alert">{{ gb28181Errors.username }}</span>
+          </label>
+          <div class="access-field">
+            <span class="access-field-label required">密码</span>
+            <span class="access-input-action">
+              <input v-model="gb28181Form.password" class="input" :type="gb28181ShowPassword ? 'text' : 'password'" autocomplete="new-password" maxlength="128" placeholder="请输入密码" aria-label="密码" :aria-invalid="!!gb28181Errors.password" :aria-describedby="gb28181Errors.password ? 'gb28181-password-error' : null" @input="gb28181Errors.password = ''" />
+              <button class="access-field-button" type="button" :aria-label="gb28181ShowPassword ? '隐藏密码' : '显示密码'" :aria-pressed="gb28181ShowPassword" @click="gb28181ShowPassword = !gb28181ShowPassword">{{ gb28181ShowPassword ? '隐藏' : '显示' }}</button>
+            </span>
+            <span v-if="gb28181Errors.password" id="gb28181-password-error" class="access-field-error" role="alert">{{ gb28181Errors.password }}</span>
+          </div>
+        </div>
+        <footer class="access-modal-footer">
+          <button class="btn" type="button" @click="closeGb28181Dialog">取消</button>
+          <button class="btn primary" type="submit">确定</button>
+        </footer>
+        </form>
+      </section>
+    </div>
+
+    <div v-if="gbBaseDialogOpen" class="access-modal-mask" role="presentation" @click.self="closeGbBaseDialog" @keydown.esc="closeGbBaseDialog" @keydown="trapGbBaseFocus">
+      <section ref="gbBaseDialog" class="access-modal" role="dialog" aria-modal="true" aria-labelledby="gb-base-dialog-title">
+        <header class="access-modal-head">
+          <h3 id="gb-base-dialog-title">编辑基础服务器配置</h3>
+          <button class="access-modal-close" type="button" aria-label="关闭" @click="closeGbBaseDialog">×</button>
+        </header>
+        <form @submit.prevent="saveGbBaseConfig">
+        <div class="access-modal-body">
           <div class="access-field">
             <span class="access-field-label">是否启用</span>
             <span class="access-choice-group" role="group" aria-label="是否启用GB28181">
-              <button class="access-choice" :class="{ active: gb28181Form.enabled, enabled: gb28181Form.enabled }" type="button" :aria-pressed="gb28181Form.enabled" @click="gb28181Form.enabled = true">开启</button>
-              <button class="access-choice" :class="{ active: !gb28181Form.enabled }" type="button" :aria-pressed="!gb28181Form.enabled" @click="gb28181Form.enabled = false">关闭</button>
+              <button class="access-choice" :class="{ active: gbBaseForm.enabled, enabled: gbBaseForm.enabled }" type="button" :aria-pressed="gbBaseForm.enabled" @click="gbBaseForm.enabled = true">开启</button>
+              <button class="access-choice" :class="{ active: !gbBaseForm.enabled }" type="button" :aria-pressed="!gbBaseForm.enabled" @click="gbBaseForm.enabled = false">关闭</button>
             </span>
           </div>
           <label class="access-field">
-            <span class="access-field-label">平台名称</span>
-            <input v-model.trim="gb28181Form.name" class="input" maxlength="64" placeholder="请输入平台名称" aria-label="平台名称" />
-          </label>
-          <label class="access-field">
             <span class="access-field-label required">SIP ID</span>
-            <input ref="gb28181SipId" v-model.trim="gb28181Form.sipId" class="input" maxlength="20" aria-label="SIP ID" :aria-invalid="!!gb28181Errors.sipId" :aria-describedby="gb28181Errors.sipId ? 'gb28181-sip-id-error' : null" @input="gb28181Errors.sipId = ''" />
-            <span v-if="gb28181Errors.sipId" id="gb28181-sip-id-error" class="access-field-error" role="alert">{{ gb28181Errors.sipId }}</span>
+            <input ref="gbBaseSipId" v-model.trim="gbBaseForm.sipId" class="input" maxlength="20" aria-label="SIP ID" :aria-invalid="!!gbBaseErrors.sipId" :aria-describedby="gbBaseErrors.sipId ? 'gb-base-sip-id-error' : null" @input="gbBaseErrors.sipId = ''" />
+            <span v-if="gbBaseErrors.sipId" id="gb-base-sip-id-error" class="access-field-error" role="alert">{{ gbBaseErrors.sipId }}</span>
           </label>
           <label class="access-field">
             <span class="access-field-label required">SIP 域</span>
-            <input v-model.trim="gb28181Form.sipDomain" class="input" maxlength="10" aria-label="SIP 域" :aria-invalid="!!gb28181Errors.sipDomain" :aria-describedby="gb28181Errors.sipDomain ? 'gb28181-domain-error' : null" @input="gb28181Errors.sipDomain = ''" />
-            <span v-if="gb28181Errors.sipDomain" id="gb28181-domain-error" class="access-field-error" role="alert">{{ gb28181Errors.sipDomain }}</span>
+            <input v-model.trim="gbBaseForm.sipDomain" class="input" maxlength="10" aria-label="SIP 域" :aria-invalid="!!gbBaseErrors.sipDomain" :aria-describedby="gbBaseErrors.sipDomain ? 'gb-base-domain-error' : null" @input="gbBaseErrors.sipDomain = ''" />
+            <span v-if="gbBaseErrors.sipDomain" id="gb-base-domain-error" class="access-field-error" role="alert">{{ gbBaseErrors.sipDomain }}</span>
           </label>
           <div class="access-field">
             <span class="access-field-label required">SIP IP</span>
             <span class="access-input-action">
-              <input v-model="gb28181Form.sipIp" class="input" disabled aria-label="SIP IP" />
+              <input v-model="gbBaseForm.sipIp" class="input" disabled aria-label="SIP IP" />
               <button class="access-field-button" type="button" @click="setNetworkIp('gb28181')">设置</button>
             </span>
           </div>
           <div class="access-field">
             <span class="access-field-label required">SIP 端口(TCP/UDP)</span>
             <span class="access-input-action">
-              <input v-model.trim="gb28181Form.sipPort" class="input" inputmode="numeric" aria-label="SIP 端口" :aria-invalid="!!gb28181Errors.sipPort" :aria-describedby="gb28181Errors.sipPort ? 'gb28181-port-error' : null" @input="gb28181Errors.sipPort = ''" />
+              <input v-model.trim="gbBaseForm.sipPort" class="input" inputmode="numeric" aria-label="SIP 端口" :aria-invalid="!!gbBaseErrors.sipPort" :aria-describedby="gbBaseErrors.sipPort ? 'gb-base-port-error' : null" @input="gbBaseErrors.sipPort = ''" />
               <button class="access-field-button" type="button" @click="detectPort('gb28181')">检测</button>
             </span>
-            <span v-if="gb28181Errors.sipPort" id="gb28181-port-error" class="access-field-error" role="alert">{{ gb28181Errors.sipPort }}</span>
+            <span v-if="gbBaseErrors.sipPort" id="gb-base-port-error" class="access-field-error" role="alert">{{ gbBaseErrors.sipPort }}</span>
           </div>
           <label class="access-field">
             <span class="access-field-label">设备统一接入密码</span>
-            <input v-model="gb28181Form.password" class="input" type="password" autocomplete="new-password" aria-label="设备统一接入密码" />
+            <input v-model="gbBaseForm.password" class="input" type="password" autocomplete="new-password" aria-label="设备统一接入密码" />
           </label>
           <label class="access-field">
             <span class="access-field-label">上级联请求端口</span>
-            <input v-model="gb28181Form.parentPort" class="input" disabled aria-label="上级联请求端口" />
+            <input v-model="gbBaseForm.parentPort" class="input" disabled aria-label="上级联请求端口" />
           </label>
           <div class="access-field">
             <span class="access-field-label">收流端口范围</span>
             <span class="access-port-range">
-              <input v-model.trim="gb28181Form.receivePortStart" class="input" inputmode="numeric" aria-label="收流起始端口" :aria-invalid="!!gb28181Errors.receivePorts" :aria-describedby="gb28181Errors.receivePorts ? 'gb28181-receive-port-error' : null" @input="gb28181Errors.receivePorts = ''" />
+              <input v-model.trim="gbBaseForm.receivePortStart" class="input" inputmode="numeric" aria-label="收流起始端口" :aria-invalid="!!gbBaseErrors.receivePorts" :aria-describedby="gbBaseErrors.receivePorts ? 'gb-base-receive-port-error' : null" @input="gbBaseErrors.receivePorts = ''" />
               <span>~</span>
-              <input v-model.trim="gb28181Form.receivePortEnd" class="input" inputmode="numeric" aria-label="收流结束端口" :aria-invalid="!!gb28181Errors.receivePorts" :aria-describedby="gb28181Errors.receivePorts ? 'gb28181-receive-port-error' : null" @input="gb28181Errors.receivePorts = ''" />
+              <input v-model.trim="gbBaseForm.receivePortEnd" class="input" inputmode="numeric" aria-label="收流结束端口" :aria-invalid="!!gbBaseErrors.receivePorts" :aria-describedby="gbBaseErrors.receivePorts ? 'gb-base-receive-port-error' : null" @input="gbBaseErrors.receivePorts = ''" />
             </span>
-            <span v-if="gb28181Errors.receivePorts" id="gb28181-receive-port-error" class="access-field-error" role="alert">{{ gb28181Errors.receivePorts }}</span>
+            <span v-if="gbBaseErrors.receivePorts" id="gb-base-receive-port-error" class="access-field-error" role="alert">{{ gbBaseErrors.receivePorts }}</span>
           </div>
         </div>
         <footer class="access-modal-footer">
-          <button class="btn" type="button" @click="closeGb28181Dialog">取消</button>
+          <button class="btn" type="button" @click="closeGbBaseDialog">取消</button>
           <button class="btn primary" type="submit">确定</button>
         </footer>
         </form>
@@ -306,8 +373,20 @@ export default defineComponent({
       gb28181DialogOpen: false,
       gb28181DialogMode: "add" as "add" | "edit",
       gb28181Form: {
-        enabled: true,
         name: "",
+        sipIp: "",
+        sipPort: "",
+        sipId: "",
+        username: "",
+        password: ""
+      },
+      gb28181Errors: {} as any,
+      gb28181ShowPassword: false,
+      editingGb28181Id: null as string | null,
+      gb28181Base: { ...(persisted.gb28181 || {}) } as any,
+      gbBaseDialogOpen: false,
+      gbBaseForm: {
+        enabled: true,
         sipId: "",
         sipDomain: "",
         sipIp: "",
@@ -317,8 +396,7 @@ export default defineComponent({
         receivePortStart: "",
         receivePortEnd: ""
       },
-      gb28181Errors: {} as any,
-      editingGb28181Id: null as string | null,
+      gbBaseErrors: {} as any,
       ga1400DialogOpen: false,
       ga1400DialogMode: "add" as "add" | "edit",
       ga1400Form: {
@@ -336,7 +414,13 @@ export default defineComponent({
     };
   },
   async mounted() {
-    const [gb28181Result, certificatesResult, ga1400Result] = await Promise.allSettled([api.gb28181Entries(), api.accessCertificates(), api.ga1400Entries()]);
+    const [accessConfigResult, gb28181Result, certificatesResult, ga1400Result] = await Promise.allSettled([api.accessConfig(), api.gb28181Entries(), api.accessCertificates(), api.ga1400Entries()]);
+    if (accessConfigResult.status === "fulfilled" && accessConfigResult.value && accessConfigResult.value.gb28181) {
+      this.gb28181Base = { ...accessConfigResult.value.gb28181 };
+      this.syncGb28181BaseToStore();
+    } else if (accessConfigResult.status === "rejected") {
+      this.showToast("GB28181 基础服务器配置加载失败");
+    }
     if (gb28181Result.status === "fulfilled") {
       this.gb28181Entries = (gb28181Result.value || []).map((row: any) => ({ ...row }));
       this.syncGb28181EntriesToStore();
@@ -354,6 +438,16 @@ export default defineComponent({
       this.syncGa1400EntriesToStore();
     } else {
       this.showToast("GA1400 配置列表加载失败");
+    }
+  },
+  computed: {
+    gb28181BaseFields(): any[] {
+      return [
+        { label: "SIP 服务器ID", value: this.gb28181Base.sipId },
+        { label: "SIP 服务域", value: this.gb28181Base.sipDomain },
+        { label: "SIP 服务器地址", value: this.gb28181Base.sipIp },
+        { label: "SIP 服务器端口", value: this.gb28181Base.sipPort }
+      ];
     }
   },
   methods: {
@@ -390,6 +484,9 @@ export default defineComponent({
     syncGb28181EntriesToStore() {
       (this as any).store.accessConfig.gb28181Entries = this.gb28181Entries.map(item => ({ ...item }));
     },
+    syncGb28181BaseToStore() {
+      (this as any).store.accessConfig.gb28181 = { ...this.gb28181Base };
+    },
     syncCertificatesToStore() {
       (this as any).store.accessConfig.certificates = this.certificates.map(item => ({ ...item }));
     },
@@ -405,7 +502,7 @@ export default defineComponent({
     async setNetworkIp(protocol: any) {
       const isGb28181 = protocol === "gb28181";
       const field = isGb28181 ? "sipIp" : "platformIp";
-      const target: any = isGb28181 ? this.gb28181Form : this.ga1400Form;
+      const target: any = isGb28181 ? this.gbBaseForm : this.ga1400Form;
       try {
         const result = await api.accessHostIps();
         const ip = result && result.ips && result.ips.length ? result.ips[0] : "";
@@ -421,10 +518,10 @@ export default defineComponent({
     },
     async detectPort(protocol: any) {
       const isGb28181 = protocol === "gb28181";
-      const port = isGb28181 ? this.gb28181Form.sipPort : this.ga1400Form.port;
+      const port = isGb28181 ? this.gbBaseForm.sipPort : this.ga1400Form.port;
       if (!this.isValidPort(port)) {
         if (isGb28181) {
-          this.gb28181Errors = { ...this.gb28181Errors, sipPort: "端口需为1-65535之间的整数" };
+          this.gbBaseErrors = { ...this.gbBaseErrors, sipPort: "端口需为1-65535之间的整数" };
         } else {
           this.ga1400Errors = { ...this.ga1400Errors, port: "端口需为1-65535之间的整数" };
         }
@@ -432,7 +529,7 @@ export default defineComponent({
         return;
       }
       if (isGb28181) {
-        this.gb28181Errors.sipPort = "";
+        this.gbBaseErrors.sipPort = "";
       } else {
         this.ga1400Errors.port = "";
       }
@@ -485,31 +582,24 @@ export default defineComponent({
       this.gb28181DialogMode = mode === "edit" ? "edit" : "add";
       this.editingGb28181Id = mode === "edit" && row ? row.id : null;
       this.gb28181Form = mode === "edit" && row ? {
-        enabled: !!row.enabled,
         name: row.name || "",
-        sipId: row.sipId || "",
-        sipDomain: row.sipDomain || "",
         sipIp: row.sipIp || "",
         sipPort: row.sipPort || "",
-        password: row.password || "",
-        parentPort: row.parentPort || "",
-        receivePortStart: row.receivePortStart || "",
-        receivePortEnd: row.receivePortEnd || ""
+        sipId: row.sipId || "",
+        username: row.username || "",
+        password: row.password || ""
       } : {
-        enabled: true,
         name: "",
-        sipId: "",
-        sipDomain: "",
         sipIp: "",
         sipPort: "",
-        password: "",
-        parentPort: "",
-        receivePortStart: "",
-        receivePortEnd: ""
+        sipId: "",
+        username: "",
+        password: ""
       };
       this.gb28181Errors = {};
+      this.gb28181ShowPassword = false;
       this.gb28181DialogOpen = true;
-      this.$nextTick(() => (this.$refs.gb28181SipId as any) && (this.$refs.gb28181SipId as any).focus());
+      this.$nextTick(() => (this.$refs.gb28181Name as any) && (this.$refs.gb28181Name as any).focus());
     },
     closeGb28181Dialog() {
       this.gb28181DialogOpen = false;
@@ -533,33 +623,26 @@ export default defineComponent({
     },
     async saveGb28181Entry() {
       const errors: any = {};
-      if (!/^\d{20}$/.test(this.gb28181Form.sipId.trim())) errors.sipId = "SIP ID 需为20位数字";
-      if (!/^\d{10}$/.test(this.gb28181Form.sipDomain.trim())) errors.sipDomain = "SIP 域需为10位数字";
-      if (!this.isValidPort(this.gb28181Form.sipPort)) errors.sipPort = "SIP 端口需为1-65535之间的整数";
-      const start = Number(this.gb28181Form.receivePortStart);
-      const end = Number(this.gb28181Form.receivePortEnd);
-      if (!this.isValidPort(this.gb28181Form.receivePortStart) || !this.isValidPort(this.gb28181Form.receivePortEnd) || start > end) {
-        errors.receivePorts = "请输入有效的收流端口范围（1-65535）";
-      }
+      if (!this.gb28181Form.name.trim()) errors.name = "请输入级联服务器名称";
+      if (!this.gb28181Form.sipIp.trim()) errors.sipIp = "请输入级联服务器IP";
+      if (!this.isValidPort(this.gb28181Form.sipPort)) errors.sipPort = "端口需为1-65535之间的整数";
+      if (!this.gb28181Form.username.trim()) errors.username = "请输入用户名";
+      if (!this.gb28181Form.password.trim()) errors.password = "请输入密码";
       this.gb28181Errors = errors;
       if (Object.keys(errors).length) {
         this.$nextTick(() => {
-          const target: any = this.$refs.gb28181SipId;
-          if (errors.sipId && target) target.focus();
+          const target: any = this.$refs.gb28181Name;
+          if (errors.name && target) target.focus();
         });
         return;
       }
       const payload = {
-        enabled: this.gb28181Form.enabled,
         name: this.gb28181Form.name.trim(),
-        sipId: this.gb28181Form.sipId.trim(),
-        sipDomain: this.gb28181Form.sipDomain.trim(),
-        sipIp: this.gb28181Form.sipIp,
+        sipIp: this.gb28181Form.sipIp.trim(),
         sipPort: this.gb28181Form.sipPort.trim(),
-        password: this.gb28181Form.password,
-        parentPort: this.gb28181Form.parentPort,
-        receivePortStart: this.gb28181Form.receivePortStart.trim(),
-        receivePortEnd: this.gb28181Form.receivePortEnd.trim()
+        sipId: this.gb28181Form.sipId.trim(),
+        username: this.gb28181Form.username.trim(),
+        password: this.gb28181Form.password
       };
       try {
         if (this.gb28181DialogMode === "edit" && this.editingGb28181Id) {
@@ -571,20 +654,105 @@ export default defineComponent({
         }
         this.syncGb28181EntriesToStore();
         this.closeGb28181Dialog();
-        this.showToast("GB28181 配置已保存");
+        this.showToast("级联服务器配置已保存");
       } catch (error: any) {
-        this.showToast(`GB28181 配置保存失败：${error && error.message ? error.message : "未知错误"}`);
+        this.showToast(`级联服务器配置保存失败：${error && error.message ? error.message : "未知错误"}`);
       }
     },
     async removeGb28181Entry(row: any) {
-      if (!window.confirm(`确定删除 GB28181 配置 ${row.sipId} 吗？`)) return;
+      if (!window.confirm(`确定删除级联服务器 ${row.name || row.sipIp} 吗？`)) return;
       try {
         await api.deleteGb28181Entry(row.id);
         this.gb28181Entries = this.gb28181Entries.filter(item => item.id !== row.id);
         this.syncGb28181EntriesToStore();
-        this.showToast(`GB28181 配置已删除：${row.sipId}`);
+        this.showToast(`级联服务器已删除：${row.name || row.sipIp}`);
       } catch (error: any) {
-        this.showToast(`GB28181 配置删除失败：${error && error.message ? error.message : "未知错误"}`);
+        this.showToast(`级联服务器删除失败：${error && error.message ? error.message : "未知错误"}`);
+      }
+    },
+    async copyText(value: any) {
+      const text = String(value == null ? "" : value);
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        this.showToast("已复制到剪贴板");
+      } catch (error) {
+        this.showToast("复制失败，请手动复制");
+      }
+    },
+    openGbBaseDialog() {
+      this.gbBaseForm = {
+        enabled: !!this.gb28181Base.enabled,
+        sipId: this.gb28181Base.sipId || "",
+        sipDomain: this.gb28181Base.sipDomain || "",
+        sipIp: this.gb28181Base.sipIp || "",
+        sipPort: this.gb28181Base.sipPort || "",
+        password: this.gb28181Base.password || "",
+        parentPort: this.gb28181Base.parentPort || "",
+        receivePortStart: this.gb28181Base.receivePortStart || "",
+        receivePortEnd: this.gb28181Base.receivePortEnd || ""
+      };
+      this.gbBaseErrors = {};
+      this.gbBaseDialogOpen = true;
+      this.$nextTick(() => (this.$refs.gbBaseSipId as any) && (this.$refs.gbBaseSipId as any).focus());
+    },
+    closeGbBaseDialog() {
+      this.gbBaseDialogOpen = false;
+      this.gbBaseErrors = {};
+      this.$nextTick(() => (this.$refs.gbBaseOpenButton as any) && (this.$refs.gbBaseOpenButton as any).focus());
+    },
+    trapGbBaseFocus(event: any) {
+      if (event.key !== "Tab" || !this.$refs.gbBaseDialog) return;
+      const focusable = Array.from((this.$refs.gbBaseDialog as any).querySelectorAll("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])"))
+        .filter((element: any) => element.offsetParent !== null);
+      if (!focusable.length) return;
+      const first: any = focusable[0];
+      const last: any = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    async saveGbBaseConfig() {
+      const errors: any = {};
+      if (!/^\d{20}$/.test(this.gbBaseForm.sipId.trim())) errors.sipId = "SIP ID 需为20位数字";
+      if (!/^\d{10}$/.test(this.gbBaseForm.sipDomain.trim())) errors.sipDomain = "SIP 域需为10位数字";
+      if (!this.isValidPort(this.gbBaseForm.sipPort)) errors.sipPort = "SIP 端口需为1-65535之间的整数";
+      const start = Number(this.gbBaseForm.receivePortStart);
+      const end = Number(this.gbBaseForm.receivePortEnd);
+      if (!this.isValidPort(this.gbBaseForm.receivePortStart) || !this.isValidPort(this.gbBaseForm.receivePortEnd) || start > end) {
+        errors.receivePorts = "请输入有效的收流端口范围（1-65535）";
+      }
+      this.gbBaseErrors = errors;
+      if (Object.keys(errors).length) {
+        this.$nextTick(() => {
+          const target: any = this.$refs.gbBaseSipId;
+          if (errors.sipId && target) target.focus();
+        });
+        return;
+      }
+      const payload = {
+        enabled: this.gbBaseForm.enabled,
+        sipId: this.gbBaseForm.sipId.trim(),
+        sipDomain: this.gbBaseForm.sipDomain.trim(),
+        sipIp: this.gbBaseForm.sipIp,
+        sipPort: this.gbBaseForm.sipPort.trim(),
+        password: this.gbBaseForm.password,
+        parentPort: this.gbBaseForm.parentPort,
+        receivePortStart: this.gbBaseForm.receivePortStart.trim(),
+        receivePortEnd: this.gbBaseForm.receivePortEnd.trim()
+      };
+      try {
+        const saved: any = await api.saveGb28181Config(payload);
+        this.gb28181Base = { ...saved };
+        this.syncGb28181BaseToStore();
+        this.closeGbBaseDialog();
+        this.showToast("基础服务器配置已保存");
+      } catch (error: any) {
+        this.showToast(`基础服务器配置保存失败：${error && error.message ? error.message : "未知错误"}`);
       }
     },
     openGa1400Dialog(mode: any, row?: any) {

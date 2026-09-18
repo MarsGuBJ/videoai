@@ -2,6 +2,8 @@ package com.videoai.monitoring.core.service.impl;
 
 import com.videoai.monitoring.core.dao.CameraDao;
 import com.videoai.monitoring.core.entity.CameraEntity;
+import com.videoai.monitoring.core.service.CameraService;
+import com.videoai.monitoring.core.service.OpenSubscriptionService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -21,9 +23,11 @@ import static org.mockito.Mockito.when;
 class CameraStatusScanServiceTest {
 
     private final CameraDao cameraDao = mock(CameraDao.class);
+    private final CameraService cameraService = mock(CameraService.class);
     /** 探测结果由测试控制：集合内的 "host:port" 视为可达。 */
     private final Set<String> reachableTargets = ConcurrentHashMap.newKeySet();
-    private final CameraStatusScanService service = new CameraStatusScanService(cameraDao) {
+    private final CameraStatusScanService service =
+            new CameraStatusScanService(cameraDao, cameraService, mock(OpenSubscriptionService.class)) {
         @Override
         protected boolean isReachable(String host, int port) {
             return reachableTargets.contains(host + ":" + port);

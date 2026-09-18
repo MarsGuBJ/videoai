@@ -1,7 +1,7 @@
 <template>
   <section class="content review-wide media-preview-page">
     <div class="review-titlebar"><div><h1>实时预览</h1><p>多设备、多分屏实时查看现场画面和音频内容，支持云台控制与预置点调用</p></div></div>
-    <div class="media-console-grid">
+    <div class="media-console-grid" :class="{ 'ptz-hidden': !ptzSupported }">
       <aside class="panel media-resource-panel">
         <div class="media-resource-tabs"><button :class="{ active: activeResourceTab === 'monitor' }" @click="activeResourceTab = 'monitor'">监控点</button><button :class="{ active: activeResourceTab === 'favorite' }" @click="activeResourceTab = 'favorite'">收藏</button><button :class="{ active: activeResourceTab === 'history' }" @click="activeResourceTab = 'history'">场景</button></div>
         <input class="input" placeholder="搜索监控点名称/IP" aria-label="搜索监控点名称或IP" v-model="searchKeyword" />
@@ -12,9 +12,9 @@
       <section class="panel media-stage-panel">
         <div class="media-stage-toolbar"><div class="media-layout-buttons"><span>分屏</span><button v-for="count in [1, 4, 9, 16]" :key="count" :class="{ active: previewLayout === count }" @click="changeLayout(count)">{{ count }}</button></div><div class="media-control-buttons"><button class="btn" @click="saveScene">保存场景</button><select class="select" style="width:96px;" v-model="streamType" aria-label="码流类型" @change="onStreamTypeChange"><option value="main">主码流</option><option value="sub">子码流</option></select><button class="btn" @click="openModal('videoConfig')">视频参数</button><select class="select" style="width:96px;" v-model="videoFit" aria-label="画面比例" @change="onVideoFitChange"><option value="contain">原始比例</option><option value="cover">满屏窗口</option></select></div></div>
         <div class="media-video-grid" ref="videoGrid" :class="gridClass"><article v-for="(feed, index) in visibleFeeds" :key="feed ? feed.name + '-' + index : 'empty-' + index" class="media-video-tile" :class="{ selected: feed && selectedFeed === index, 'drop-hover': dropHoverIndex === index, 'has-video': feed && !!videoAspects[index] }" :style="tileAspectStyle()" @click="feed && selectFeed(index)" @dragover.prevent="onTileDragOver(index)" @dragleave="onTileDragLeave(index)" @drop="onTileDrop($event, index)"><video-player v-if="feed && feed.camera" :ref="(el: any) => setPlayerRef(el, index)" :url="feedUrl(feed)" :fit="videoFit" :show-zoom-bar="!!feed.digitalZoom" @resolution="onVideoResolution(index, $event)" /><div v-else class="media-video-empty">请从左侧选择一个监控点上屏</div><template v-if="previewLayout === 1 && feed"><button class="media-feed-switch prev" title="上一路" aria-label="上一路摄像头" @click.stop="switchFeed(-1)">‹</button><button class="media-feed-switch next" title="下一路" aria-label="下一路摄像头" @click.stop="switchFeed(1)">›</button></template><span class="media-video-clock">{{ now }}</span></article><button v-if="gridFullscreen" class="media-fullscreen-exit" title="取消全屏" aria-label="取消全屏" @click="exitGridFullscreen">⛶</button></div>
-        <div class="media-stage-controls"><div class="media-control-buttons"><button class="media-icon-button" :title="ctrlPaused ? '播放' : '暂停'" @click="togglePlay">{{ ctrlPaused ? '▶' : '⏸' }}</button><button class="media-icon-button" title="停止" @click="stopSelected">■</button><button class="media-icon-button" :title="ctrlMuted ? '打开声音' : '静音'" @click="toggleSound">{{ ctrlMuted ? '静' : '♪' }}</button><button class="media-icon-button" title="抓拍" @click="snapshotSelected">▣</button><button class="btn" @click="openQuickReplay">即时回放</button><button class="btn" @click="goToPlayback">切至录像</button><button class="btn" :class="{ primary: selectedDigitalZoom }" @click="toggleDigitalZoom">电子放大</button></div><span class="media-network-state">{{ selectedFeedName ? '当前窗口：' + selectedFeedName : '点击窗口或左侧监控点选择一路设备' }}</span></div>
+        <div class="media-stage-controls"><div class="media-control-buttons"><button class="media-icon-button" :title="ctrlPaused ? '播放' : '暂停'" @click="togglePlay">{{ ctrlPaused ? '▶' : '⏸' }}</button><button class="media-icon-button" title="停止" @click="stopSelected">■</button><button class="media-icon-button" :title="soundButtonTitle" :disabled="!soundSupported" @click="toggleSound">{{ ctrlMuted ? '静' : '♪' }}</button><button class="media-icon-button" title="抓拍" @click="snapshotSelected">▣</button><button class="btn" @click="openQuickReplay">即时回放</button><button class="btn" @click="goToPlayback">切至录像</button><button class="btn" :class="{ primary: selectedDigitalZoom }" @click="toggleDigitalZoom">电子放大</button></div><span class="media-network-state">{{ selectedFeedName ? '当前窗口：' + selectedFeedName : '点击窗口或左侧监控点选择一路设备' }}</span></div>
       </section>
-      <aside v-show="!ptzCamera || ptzSupported" class="panel media-ptz-panel">
+      <aside v-if="ptzSupported" class="panel media-ptz-panel">
         <div class="media-ptz-section"><div class="media-panel-head"><b>云台控制</b><span class="status-pill" :class="ptzLocked || !ptzSupported ? 'waiting' : 'pass'">{{ !ptzCamera ? '未选择设备' : !ptzSupported ? '设备不支持' : ptzLocked ? '已锁定' : '已解锁' }}</span></div><div class="media-ptz-wheel"><button class="up" :disabled="ptzDisabled" @click="ptz('up')">▲</button><button class="left" :disabled="ptzDisabled" @click="ptz('left')">◀</button><button class="center" :disabled="ptzDisabled" @click="ptz('stop')">●</button><button class="right" :disabled="ptzDisabled" @click="ptz('right')">▶</button><button class="down" :disabled="ptzDisabled" @click="ptz('down')">▼</button></div><div class="media-range-list"><label>云台步长<input type="range" min="1" max="10" v-model.number="ptzStep" :disabled="ptzDisabled" /></label></div><div class="media-control-buttons" style="margin-top:12px;"><button class="btn primary" :disabled="ptzDisabled" @click="ptzLocked = true">锁定云台</button><button class="btn" :disabled="!ptzLocked" @click="ptzLocked = false">解锁</button></div></div>
         <div class="media-ptz-section"><div class="media-range-list"><label>变倍<input type="range" min="0" max="10" v-model.number="zoomLevel" :disabled="ptzDisabled" @change="onZoomChange" /></label><label>变焦<input type="range" min="0" max="10" v-model.number="focusLevel" :disabled="ptzDisabled" /></label><label>光圈<input type="range" min="0" max="10" v-model.number="irisLevel" :disabled="ptzDisabled" /></label></div></div>
         <div class="media-ptz-section"><div class="media-panel-head"><b>预置点</b><button class="link-blue" :disabled="!ptzSupported" @click="addPreset">＋</button></div><ul class="media-preset-list"><li v-for="preset in currentPresets" :key="preset.id"><span>{{ preset.id }} {{ preset.name }}</span><button class="link-blue" :disabled="ptzDisabled" @click="callPreset(preset)">调用</button><button class="link-red" @click="removePreset(preset)">删除</button></li><li v-if="!currentPresets.length" style="color:#888;">{{ !ptzCamera ? '请先选择一路真实摄像头' : !ptzSupported ? '当前设备不支持云台控制' : '暂无预置点，点 ＋ 保存当前云台参数' }}</li></ul></div>
@@ -214,6 +214,17 @@ export default defineComponent({
     selectedDigitalZoom(): boolean {
       const feed = this.visibleFeeds[this.selectedFeed];
       return !!(feed && feed.digitalZoom);
+    },
+    // 声音开关仅对支持音频的设备可用（设备管理页能力配置 audioEnabled）
+    soundSupported(): boolean {
+      const feed = this.visibleFeeds[this.selectedFeed];
+      return !!(feed && feed.camera && feed.camera.audioEnabled);
+    },
+    soundButtonTitle(): string {
+      const feed = this.visibleFeeds[this.selectedFeed];
+      if (!feed) return "当前窗口无视频流";
+      if (!this.soundSupported) return "该设备不支持音频";
+      return this.ctrlMuted ? "打开声音" : "静音";
     },
     ptzCamera(): any {
       if (this.selectedCamera && this.selectedCamera.camera) {
@@ -477,6 +488,9 @@ export default defineComponent({
     selectFeed(index: number) {
       this.selectedFeed = index;
       this.ctrlPaused = false;
+      // 声音按钮状态跟随当前窗口播放器的实际静音状态
+      const player = this.currentPlayer();
+      this.ctrlMuted = player ? player.isMuted() : true;
       this.syncStreamTypeSelector();
     },
     // 单分屏时左右箭头按设备列表顺序切换当前窗口画面（循环）
@@ -493,6 +507,8 @@ export default defineComponent({
       this.feeds.splice(0, 1, this.buildFeed(camera));
       this.selectedFeed = 0;
       this.ctrlPaused = false;
+      // 新上屏的播放器默认静音
+      this.ctrlMuted = true;
       this.ensureStarted();
       this.syncStreamTypeSelector();
     },
@@ -517,6 +533,8 @@ export default defineComponent({
         this.feeds.push(feed);
       }
       this.ctrlPaused = false;
+      // 新上屏的播放器默认静音
+      this.ctrlMuted = true;
       this.ensureStarted();
       this.syncStreamTypeSelector();
     },
@@ -558,6 +576,8 @@ export default defineComponent({
       this.feeds[index] = this.buildFeed(camera);
       this.selectedFeed = index;
       this.ctrlPaused = false;
+      // 新上屏的播放器默认静音
+      this.ctrlMuted = true;
       this.ensureStarted();
       this.syncStreamTypeSelector();
     },
@@ -594,6 +614,8 @@ export default defineComponent({
       this.previewLayout = record.layout || Math.max(1, this.feeds.length);
       this.selectedFeed = 0;
       this.ctrlPaused = false;
+      // 新上屏的播放器默认静音
+      this.ctrlMuted = true;
       this.ensureStarted();
       this.syncStreamTypeSelector();
       this.showToast(missing ? `场景已还原，${missing} 路设备已不存在` : `场景已还原（${this.feeds.filter(Boolean).length} 路视频流）`);
@@ -680,6 +702,10 @@ export default defineComponent({
       const player = this.currentPlayer();
       if (!player) {
         this.showToast("当前窗口无视频流");
+        return;
+      }
+      if (!this.soundSupported) {
+        this.showToast("该设备不支持音频，无法打开声音");
         return;
       }
       this.ctrlMuted = !this.ctrlMuted;

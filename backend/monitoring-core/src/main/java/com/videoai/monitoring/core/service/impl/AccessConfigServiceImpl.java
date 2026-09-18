@@ -275,33 +275,26 @@ public class AccessConfigServiceImpl implements AccessConfigService {
     }
 
     private void applyGb28181Entry(Gb28181AccessConfigEntity entity, Gb28181EntryRequest request) {
-        entity.setEnabled(request.enabled());
-        entity.setSipId(request.sipId().trim());
-        entity.setSipDomain(request.sipDomain().trim());
-        entity.setSipIp(request.sipIp() == null ? null : request.sipIp().trim());
+        entity.setEnabled(Boolean.TRUE);
+        entity.setName(request.name().trim());
+        entity.setSipId(request.sipId() == null || request.sipId().isBlank() ? null : request.sipId().trim());
+        entity.setSipIp(request.sipIp().trim());
         entity.setSipPort(request.sipPort().trim());
+        entity.setUsername(request.username().trim());
         entity.setPassword(request.password());
-        entity.setParentPort(request.parentPort());
-        entity.setReceivePortStart(request.receivePortStart().trim());
-        entity.setReceivePortEnd(request.receivePortEnd().trim());
-        entity.setName(request.name() == null ? null : request.name().trim());
     }
 
     private Gb28181EntryResponse toGb28181EntryResponse(Gb28181AccessConfigEntity entity) {
         return new Gb28181EntryResponse(
                 entity.getId(),
-                Boolean.TRUE.equals(entity.getEnabled()),
+                entity.getName(),
                 entity.getSipId(),
-                entity.getSipDomain(),
                 entity.getSipIp(),
                 entity.getSipPort(),
+                entity.getUsername(),
                 entity.getPassword(),
-                entity.getParentPort(),
-                entity.getReceivePortStart(),
-                entity.getReceivePortEnd(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),
-                entity.getName(),
                 entity.getOnlineStatus(),
                 entity.getLastCheckAt()
         );

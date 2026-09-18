@@ -2,6 +2,9 @@ package com.videoai.monitoring.core.service.impl;
 
 import com.videoai.monitoring.core.dao.CameraDao;
 import com.videoai.monitoring.core.entity.CameraEntity;
+import com.videoai.monitoring.common.vo.DeviceEventMessage;
+import com.videoai.monitoring.core.service.CameraService;
+import com.videoai.monitoring.core.service.OpenSubscriptionService;
 import com.videoai.monitoring.core.support.StreamUrls;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -44,14 +47,19 @@ public class CameraStatusScanService {
     public static final String UNKNOWN = "UNKNOWN";
 
     private final CameraDao cameraDao;
+    private final CameraService cameraService;
+    private final OpenSubscriptionService openSubscriptionService;
     private final ExecutorService probeExecutor = Executors.newFixedThreadPool(PROBE_THREADS, runnable -> {
         Thread thread = new Thread(runnable, "camera-status-probe");
         thread.setDaemon(true);
         return thread;
     });
 
-    public CameraStatusScanService(CameraDao cameraDao) {
+    public CameraStatusScanService(CameraDao cameraDao, CameraService cameraService,
+                                   OpenSubscriptionService openSubscriptionService) {
         this.cameraDao = cameraDao;
+        this.cameraService = cameraService;
+        this.openSubscriptionService = openSubscriptionService;
     }
 
     @PreDestroy
@@ -122,12 +130,13 @@ public class CameraStatusScanService {
         return new ScanResult(total, online, offline, unknown, changed);
     }
 
-    /** 仅在状态需要变化时落库，避免每轮空写。 */
+    /** 仅在状态需要变化时落库，避免每轮空写；变化时向订阅方推送 DEVICE_STATUS_CHANGED。 */
     private boolean applyStatus(CameraEntity camera, String status) {
         if (status.equals(camera.getOnlineStatus())) {
             return false;
         }
         cameraDao.updateOnlineStatus(camera.getId(), status);
+        openSubscriptionService.publishCamera(DeviceEventMessage.STATUS_CHANGED, cameraService.get(camera.getId()));
         return true;
     }
 

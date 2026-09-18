@@ -65,8 +65,15 @@ public interface AccessConfigService {
         if (request == null) {
             throw new IllegalArgumentException("请求不能为空");
         }
-        validateGb28181Fields(request.sipId(), request.sipDomain(), request.sipPort(),
-                request.receivePortStart(), request.receivePortEnd());
+        requireNonBlank(request.name(), "name");
+        // sipId 可空；填写时必须是 20 位数字国标编码
+        if (request.sipId() != null && !request.sipId().isBlank()) {
+            requireDigits(request.sipId().trim(), 20, "sipId");
+        }
+        requireNonBlank(request.sipIp(), "sipIp");
+        parsePort(request.sipPort(), "sipPort");
+        requireNonBlank(request.username(), "username");
+        requireNonBlank(request.password(), "password");
     }
 
     private static void validateGb28181Fields(String sipId, String sipDomain, String sipPort,
@@ -110,6 +117,12 @@ public interface AccessConfigService {
         }
         if (request.authMode() == null || !AUTH_MODES.contains(request.authMode().trim())) {
             throw new IllegalArgumentException("authMode 只支持 单向/双向");
+        }
+    }
+
+    private static void requireNonBlank(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " 不能为空");
         }
     }
 

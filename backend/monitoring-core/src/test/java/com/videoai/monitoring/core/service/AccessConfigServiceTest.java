@@ -73,16 +73,12 @@ class AccessConfigServiceTest {
 
     private static Gb28181EntryRequest validGb28181Entry() {
         return new Gb28181EntryRequest(
-                true,
+                "级联服务器",
                 "34020000002000000001",
-                "3402000000",
                 "192.168.1.10",
                 "5060",
-                "12345678",
-                "5061",
-                "30000",
-                "30100",
-                null
+                "root",
+                "12345678"
         );
     }
 
@@ -330,15 +326,13 @@ class AccessConfigServiceTest {
     private static Gb28181AccessConfigEntity gb28181Entity(UUID id, Gb28181EntryRequest request) {
         Gb28181AccessConfigEntity entity = new Gb28181AccessConfigEntity();
         entity.setId(id);
-        entity.setEnabled(request.enabled());
+        entity.setEnabled(Boolean.TRUE);
+        entity.setName(request.name());
         entity.setSipId(request.sipId());
-        entity.setSipDomain(request.sipDomain());
         entity.setSipIp(request.sipIp());
         entity.setSipPort(request.sipPort());
+        entity.setUsername(request.username());
         entity.setPassword(request.password());
-        entity.setParentPort(request.parentPort());
-        entity.setReceivePortStart(request.receivePortStart());
-        entity.setReceivePortEnd(request.receivePortEnd());
         entity.setCreatedAt(OffsetDateTime.now());
         entity.setUpdatedAt(OffsetDateTime.now());
         return entity;
@@ -355,51 +349,30 @@ class AccessConfigServiceTest {
     }
 
     @Test
-    void gb28181EntrySipIdMustBe20Digits() {
-        Gb28181EntryRequest request = new Gb28181EntryRequest(true, "12345", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30100", null);
-        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(request));
-
-        Gb28181EntryRequest letters = new Gb28181EntryRequest(true, "3402000000200000000a", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30100", null);
-        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(letters));
-    }
-
-    @Test
-    void gb28181EntrySipDomainMustBe10Digits() {
-        Gb28181EntryRequest request = new Gb28181EntryRequest(true, "34020000002000000001", "34020000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30100", null);
-        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(request));
+    void gb28181EntryBlankFieldsRejected() {
+        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(
+                new Gb28181EntryRequest(" ", null, "192.168.1.10", "5060", "root", "pw")));
+        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(
+                new Gb28181EntryRequest("级联服务器", null, "", "5060", "root", "pw")));
+        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(
+                new Gb28181EntryRequest("级联服务器", null, "192.168.1.10", "5060", null, "pw")));
+        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(
+                new Gb28181EntryRequest("级联服务器", null, "192.168.1.10", "5060", "root", "  ")));
+        // sipId 可空，但填写时必须是 20 位数字
+        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(
+                new Gb28181EntryRequest("级联服务器", "123", "192.168.1.10", "5060", "root", "pw")));
     }
 
     @Test
     void gb28181EntryPortOutOfRangeRejected() {
-        Gb28181EntryRequest zero = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "0", "pw", "5061", "30000", "30100", null);
+        Gb28181EntryRequest zero = new Gb28181EntryRequest("级联服务器", null, "192.168.1.10", "0", "root", "pw");
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(zero));
 
-        Gb28181EntryRequest tooBig = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "65536", "pw", "5061", "30000", "30100", null);
+        Gb28181EntryRequest tooBig = new Gb28181EntryRequest("级联服务器", null, "192.168.1.10", "65536", "root", "pw");
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(tooBig));
 
-        Gb28181EntryRequest notANumber = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "abc", "pw", "5061", "30000", "30100", null);
+        Gb28181EntryRequest notANumber = new Gb28181EntryRequest("级联服务器", null, "192.168.1.10", "abc", "root", "pw");
         assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(notANumber));
-    }
-
-    @Test
-    void gb28181EntryReceivePortRangeRejected() {
-        Gb28181EntryRequest startAfterEnd = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30100", "30000", null);
-        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(startAfterEnd));
-
-        Gb28181EntryRequest outOfRange = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "65536", null);
-        assertThrows(IllegalArgumentException.class, () -> AccessConfigService.validateGb28181Entry(outOfRange));
-
-        Gb28181EntryRequest equal = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30000", null);
-        assertDoesNotThrow(() -> AccessConfigService.validateGb28181Entry(equal));
     }
 
     @Test
@@ -414,9 +387,11 @@ class AccessConfigServiceTest {
         assertEquals(1, entries.size());
         Gb28181EntryResponse entry = entries.get(0);
         assertEquals(entity.getId(), entry.id());
+        assertEquals(entity.getName(), entry.name());
         assertEquals(entity.getSipId(), entry.sipId());
-        assertEquals(entity.getSipDomain(), entry.sipDomain());
+        assertEquals(entity.getSipIp(), entry.sipIp());
         assertEquals(entity.getSipPort(), entry.sipPort());
+        assertEquals(entity.getUsername(), entry.username());
         assertEquals(entity.getCreatedAt(), entry.createdAt());
     }
 
@@ -431,17 +406,16 @@ class AccessConfigServiceTest {
                 .createGb28181Entry(request);
 
         verify(dao).insert(any(Gb28181AccessConfigEntity.class));
+        assertEquals("级联服务器", created.name());
         assertEquals("34020000002000000001", created.sipId());
         assertEquals("5060", created.sipPort());
-        assertEquals(true, created.enabled());
-        assertEquals("30100", created.receivePortEnd());
+        assertEquals("root", created.username());
     }
 
     @Test
     void createGb28181EntryRejectsInvalidRequest() {
         Gb28181AccessConfigDao dao = mock(Gb28181AccessConfigDao.class);
-        Gb28181EntryRequest request = new Gb28181EntryRequest(true, "bad", "3402000000",
-                "192.168.1.10", "5060", "pw", "5061", "30000", "30100", null);
+        Gb28181EntryRequest request = new Gb28181EntryRequest(" ", null, "192.168.1.10", "5060", "root", "pw");
 
         assertThrows(IllegalArgumentException.class,
                 () -> newService(mock(Ga1400AccessConfigDao.class), dao).createGb28181Entry(request));
@@ -452,20 +426,21 @@ class AccessConfigServiceTest {
     void updateGb28181EntryUpdatesExisting() {
         Gb28181AccessConfigDao dao = mock(Gb28181AccessConfigDao.class);
         UUID id = UUID.randomUUID();
-        Gb28181EntryRequest stored = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "5060", "old", "5061", "30000", "30100", null);
+        Gb28181EntryRequest stored = new Gb28181EntryRequest("级联服务器", "34020000002000000001",
+                "192.168.1.10", "5060", "root", "old");
         Gb28181AccessConfigEntity entity = gb28181Entity(id, stored);
         when(dao.selectById(id)).thenReturn(entity);
 
-        Gb28181EntryRequest request = new Gb28181EntryRequest(false, "34020000002000000002", "3402000001",
-                "192.168.1.11", "5062", "new", "5063", "31000", "31100", null);
+        Gb28181EntryRequest request = new Gb28181EntryRequest("上级平台B", "34020000002000000002",
+                "192.168.1.11", "5062", "admin", "new");
         Gb28181EntryResponse updated = newService(mock(Ga1400AccessConfigDao.class), dao)
                 .updateGb28181Entry(id, request);
 
         verify(dao).updateById(any(Gb28181AccessConfigEntity.class));
+        assertEquals("上级平台B", updated.name());
         assertEquals("34020000002000000002", updated.sipId());
         assertEquals("5062", updated.sipPort());
-        assertEquals(false, updated.enabled());
+        assertEquals("admin", updated.username());
     }
 
     @Test
@@ -482,8 +457,7 @@ class AccessConfigServiceTest {
     @Test
     void updateGb28181EntryRejectsInvalidRequest() {
         Gb28181AccessConfigDao dao = mock(Gb28181AccessConfigDao.class);
-        Gb28181EntryRequest request = new Gb28181EntryRequest(true, "34020000002000000001", "3402000000",
-                "192.168.1.10", "70000", "pw", "5061", "30000", "30100", null);
+        Gb28181EntryRequest request = new Gb28181EntryRequest("级联服务器", null, "192.168.1.10", "70000", "root", "pw");
 
         assertThrows(IllegalArgumentException.class,
                 () -> newService(mock(Ga1400AccessConfigDao.class), dao).updateGb28181Entry(UUID.randomUUID(), request));

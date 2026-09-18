@@ -9,8 +9,8 @@ from typing import Any
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from .context import hcnetsdk_playback, mcp, nvr_devices, videoai
-from .nvr_devices import parse_device_credentials
+from .context import channel_lookup, hcnetsdk_playback, known_nvr_hosts, mcp, nvr_devices, videoai
+from .nvr_devices import resolve_device_credentials
 from .tools import (
     detect_persons,
     detect_persons_with_id,
@@ -87,7 +87,8 @@ def register_recording_live_route() -> None:
     async def recording_live_endpoint(request: Request) -> JSONResponse | RedirectResponse:
         """按需建立录像回放流：按 startTime/endTime 临时创建 SDK 回放，302 到 ZLM FLV 地址。
 
-        带 cameraId 时按摄像头绑定的 NVR（凭据来自摄像头 sourceUrl）建立回放，并补偿设备时钟偏差；
+        带 cameraId 时按摄像头定位其 NVR（与检索/下载同一套 resolve_device_credentials 解析：
+        sourceUrl 直连 IPC 时反查所属 NVR 与实际通道）建立回放，并补偿设备时钟偏差；
         NVR 回放并发数受限时逐出最早建立的会话，保证新请求总能拿到流。
         speed 为可选回放倍速（0.25/0.5/1/2/4/8/16/32，默认 1）。
         """
@@ -100,8 +101,10 @@ def register_recording_live_route() -> None:
             camera_id = request.query_params.get("cameraId", "").strip()
             if camera_id:
                 camera = await videoai.get_camera(camera_id)
-                credentials = parse_device_credentials(camera)
-                proxy = nvr_devices.proxy_for(camera)
+                # 与录像检索/下载走同一套解析：sourceUrl 直连 IPC 时反查所属 NVR，
+                # 否则会把回放打到 IPC 自己身上（录像存在 NVR 上）而起流失败
+                credentials = await resolve_device_credentials(camera, channel_lookup, known_nvr_hosts)
+                proxy = nvr_devices.proxy_for_credentials(credentials)
                 # 设备时钟偏差补偿：SDK 回放时间按设备本地时钟解释
                 shift = timedelta(seconds=await proxy.measure_clock_skew())
                 recording = proxy.build_recording(start + shift, end + shift, credentials.channel)

@@ -15,6 +15,12 @@ public interface LiveRelayService {
 
     boolean addZlmediakitProxy(String sourceUrl, String streamName, boolean forceRestart);
 
+    /**
+     * audioTranscode=true（设备支持音频）时走 ffmpeg 中继：视频透传、音频统一转 AAC——
+     * 现场摄像头多为 G.711，浏览器 MSE 不支持，必须转码才能出声。
+     */
+    boolean addZlmediakitProxy(String sourceUrl, String streamName, boolean forceRestart, boolean audioTranscode);
+
     /** remove_zlmediakit_proxy. */
     void removeZlmediakitProxy(String streamName);
 
@@ -22,6 +28,8 @@ public interface LiveRelayService {
 
     /** 启动 ffmpeg 转推；返回 false 表示未能启动（已回退 ZLM 代理，回退结果同样体现在返回值）。 */
     boolean startFfmpegLiveRelay(String sourceUrl, String streamName, boolean forceRestart);
+
+    boolean startFfmpegLiveRelay(String sourceUrl, String streamName, boolean forceRestart, boolean withAudio);
 
     void stopFfmpegLiveRelay(String streamName);
 

@@ -20,7 +20,7 @@
         ref="video"
         autoplay
         muted
-        controls
+        :controls="nativeControls"
         playsinline
         :class="[surfaceClassName, fallbackUrl ? 'video-surface-hidden' : '']"
         :style="surfaceStyle"
@@ -73,6 +73,8 @@ export default defineComponent({
     format: { type: String, default: '' },
     fit: { type: String, default: 'contain' },
     showZoomBar: { type: Boolean, default: true },
+    // 是否显示 <video> 原生控制条；回放播放器（自绘工具栏）传 false 隐藏
+    nativeControls: { type: Boolean, default: true },
   },
   data() {
     return {
@@ -509,6 +511,10 @@ export default defineComponent({
       if (video) {
         video.muted = muted;
       }
+    },
+    isMuted(): boolean {
+      const video = this.videoElement;
+      return video ? video.muted : true;
     },
     // 抓取当前画面为 JPEG dataURL；mjpeg 图片跨域受污染或无可抓画面时返回 null
     snapshot(mimeType: string = 'image/jpeg', quality = 0.92): string | null {

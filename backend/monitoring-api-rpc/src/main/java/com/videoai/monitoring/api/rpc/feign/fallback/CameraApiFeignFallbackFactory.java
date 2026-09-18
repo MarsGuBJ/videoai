@@ -4,8 +4,10 @@ import com.videoai.monitoring.api.rpc.feign.CameraApiFeign;
 import com.videoai.monitoring.common.dto.CameraCreateRequest;
 import com.videoai.monitoring.common.dto.CameraUpdateRequest;
 import com.videoai.monitoring.common.dto.PtzControlRequest;
+import com.videoai.monitoring.common.dto.SourceProbeRequest;
 import com.videoai.monitoring.common.vo.CameraResponse;
 import com.videoai.monitoring.common.vo.PtzControlResponse;
+import com.videoai.monitoring.common.vo.SourceProbeResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
 import org.springframework.stereotype.Component;
@@ -58,6 +60,11 @@ public class CameraApiFeignFallbackFactory implements FallbackFactory<CameraApiF
 
             @Override
             public PtzControlResponse ptz(UUID id, PtzControlRequest request) {
+                return null;
+            }
+
+            @Override
+            public SourceProbeResponse probeSource(SourceProbeRequest request) {
                 return null;
             }
 

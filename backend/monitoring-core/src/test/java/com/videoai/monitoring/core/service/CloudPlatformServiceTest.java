@@ -196,7 +196,7 @@ class CloudPlatformServiceTest {
     }
 
     private static CloudDeviceItem cloudDevice(String name, String ip) {
-        return new CloudDeviceItem(name, "云端区域", "GB28181", ip, "554", "rtsp://" + ip + "/live", null, null);
+        return new CloudDeviceItem(name, "云端区域", "GB28181", ip, "554", "rtsp://" + ip + "/live", null, null, null);
     }
 
     @Test
@@ -265,7 +265,7 @@ class CloudPlatformServiceTest {
         when(cameraService.list()).thenReturn(List.of());
 
         CloudSyncResultResponse result = service.sync(id, new CloudSyncRequest(
-                List.of(new CloudDeviceItem("云端-北门", "云端区域", "GB28181", "10.0.0.9", "554", null, null, null)),
+                List.of(new CloudDeviceItem("云端-北门", "云端区域", "GB28181", "10.0.0.9", "554", null, null, null, null)),
                 null,
                 true));
 

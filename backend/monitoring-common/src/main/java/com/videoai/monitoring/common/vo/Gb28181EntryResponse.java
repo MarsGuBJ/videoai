@@ -5,18 +5,14 @@ import java.util.UUID;
 
 public record Gb28181EntryResponse(
         UUID id,
-        boolean enabled,
+        String name,
         String sipId,
-        String sipDomain,
         String sipIp,
         String sipPort,
+        String username,
         String password,
-        String parentPort,
-        String receivePortStart,
-        String receivePortEnd,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt,
-        String name,
         String onlineStatus,
         OffsetDateTime lastCheckAt
 ) {

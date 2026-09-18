@@ -226,7 +226,8 @@ public class CloudPlatformServiceImpl implements CloudPlatformService {
                     device.port(),
                     device.sourceUrl(),
                     local == null ? "new" : "update",
-                    local == null ? null : local.id()
+                    local == null ? null : local.id(),
+                    device.gbCode()
             ));
         }
         return items;
@@ -278,7 +279,8 @@ public class CloudPlatformServiceImpl implements CloudPlatformService {
                         text(node, "port"),
                         text(node, "sourceUrl"),
                         null,
-                        null
+                        null,
+                        text(node, "gbCode")
                 ));
             }
             return devices;

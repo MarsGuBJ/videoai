@@ -539,12 +539,14 @@ def test_recording_live_with_camera_id_routes_to_camera_nvr(monkeypatch):
             return "http://zlm/live/hcn-camera.live.flv"
 
     class FakeRegistry:
-        def proxy_for(self, cam):
-            calls["camera"] = cam
+        def proxy_for_credentials(self, credentials):
+            calls["credentials"] = credentials
             return FakeProxy()
 
     monkeypatch.setattr(server.videoai, "get_camera", fake_get_camera)
     monkeypatch.setattr("app.routes.nvr_devices", FakeRegistry())
+    # channel_lookup 置 None，resolve_device_credentials 回退到 sourceUrl 直连解析
+    monkeypatch.setattr("app.routes.channel_lookup", None)
 
     async def fail_ensure_playback(recording, speed=1.0):
         raise AssertionError("cameraId path must not use the singleton playback proxy")
@@ -555,11 +557,71 @@ def test_recording_live_with_camera_id_routes_to_camera_nvr(monkeypatch):
 
     assert response.status_code == 302
     assert response.headers["location"] == "http://zlm/live/hcn-camera.live.flv"
-    assert calls["camera"] is camera
+    assert calls["credentials"].host == "10.10.8.10"
+    assert calls["credentials"].channel == 2
     assert calls["channel"] == 2
     # 时钟偏差 +60s 叠加到 SDK 回放开始时间
     assert calls["start"].utcoffset().total_seconds() == 8 * 60 * 60
     assert calls["start"].minute == 1
+
+
+def test_recording_live_direct_ipc_camera_resolves_to_its_nvr(monkeypatch):
+    """sourceUrl 直连 IPC 的摄像头回放时反查所属 NVR（录像在 NVR 上，直连 IPC 会起流失败）。"""
+    camera = make_camera(
+        sourceUrl="rtsp://admin:p%40ss@10.10.0.99:554/Streaming/Channels/101",
+        nvrId="10.10.0.99",
+        nvrChannel="2",
+        nvrTrackId="201",
+    )
+    calls = {}
+
+    class FakeLookup:
+        username = "nvr-user"
+        password = "nvr-pass"  # noqa: S105
+
+        async def lookup(self, ipc_host):
+            assert ipc_host == "10.10.0.99"
+            return ("10.10.7.252", 212)
+
+    class FakeProxy:
+        async def measure_clock_skew(self):
+            return 0.0
+
+        def build_recording(self, start_time, end_time, channel=None):
+            calls["channel"] = channel
+            return RecordingSegment(
+                recordingId="rec-ipc-live",
+                cameraId=camera.id,
+                cameraName=camera.name,
+                trackId="21201",
+                startTime=start_time,
+                endTime=end_time,
+                playbackUri="hcnetsdk://10.10.7.252:8000/channels/212",
+                source="hikvision_hcnetsdk_playback",
+            )
+
+        async def ensure_playback(self, recording, speed=1.0):
+            return "http://zlm/live/hcn-ipc.live.flv"
+
+    class FakeRegistry:
+        def proxy_for_credentials(self, credentials):
+            calls["credentials"] = credentials
+            return FakeProxy()
+
+    async def fake_get_camera(camera_id):
+        return camera
+
+    monkeypatch.setattr(server.videoai, "get_camera", fake_get_camera)
+    monkeypatch.setattr("app.routes.nvr_devices", FakeRegistry())
+    monkeypatch.setattr("app.routes.channel_lookup", FakeLookup())
+    monkeypatch.setattr("app.routes.known_nvr_hosts", {"10.10.7.252", "10.10.7.253"})
+
+    response = get("/recording-live?cameraId=cam-1&startTime=2026-07-08T00:00:00&endTime=2026-07-08T00:05:00")
+
+    assert response.status_code == 302
+    assert calls["credentials"].host == "10.10.7.252"
+    assert calls["credentials"].channel == 212
+    assert calls["channel"] == 212
 
 
 def test_recording_live_rejects_inverted_range():

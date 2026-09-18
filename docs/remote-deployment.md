@@ -151,6 +151,23 @@ ssh -p 3479 public@119.3.237.220 \
   'cd /home/public/videoai && docker compose build frontend frontend-search frontend-media frontend-control frontend-review && docker compose up -d --no-deps frontend frontend-search frontend-media frontend-control frontend-review'
 ```
 
+前端也可以本地构建再部署（远程服务器不跑 npm/vite，构建快得多）：
+
+```bash
+# 本地：构建 5 个产物包并打包
+cd frontend && npm run build:modules
+tar czf ../tmp-verify/frontend-dist.tgz dist dist-search dist-media dist-control dist-review Dockerfile.prebuilt Dockerfile.prebuilt.dockerignore
+
+# 推送产物与 compose 覆盖文件（docker-compose.prebuilt.yml 已入库）后，远程：
+cd /home/public/videoai && tar xzf tmp-verify/frontend-dist.tgz -C frontend/ && rm tmp-verify/frontend-dist.tgz
+docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml build \
+  frontend frontend-search frontend-media frontend-control frontend-review && \
+docker compose up -d --no-deps \
+  frontend frontend-search frontend-media frontend-control frontend-review
+```
+
+`frontend/Dockerfile.prebuilt` 直接 COPY 本地 dist 产物进 nginx 镜像（配套 `Dockerfile.prebuilt.dockerignore` 不排除 dist）；`docker-compose.prebuilt.yml` 按服务覆盖 `dockerfile` 与 `DIST_DIR`（full→dist，子包→dist-<mode>），其余配置（端口绑定、network: host 等）仍来自主 compose。
+
 3. backend-lite（Python 后端，容器名 backend，端口 8081）/ worker 变更部署：
 
 ```bash

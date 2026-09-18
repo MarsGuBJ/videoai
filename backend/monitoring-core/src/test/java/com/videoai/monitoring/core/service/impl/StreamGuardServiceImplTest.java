@@ -41,7 +41,7 @@ class StreamGuardServiceImplTest {
         CameraResponse camera = camera("RUNNING", "ONLINE", null);
         when(cameraService.list()).thenReturn(List.of(camera));
         noActiveStreams();
-        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean())).thenReturn(false);
+        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean(), anyBoolean())).thenReturn(false);
 
         guard.reconcileStreams();
         guard.reconcileStreams();
@@ -56,7 +56,7 @@ class StreamGuardServiceImplTest {
         CameraResponse camera = camera("RUNNING", "OFFLINE", null);
         when(cameraService.list()).thenReturn(List.of(camera));
         noActiveStreams();
-        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean())).thenReturn(false);
+        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean(), anyBoolean())).thenReturn(false);
 
         for (int i = 0; i < 5; i += 1) {
             guard.reconcileStreams();
@@ -71,7 +71,7 @@ class StreamGuardServiceImplTest {
         CameraResponse camera = camera("RUNNING", "ONLINE", null);
         when(cameraService.list()).thenReturn(List.of(camera));
         noActiveStreams();
-        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean()))
+        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean(), anyBoolean()))
                 .thenReturn(false, false, true, false, false);
 
         for (int i = 0; i < 5; i += 1) {
@@ -86,7 +86,7 @@ class StreamGuardServiceImplTest {
         CameraResponse camera = camera("RUNNING", "ONLINE", "stream-1-sub");
         when(cameraService.list()).thenReturn(List.of(camera));
         noActiveStreams();
-        when(liveRelayService.addZlmediakitProxy(anyString(), eq("stream-1"), anyBoolean())).thenReturn(true);
+        when(liveRelayService.addZlmediakitProxy(anyString(), eq("stream-1"), anyBoolean(), anyBoolean())).thenReturn(true);
         when(liveRelayService.addZlmediakitProxy(anyString(), eq("stream-1-sub"), anyBoolean())).thenReturn(false);
 
         for (int i = 0; i < 5; i += 1) {
@@ -104,7 +104,7 @@ class StreamGuardServiceImplTest {
 
         guard.reconcileStreams();
 
-        verify(liveRelayService, never()).addZlmediakitProxy(anyString(), anyString(), anyBoolean());
+        verify(liveRelayService, never()).addZlmediakitProxy(anyString(), anyString(), anyBoolean(), anyBoolean());
         verify(cameraDao, never()).updateStatus(any(), anyString());
     }
 

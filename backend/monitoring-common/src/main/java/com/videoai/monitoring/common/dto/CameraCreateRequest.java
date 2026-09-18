@@ -7,7 +7,8 @@ import java.util.UUID;
 
 public record CameraCreateRequest(
         @NotBlank String name,
-        @NotBlank String sourceUrl,
+        // GB28181 同步入库的设备无拉流地址，允许为空；手工新增入口在 Controller 层单独校验非空
+        String sourceUrl,
         String description,
         String area,
         String nvrId,

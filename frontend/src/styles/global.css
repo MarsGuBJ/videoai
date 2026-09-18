@@ -999,7 +999,7 @@
     }
 
     .image-search-result-footer .exact-pagination {
-      justify-content: flex-start;
+      justify-content: flex-end;
       margin-top: 0;
     }
 
@@ -5672,6 +5672,47 @@
       font-size: 11px;
     }
 
+    .exact-thinking-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-right: 6px;
+    }
+
+    .exact-chat-item .exact-thinking-row {
+      display: flex;
+      margin: 0 0 4px 2px;
+    }
+
+    .exact-thinking-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: #eef4ff;
+      color: #245b9b;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .exact-thinking-tag.done {
+      background: #f2f4f7;
+      color: #667085;
+    }
+
+    .exact-thinking-timer {
+      color: #98a2b3;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .exact-chat-loading .exact-phase-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
     .exact-dialog-head {
       display: flex;
       align-items: flex-start;
@@ -5695,10 +5736,17 @@
     .exact-summary-heading {
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      gap: 10px;
       margin-bottom: 13px;
       padding-bottom: 10px;
       border-bottom: 1px solid #dceaff;
+    }
+
+    .exact-summary-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .exact-summary-heading svg {
@@ -5742,6 +5790,72 @@
 
     .exact-summary-section ul {
       padding-left: 16px;
+    }
+
+    .exact-summary-event-name {
+      color: #344054 !important;
+      font-weight: 600;
+    }
+
+    /* 视频理解/分析结果中的 Markdown 文本：换行、分段、列表、加粗等美化展示 */
+    .exact-markdown {
+      color: #667085;
+      font-size: 11px;
+      line-height: 1.65;
+      word-break: break-word;
+    }
+
+    .exact-markdown p {
+      margin: 0 0 6px;
+    }
+
+    .exact-markdown p:last-child,
+    .exact-markdown ul:last-child,
+    .exact-markdown ol:last-child {
+      margin-bottom: 0;
+    }
+
+    .exact-markdown ul,
+    .exact-markdown ol {
+      margin: 0 0 6px;
+      padding-left: 18px;
+    }
+
+    .exact-markdown li {
+      margin-bottom: 2px;
+    }
+
+    .exact-markdown strong {
+      color: #344054;
+      font-weight: 600;
+    }
+
+    .exact-markdown code {
+      padding: 0 4px;
+      border-radius: 3px;
+      background: #eef4ff;
+      color: #465fc7;
+      font-size: 10px;
+    }
+
+    .exact-markdown .md-h {
+      margin: 8px 0 4px;
+      color: #344054;
+      font-weight: 700;
+    }
+
+    .exact-markdown .md-h:first-child {
+      margin-top: 0;
+    }
+
+    .exact-markdown .md-h1,
+    .exact-markdown .md-h2 {
+      font-size: 12px;
+    }
+
+    .exact-markdown .md-h3,
+    .exact-markdown .md-h4 {
+      font-size: 11px;
     }
 
     .exact-summary-actions {
@@ -5898,6 +6012,15 @@
       color: #667085;
       font-size: 11px;
       line-height: 1.55;
+    }
+
+    /* 事件卡片内的 Markdown 分段间距（覆盖上方 .exact-event-card p 的 margin:0） */
+    .exact-event-card .exact-markdown p {
+      margin: 0 0 6px;
+    }
+
+    .exact-event-card .exact-markdown p:last-child {
+      margin-bottom: 0;
     }
 
     .exact-event-meta {
@@ -8753,6 +8876,147 @@
       gap: 10px;
     }
 
+    .access-gb-section {
+      margin-bottom: 24px;
+    }
+
+    .access-gb-section-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 14px;
+      color: #15284c;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .access-gb-section-title::before {
+      content: "";
+      width: 4px;
+      height: 16px;
+      border-radius: 2px;
+      background: #176fdc;
+    }
+
+    .access-gb-base-card {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      padding: 24px 32px;
+      border: 1px solid #edf0f5;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .access-gb-base-icon {
+      display: grid;
+      place-items: center;
+      width: 88px;
+      height: 88px;
+      border-radius: 10px;
+      background: linear-gradient(160deg, #eaf3ff, #d6e7ff);
+      color: #176fdc;
+      font-size: 40px;
+    }
+
+    .access-gb-base-fields {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+    }
+
+    .access-gb-base-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .access-gb-base-field dt {
+      width: 130px;
+      color: #41546a;
+    }
+
+    .access-gb-base-field dt::after {
+      content: "：";
+    }
+
+    .access-gb-base-field dd {
+      margin: 0;
+      color: #15284c;
+      font-weight: 600;
+    }
+
+    .access-gb-copy {
+      border: 0;
+      background: transparent;
+      color: #98a2b3;
+      cursor: pointer;
+      padding: 2px 4px;
+      font-size: 13px;
+    }
+
+    .access-gb-copy:hover {
+      color: #176fdc;
+    }
+
+    .access-gb-cascade-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+
+    .access-gb-cascade-card {
+      display: flex;
+      gap: 16px;
+      padding: 20px;
+      border: 1px solid #edf0f5;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .access-gb-cascade-avatar {
+      display: grid;
+      place-items: center;
+      flex: none;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: linear-gradient(160deg, #5a8def, #176fdc);
+      color: #fff;
+      font-size: 24px;
+    }
+
+    .access-gb-cascade-info {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .access-gb-cascade-info h4 {
+      margin: 0 0 8px;
+      color: #15284c;
+      font-size: 15px;
+    }
+
+    .access-gb-cascade-info p {
+      margin: 0 0 4px;
+      color: #41546a;
+      font-size: 13px;
+    }
+
+    .access-gb-cascade-actions {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .access-gb-empty {
+      min-height: 160px;
+      border: 1px dashed #e3e8f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+
     .access-modal-mask {
       position: fixed;
       inset: 0;
@@ -9171,6 +9435,11 @@
       min-height: calc(100vh - 132px);
     }
 
+    /* 云台面板隐藏时（无视频流或设备未开启云台能力）：移除右侧列，播放器区横向占满 */
+    .media-console-grid.ptz-hidden {
+      grid-template-columns: 287.5px minmax(0, 1fr);
+    }
+
     .media-console-grid.playback {
       grid-template-columns: 255px minmax(0, 1fr);
     }
@@ -9428,6 +9697,11 @@
       border-color: #2b8bf4;
       background: #edf6ff;
       color: #176fdc;
+    }
+
+    .media-icon-button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
 
     .media-video-grid {
@@ -10073,6 +10347,10 @@
         grid-template-columns: 210px minmax(0, 1fr);
       }
 
+      .media-console-grid.ptz-hidden {
+        grid-template-columns: 210px minmax(0, 1fr);
+      }
+
       .media-ptz-panel {
         grid-column: 1 / -1;
       }
@@ -10090,6 +10368,7 @@
 
       .media-console-grid,
       .media-console-grid.playback,
+      .media-console-grid.ptz-hidden,
       .media-wall-layout,
       .media-alarm-layout {
         grid-template-columns: 1fr;
@@ -10911,6 +11190,45 @@
       margin: 0 0 10px;
       color: #667085;
       font-size: 11px;
+    }
+
+    .exact-search-error-modal {
+      width: 420px;
+    }
+
+    .exact-search-error-body {
+      padding: 18px 20px;
+    }
+
+    .exact-search-error-message {
+      margin: 0 0 8px;
+      color: #344054;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .exact-search-error-detail {
+      margin: 0 0 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: #fef3f2;
+      color: #b42318;
+      font-size: 11px;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+
+    .exact-search-error-hint {
+      margin: 0;
+      color: #98a2b3;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .exact-search-error-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 16px;
     }
 
     .exact-message-detail-events {

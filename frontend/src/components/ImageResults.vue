@@ -6,7 +6,7 @@ import { similarityColor } from "../utils/prototype-helpers";
 // to the prototype's `inject: ["openResult", "setRoute"]`.
 export default {
   name: "ImageResults",
-  props: ["items", "showScore", "selectable", "selectedIndexes", "indexOffset", "hideJump", "hideDescription", "showActions", "emitOpen", "mediaSwitchable", "showAttributes"],
+  props: ["items", "showScore", "selectable", "selectedIndexes", "indexOffset", "hideJump", "hideDescription", "showActions", "emitOpen", "disableOpen", "showFullDate", "mediaSwitchable", "showAttributes"],
   emits: ["toggle-selection", "image-action", "open-result"],
   inject: {
     openResultImpl: { from: "openResult" },
@@ -40,6 +40,8 @@ export default {
       this.mediaToggled = { ...this.mediaToggled, [key]: !this.mediaToggled[key] };
     },
     onCardClick(index: number, item: any) {
+      // disableOpen：卡片纯展示（文搜视频页以图搜图 tab），点击不打开详情
+      if (this.disableOpen) return;
       // emitOpen：点击卡片由页面接管（图搜图页弹窗框选后再搜、文搜图页打开图片灯箱）
       if (this.emitOpen) {
         this.$emit("open-result", { item, index });
@@ -53,7 +55,7 @@ export default {
 
 <template>
   <div class="result-grid">
-    <article class="result-card clickable" :class="{ selected: selectable && isSelected(index) }" v-for="(item, index) in items" :key="globalIndex(index)" @click="onCardClick(globalIndex(index), item)">
+    <article class="result-card" :class="{ clickable: !disableOpen, selected: selectable && isSelected(index) }" v-for="(item, index) in items" :key="globalIndex(index)" @click="onCardClick(globalIndex(index), item)">
       <label v-if="selectable" class="result-select" @click.stop>
         <input type="checkbox" :checked="isSelected(index)" :aria-label="'选择' + item.title" @change.stop="$emit('toggle-selection', globalIndex(index))" />
       </label>
@@ -61,7 +63,7 @@ export default {
       <div v-if="mediaSwitchable && isVideoView(index)" class="thumb thumb-video"><img :src="item.image" :alt="item.title" /><span class="play-dot">▶</span></div>
       <img v-else class="thumb" :src="item.image" :alt="item.title" />
       <div class="body">
-        <div class="result-card-location"><strong>{{ item.location }}</strong><span>{{ item.date.slice(11, 19) }}</span></div>
+        <div class="result-card-location"><strong>{{ item.location }}</strong><span>{{ showFullDate ? item.date : item.date.slice(11, 19) }}</span></div>
         <div v-if="showAttributes && (item.age || item.accessory || item.topColor || item.action)" class="result-attrs">
           <span v-if="item.age"><span class="attr-label">年龄：</span>{{ item.age }}</span>
           <span v-if="item.accessory"><span class="attr-label">配饰：</span>{{ item.accessory }}</span>

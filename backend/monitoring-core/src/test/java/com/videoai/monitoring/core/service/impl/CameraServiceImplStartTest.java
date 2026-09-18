@@ -5,6 +5,7 @@ import com.videoai.monitoring.core.config.VideoAiProperties;
 import com.videoai.monitoring.core.dao.CameraDao;
 import com.videoai.monitoring.core.entity.CameraEntity;
 import com.videoai.monitoring.core.service.LiveRelayService;
+import com.videoai.monitoring.core.service.OpenSubscriptionService;
 import com.videoai.monitoring.core.service.preview.PreviewRelayManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -32,7 +34,8 @@ class CameraServiceImplStartTest {
     private final PreviewRelayManager previewRelayManager = mock(PreviewRelayManager.class);
 
     private final CameraServiceImpl service =
-            new CameraServiceImpl(cameraDao, properties, zlmClient, liveRelayService, previewRelayManager);
+            new CameraServiceImpl(cameraDao, properties, zlmClient, liveRelayService, previewRelayManager,
+                    mock(OpenSubscriptionService.class));
 
     @BeforeEach
     void setUp() {
@@ -45,7 +48,7 @@ class CameraServiceImplStartTest {
     void relayRejectionKeepsDeviceStoppedAndReportsConflict() {
         UUID id = UUID.randomUUID();
         when(cameraDao.selectById(id)).thenReturn(camera(id));
-        when(liveRelayService.addZlmediakitProxy(anyString(), anyString())).thenReturn(false);
+        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean(), anyBoolean())).thenReturn(false);
 
         ResponseStatusException exception =
                 assertThrows(ResponseStatusException.class, () -> service.start(id));
@@ -59,12 +62,12 @@ class CameraServiceImplStartTest {
     void relayAcceptedMarksStreamingAndRegistersSubStream() {
         UUID id = UUID.randomUUID();
         when(cameraDao.selectById(id)).thenReturn(camera(id));
-        when(liveRelayService.addZlmediakitProxy(anyString(), anyString())).thenReturn(true);
+        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean(), anyBoolean())).thenReturn(true);
 
         service.start(id);
 
         verify(cameraDao).updateStatus(id, "RUNNING");
-        verify(liveRelayService).addZlmediakitProxy("rtsp://10.0.0.1:554/Streaming/Channels/101", "stream-1");
+        verify(liveRelayService).addZlmediakitProxy("rtsp://10.0.0.1:554/Streaming/Channels/101", "stream-1", false, false);
         verify(liveRelayService).addZlmediakitProxy("rtsp://10.0.0.1:554/Streaming/Channels/102", "stream-1-sub");
     }
 

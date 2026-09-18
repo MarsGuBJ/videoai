@@ -8,7 +8,7 @@ import lombok.Data;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-/** Row of the {@code gb28181_access_configs} table (V10 + V12). */
+/** Row of the {@code gb28181_access_configs} table (V10 + V12 + V13). */
 @Data
 @TableName("gb28181_access_configs")
 public class Gb28181AccessConfigEntity {
@@ -24,6 +24,7 @@ public class Gb28181AccessConfigEntity {
     private String receivePortStart;
     private String receivePortEnd;
     private String name;
+    private String username;
     private String onlineStatus;
     private OffsetDateTime lastCheckAt;
     private OffsetDateTime createdAt;

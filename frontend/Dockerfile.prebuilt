@@ -1,0 +1,8 @@
+# 本地预构建产物部署：跳过镜像内 npm ci + vite 构建，直接打包本地 dist 产物
+# 用法：配合根目录 docker-compose.prebuilt.yml（按服务设置 DIST_DIR 构建参数）
+FROM nginx:1.27-alpine
+# full 包为 dist，子包为 dist-<mode>（search/media/control/review）
+ARG DIST_DIR=dist
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY ${DIST_DIR} /usr/share/nginx/html
+EXPOSE 5173

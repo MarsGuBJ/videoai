@@ -30,6 +30,7 @@ frontend/dist-*/
 # local agent/runtime artifacts
 .codex/
 .playwright-cli/
+.zcode/
 .coverage
 storage/algorithm-packages/
 

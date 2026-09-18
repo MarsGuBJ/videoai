@@ -57,7 +57,7 @@ public class StreamGuardServiceImpl implements StreamGuardService {
                 continue;
             }
             try {
-                liveRelayService.addZlmediakitProxy(camera.sourceUrl(), camera.streamName());
+                liveRelayService.addZlmediakitProxy(camera.sourceUrl(), camera.streamName(), false, camera.audioEnabled());
                 addSubStreamProxy(camera);
             } catch (Exception exception) {
                 log.warn("restore_running_camera_streams failed for {}: {}", camera.streamName(), exception.getMessage());
@@ -80,7 +80,7 @@ public class StreamGuardServiceImpl implements StreamGuardService {
                 } else {
                     log.info("stream_proxy_guard: re-adding proxy for {}", camera.streamName());
                     boolean attached = liveRelayService.addZlmediakitProxy(
-                            camera.sourceUrl(), camera.streamName(), true);
+                            camera.sourceUrl(), camera.streamName(), true, camera.audioEnabled());
                     recordAttachResult(camera, attached);
                 }
                 String subStreamName = camera.subStreamName();

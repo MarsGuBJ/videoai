@@ -38,6 +38,9 @@ public final class StreamUrls {
     }
 
     public static String playbackUrl(String publicHttpUrl, String sourceUrl, String fallbackStream) {
+        if (sourceUrl == null) {
+            return null;
+        }
         String streamName = streamNameFromSource(sourceUrl);
         if (streamName == null || streamName.isEmpty()) {
             streamName = fallbackStream;

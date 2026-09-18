@@ -2,7 +2,7 @@
 import * as XLSX from "xlsx";
 import { api } from "../api";
 import type { RecordingSegment } from "../api";
-import type { Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, ReviewType } from "../types";
+import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { deviceStatusLabel, onlineStatusOf, streamStatusLabel } from "../utils/device-status";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
@@ -10,6 +10,9 @@ import { computeSourceUrl, flattenRegionTree, loadRegionTree } from "../utils/re
 import type { FlatRegionNode } from "../utils/regions";
 import type { RegionTreeNode } from "../api";
 import VideoPlayer from "./VideoPlayer.vue";
+
+// 云平台同步弹窗中的合成选项：选中「国标GB28181」后改走级联服务器同步流程
+const GB28181_OPTION_ID = "__gb28181__";
 
 // 即时回放：与录像回放页同一口径，时间均按本地时区（北京时间）ISO 秒格式
 function pad2(value: number): string {
@@ -112,6 +115,8 @@ export default {
       // 云平台同步设备弹窗
       cloudPlatforms: [] as CloudPlatform[],
       cloudPlatformId: "",
+      gb28181Entries: [] as AccessGb28181Entry[],
+      gb28181EntryId: "",
       cloudItems: [] as any[],
       cloudSummary: null as CloudSyncPrecheck | null,
       cloudBusy: false,
@@ -225,6 +230,9 @@ export default {
     },
     cloudCheckedItems(): any[] {
       return this.cloudItems.filter((item) => item.checked);
+    },
+    isGb28181Mode(): boolean {
+      return this.cloudPlatformId === GB28181_OPTION_ID;
     },
     cloudAllChecked(): boolean {
       return this.cloudItems.length > 0 && this.cloudCheckedItems.length === this.cloudItems.length;
@@ -362,6 +370,7 @@ export default {
     // --- 云平台同步设备弹窗 ---
     initCloudSync() {
       this.cloudPlatformId = "";
+      this.gb28181EntryId = "";
       this.cloudItems = [];
       this.cloudSummary = null;
       this.cloudBusy = false;
@@ -369,10 +378,18 @@ export default {
       this.cloudTargetArea = "";
       api.cloudPlatforms()
         .then((rows) => {
-          this.cloudPlatforms = rows;
+          this.cloudPlatforms = [
+            ...rows,
+            { id: GB28181_OPTION_ID, name: "国标GB28181", type: "gb28181", key: "", secret: "", ip: "-", port: "-", createdAt: "", updatedAt: "" }
+          ];
           if (rows.length === 1) this.cloudPlatformId = rows[0].id;
         })
         .catch((error) => this.showToast(`云平台列表加载失败：${error instanceof Error ? error.message : error}`));
+      api.gb28181Entries()
+        .then((rows) => {
+          this.gb28181Entries = rows || [];
+        })
+        .catch(() => {});
       api.cameras()
         .then((list) => {
           const areas = (list || []).map((camera) => (camera.area || "").trim()).filter(Boolean);
@@ -381,6 +398,11 @@ export default {
         .catch(() => {});
     },
     resetCloudSync() {
+      this.gb28181EntryId = "";
+      this.cloudItems = [];
+      this.cloudSummary = null;
+    },
+    onGb28181EntryChange() {
       this.cloudItems = [];
       this.cloudSummary = null;
     },
@@ -390,14 +412,20 @@ export default {
     },
     async runCloudPrecheck() {
       if (!this.cloudPlatformId || this.cloudBusy) return;
+      if (this.isGb28181Mode && !this.gb28181EntryId) {
+        this.showToast("请先选择级联服务器");
+        return;
+      }
       this.cloudBusy = true;
       try {
-        const result = await api.cloudPlatformPrecheck(this.cloudPlatformId);
+        const result = this.isGb28181Mode
+          ? await api.gb28181EntryPrecheck(this.gb28181EntryId)
+          : await api.cloudPlatformPrecheck(this.cloudPlatformId);
         this.cloudSummary = result;
         this.cloudItems = result.items.map((item) => ({ ...item, checked: true }));
-        if (!result.items.length) this.showToast("云平台暂无可同步设备");
+        if (!result.items.length) this.showToast(this.isGb28181Mode ? "级联服务器暂无可同步设备" : "云平台暂无可同步设备");
       } catch (error) {
-        this.resetCloudSync();
+        this.onGb28181EntryChange();
         this.showToast(error instanceof Error ? error.message : "云平台预检查失败");
       } finally {
         this.cloudBusy = false;
@@ -409,13 +437,20 @@ export default {
         return rest;
       });
       if (!items.length || this.cloudBusy) return;
+      if (this.isGb28181Mode && !this.gb28181EntryId) {
+        this.showToast("请先选择级联服务器");
+        return;
+      }
       this.cloudBusy = true;
       try {
-        const result = await api.cloudPlatformSync(this.cloudPlatformId, {
+        const payload = {
           items,
           targetArea: this.cloudTargetArea,
           overwrite: this.cloudConflictStrategy === "overwrite"
-        });
+        };
+        const result = this.isGb28181Mode
+          ? await api.gb28181EntrySync(this.gb28181EntryId, payload)
+          : await api.cloudPlatformSync(this.cloudPlatformId, payload);
         this.showToast(`同步完成：新增 ${result.created} 台，更新 ${result.updated} 台，跳过 ${result.skipped} 台`);
         this.$emit("close");
         (this as any).refreshCamerasImpl();
@@ -1552,15 +1587,17 @@ export default {
         <template v-if="modal.type === 'mediaCloud'">
           <div class="modal-form-grid">
             <div class="modal-form-row"><label>云平台：</label><select class="select" v-model="cloudPlatformId" @change="resetCloudSync"><option value="" disabled>请选择云平台</option><option v-for="platform in cloudPlatforms" :key="platform.id" :value="platform.id">{{ platform.name }}（{{ platform.ip }}:{{ platform.port }}）</option></select></div>
+            <div class="modal-form-row" v-if="isGb28181Mode"><label>级联服务器：</label><select class="select" v-model="gb28181EntryId" @change="onGb28181EntryChange"><option value="" disabled>请选择级联服务器</option><option v-for="entry in gb28181Entries" :key="entry.id" :value="entry.id">{{ entry.name }}（{{ entry.sipIp }}:{{ entry.sipPort }}）{{ entry.onlineStatus === 'ONLINE' ? '（在线）' : entry.onlineStatus === 'OFFLINE' ? '（离线）' : '' }}</option></select></div>
             <div class="modal-form-row"><label>冲突处理：</label><select class="select" v-model="cloudConflictStrategy"><option value="overwrite">云端覆盖本地</option><option value="skip">保留本地，仅新增</option></select></div>
             <div class="modal-form-row"><label>所属区域：</label><input class="input" v-model.trim="cloudTargetArea" list="cloud-target-area-options" placeholder="留空则沿用云端区域" /><datalist id="cloud-target-area-options"><option v-for="area in cloudAreaOptions" :key="area" :value="area"></option></datalist></div>
           </div>
+          <p v-if="isGb28181Mode && !gb28181Entries.length" class="modal-hint">请先在接入配置页添加级联服务器</p>
           <div class="modal-summary-strip"><strong>预计同步</strong><span v-if="cloudSummary">新增 {{ cloudSummary.newCount }} 台，更新 {{ cloudSummary.updateCount }} 台</span><span v-else>请选择云平台后点击「预检查」</span></div>
           <div class="modal-table-wrap">
             <table class="prototype-table">
-              <thead><tr><th style="width:36px;"><input type="checkbox" :checked="cloudAllChecked" :disabled="!cloudItems.length" aria-label="全选云端设备" @change="toggleCloudAll" /></th><th>设备名称</th><th>云端区域</th><th>接入协议</th><th>IP地址</th><th>处理方式</th></tr></thead>
+              <thead><tr><th style="width:36px;"><input type="checkbox" :checked="cloudAllChecked" :disabled="!cloudItems.length" aria-label="全选云端设备" @change="toggleCloudAll" /></th><th>设备名称</th><th>云端区域</th><th>接入协议</th><th>{{ isGb28181Mode ? '国标编码' : 'IP地址' }}</th><th>处理方式</th></tr></thead>
               <tbody>
-                <tr v-for="(item, index) in cloudItems" :key="item.ip || index"><td><input type="checkbox" v-model="item.checked" /></td><td>{{ item.name }}</td><td>{{ item.area || '-' }}</td><td>{{ item.protocol || '-' }}</td><td>{{ item.ip }}</td><td><span class="status-pill" :class="item.status === 'new' ? 'pass' : 'waiting'">{{ item.status === 'new' ? '新增' : '更新' }}</span></td></tr>
+                <tr v-for="(item, index) in cloudItems" :key="item.ip || item.gbCode || index"><td><input type="checkbox" v-model="item.checked" /></td><td>{{ item.name }}</td><td>{{ item.area || '-' }}</td><td>{{ item.protocol || '-' }}</td><td>{{ isGb28181Mode ? (item.gbCode || '-') : item.ip }}</td><td><span class="status-pill" :class="item.status === 'new' ? 'pass' : 'waiting'">{{ item.status === 'new' ? '新增' : '更新' }}</span></td></tr>
                 <tr v-if="!cloudItems.length"><td colspan="6" class="empty-cell">{{ cloudBusy ? '正在拉取云端设备...' : '尚未预检查' }}</td></tr>
               </tbody>
             </table>
@@ -1655,7 +1692,7 @@ export default {
           <button class="btn primary" @click="$emit('close')">关闭</button>
         </template>
         <template v-else-if="modal.type === 'mediaCloud'">
-          <button class="btn" :disabled="cloudBusy || !cloudPlatformId" @click="runCloudPrecheck">{{ cloudSummary ? '重新预检查' : '预检查' }}</button>
+          <button class="btn" :disabled="cloudBusy || !cloudPlatformId || (isGb28181Mode && !gb28181EntryId)" @click="runCloudPrecheck">{{ cloudSummary ? '重新预检查' : '预检查' }}</button>
           <button class="btn primary" :disabled="cloudBusy || !cloudCheckedItems.length" @click="runCloudSync">开始同步</button>
         </template>
         <template v-else-if="modal.type === 'videoConfig'">

@@ -36,7 +36,8 @@ class CameraDeviceCodeGenerateTest {
 
     private final CameraDao dao = mock(CameraDao.class);
     private final CameraService service = new CameraServiceImpl(
-            dao, properties(), mock(ZlmClient.class), mock(LiveRelayService.class), mock(PreviewRelayManager.class));
+            dao, properties(), mock(ZlmClient.class), mock(LiveRelayService.class), mock(PreviewRelayManager.class),
+            mock(OpenSubscriptionService.class));
 
     private static VideoAiProperties properties() {
         return new VideoAiProperties(

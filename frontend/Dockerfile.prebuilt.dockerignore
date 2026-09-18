@@ -1,0 +1,5 @@
+# Dockerfile.prebuilt 专用忽略清单：预构建部署需要把本地 dist 产物打进构建上下文，
+# 不能沿用 .dockerignore 的 dist 排除规则
+node_modules
+.vite
+npm-debug.log*

@@ -555,10 +555,16 @@ export const api = {
 
   accessConfig: () => request<AccessConfig>('/api/access-config'),
   gb28181Entries: () => request<AccessGb28181Entry[]>('/api/access-config/gb28181/entries'),
-  createGb28181Entry: (payload: { enabled: boolean; name?: string; sipId: string; sipDomain: string; sipIp: string; sipPort: string; password: string; parentPort: string; receivePortStart: string; receivePortEnd: string }) =>
+  createGb28181Entry: (payload: { name: string; sipIp: string; sipPort: string; sipId?: string; username: string; password: string }) =>
     request<AccessGb28181Entry>('/api/access-config/gb28181/entries', { method: 'POST', body: JSON.stringify(payload) }),
-  updateGb28181Entry: (id: string, payload: { enabled: boolean; name?: string; sipId: string; sipDomain: string; sipIp: string; sipPort: string; password: string; parentPort: string; receivePortStart: string; receivePortEnd: string }) =>
+  updateGb28181Entry: (id: string, payload: { name: string; sipIp: string; sipPort: string; sipId?: string; username: string; password: string }) =>
     request<AccessGb28181Entry>(`/api/access-config/gb28181/entries/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  gb28181EntryPrecheck: (id: string) =>
+    request<CloudSyncPrecheck>(`/api/access-config/gb28181/entries/${encodeURIComponent(id)}/precheck`, { method: 'POST' }),
+  gb28181EntrySync: (id: string, payload: { items: CloudDeviceItem[]; targetArea: string; overwrite: boolean }) =>
+    request<CloudSyncResult>(`/api/access-config/gb28181/entries/${encodeURIComponent(id)}/sync`, { method: 'POST', body: JSON.stringify(payload) }),
+  saveGb28181Config: (payload: AccessGb28181Config) =>
+    request<AccessGb28181Config>('/api/access-config/gb28181', { method: 'PUT', body: JSON.stringify(payload) }),
   deleteGb28181Entry: (id: string) =>
     request<void>(`/api/access-config/gb28181/entries/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   ga1400Entries: () => request<AccessGa1400Entry[]>('/api/access-config/ga1400/entries'),

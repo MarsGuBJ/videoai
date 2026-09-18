@@ -84,7 +84,7 @@ public class ZlmClient {
                 .queryParam("enable_rtmp", 1)
                 .queryParam("enable_hls", 1)
                 .queryParam("enable_fmp4", 1)
-                .queryParam("enable_audio", 0)
+                .queryParam("enable_audio", 1)
                 .queryParam("modify_stamp", 2)
                 .queryParam("auto_close", 0)
                 .encode()

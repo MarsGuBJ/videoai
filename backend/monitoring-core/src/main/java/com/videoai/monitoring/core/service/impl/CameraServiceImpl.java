@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.videoai.monitoring.common.dto.CameraCreateRequest;
 import com.videoai.monitoring.common.dto.CameraUpdateRequest;
 import com.videoai.monitoring.common.vo.CameraResponse;
+import com.videoai.monitoring.common.vo.DeviceEventMessage;
 import com.videoai.monitoring.core.client.DeviceSourceProbe;
 import com.videoai.monitoring.core.client.ZlmClient;
 import com.videoai.monitoring.core.config.VideoAiProperties;
@@ -11,8 +12,10 @@ import com.videoai.monitoring.core.dao.CameraDao;
 import com.videoai.monitoring.core.entity.CameraEntity;
 import com.videoai.monitoring.core.service.CameraService;
 import com.videoai.monitoring.core.service.LiveRelayService;
+import com.videoai.monitoring.core.service.OpenSubscriptionService;
 import com.videoai.monitoring.core.service.preview.PreviewRelayManager;
 import com.videoai.monitoring.core.support.AreaPaths;
+import com.videoai.monitoring.core.support.OpenDevicePayloads;
 import com.videoai.monitoring.core.support.StreamUrls;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -42,6 +46,7 @@ public class CameraServiceImpl implements CameraService {
     private final ZlmClient zlmClient;
     private final LiveRelayService liveRelayService;
     private final PreviewRelayManager previewRelayManager;
+    private final OpenSubscriptionService openSubscriptionService;
     private final DeviceSourceProbe serialNumberResolver = new DeviceSourceProbe();
     /** 序列号回取走后台线程：慢速设备不能阻塞创建接口 */
     private final ExecutorService serialFetchExecutor = Executors.newSingleThreadExecutor(runnable -> {
@@ -51,12 +56,14 @@ public class CameraServiceImpl implements CameraService {
     });
 
     public CameraServiceImpl(CameraDao cameraDao, VideoAiProperties properties, ZlmClient zlmClient,
-                             LiveRelayService liveRelayService, PreviewRelayManager previewRelayManager) {
+                             LiveRelayService liveRelayService, PreviewRelayManager previewRelayManager,
+                             OpenSubscriptionService openSubscriptionService) {
         this.cameraDao = cameraDao;
         this.properties = properties;
         this.zlmClient = zlmClient;
         this.liveRelayService = liveRelayService;
         this.previewRelayManager = previewRelayManager;
+        this.openSubscriptionService = openSubscriptionService;
     }
 
     @Override
@@ -133,7 +140,9 @@ public class CameraServiceImpl implements CameraService {
         entity.setChannelName(clean(request.channelName()));
         cameraDao.insert(entity);
         scheduleSerialNumberFetch(id, request.sourceUrl());
-        return get(id);
+        CameraResponse created = get(id);
+        openSubscriptionService.publishCamera(DeviceEventMessage.CREATED, created);
+        return created;
     }
 
     /** 下一个自动设备编号：CAM00001 起，按库内已有 CAM%05d 最大值递增。 */
@@ -177,6 +186,7 @@ public class CameraServiceImpl implements CameraService {
                 }
                 fresh.setSerialNumber(serial.get());
                 cameraDao.updateCamera(fresh);
+                openSubscriptionService.publishCamera(DeviceEventMessage.UPDATED, toResponse(fresh));
             } catch (Exception ignored) {
                 // 序列号回取失败不影响设备创建
             }
@@ -236,12 +246,18 @@ public class CameraServiceImpl implements CameraService {
         if (serialNumber == null) {
             scheduleSerialNumberFetch(id, newSourceUrl);
         }
-        if (!newSourceUrl.equals(old.sourceUrl()) || !streamName.equals(old.streamName())) {
+        if (!Objects.equals(newSourceUrl, old.sourceUrl()) || !Objects.equals(streamName, old.streamName())) {
             previewRelayManager.stopStream(old.streamName());
             liveRelayService.stopFfmpegLiveRelay(old.streamName());
             liveRelayService.removeZlmediakitProxy(StreamUrls.subStreamName(old.streamName()));
         }
-        return get(id);
+        // 音频能力开关切换：关闭主流代理，由守护线程按新模式（ffmpeg 转 AAC / ZLM 透传）重挂
+        if (!Objects.equals(entity.getAudioEnabled(), old.audioEnabled()) && "RUNNING".equals(old.status())) {
+            liveRelayService.removeZlmediakitProxy(streamName);
+        }
+        CameraResponse updated = get(id);
+        openSubscriptionService.publishCamera(DeviceEventMessage.UPDATED, updated);
+        return updated;
     }
 
     @Override
@@ -252,6 +268,8 @@ public class CameraServiceImpl implements CameraService {
             liveRelayService.removeZlmediakitProxy(camera.streamName());
             liveRelayService.removeZlmediakitProxy(StreamUrls.subStreamName(camera.streamName()));
             cameraDao.deleteById(id);
+            openSubscriptionService.publish(DeviceEventMessage.DELETED,
+                    OpenDevicePayloads.deletedDevice(camera.id(), camera.name()));
         });
     }
 
@@ -259,8 +277,14 @@ public class CameraServiceImpl implements CameraService {
     @Transactional
     public CameraResponse start(UUID id) {
         CameraResponse camera = get(id);
+        // 无拉流地址的设备（如 GB28181 同步入库）无法开播
+        if (camera.sourceUrl() == null || camera.sourceUrl().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该设备未配置拉流地址，无法开播");
+        }
         // 先挂流再置状态：拉流服务拒绝该地址时不得留下"拉流中"的假状态
-        boolean attached = liveRelayService.addZlmediakitProxy(camera.sourceUrl(), camera.streamName());
+        // 支持音频的设备走 ffmpeg 中继转 AAC（浏览器 MSE 不支持摄像头常见的 G.711）
+        boolean attached = liveRelayService.addZlmediakitProxy(
+                camera.sourceUrl(), camera.streamName(), false, camera.audioEnabled());
         if (!attached) {
             cameraDao.updateStatus(id, "STOPPED");
             log.warn("camera start rejected by relay: {} ({}) url={}", camera.name(), id, camera.sourceUrl());

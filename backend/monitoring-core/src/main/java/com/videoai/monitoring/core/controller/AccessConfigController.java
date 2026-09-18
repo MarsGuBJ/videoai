@@ -3,6 +3,7 @@ package com.videoai.monitoring.core.controller;
 import com.videoai.monitoring.api.AccessConfigApi;
 import com.videoai.monitoring.common.dto.CertificateCreateRequest;
 import com.videoai.monitoring.common.dto.CheckPortRequest;
+import com.videoai.monitoring.common.dto.CloudSyncRequest;
 import com.videoai.monitoring.common.dto.Ga1400Config;
 import com.videoai.monitoring.common.dto.Ga1400EntryRequest;
 import com.videoai.monitoring.common.dto.Gb28181Config;
@@ -10,10 +11,13 @@ import com.videoai.monitoring.common.dto.Gb28181EntryRequest;
 import com.videoai.monitoring.common.vo.AccessConfigResponse;
 import com.videoai.monitoring.common.vo.CertificateResponse;
 import com.videoai.monitoring.common.vo.CheckPortResponse;
+import com.videoai.monitoring.common.vo.CloudSyncPrecheckResponse;
+import com.videoai.monitoring.common.vo.CloudSyncResultResponse;
 import com.videoai.monitoring.common.vo.Ga1400EntryResponse;
 import com.videoai.monitoring.common.vo.Gb28181EntryResponse;
 import com.videoai.monitoring.common.vo.HostIpsResponse;
 import com.videoai.monitoring.core.service.AccessConfigService;
+import com.videoai.monitoring.core.service.impl.Gb28181CatalogSyncService;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -23,9 +27,12 @@ import java.util.UUID;
 @RestController
 public class AccessConfigController implements AccessConfigApi {
     private final AccessConfigService accessConfigService;
+    private final Gb28181CatalogSyncService gb28181CatalogSyncService;
 
-    public AccessConfigController(AccessConfigService accessConfigService) {
+    public AccessConfigController(AccessConfigService accessConfigService,
+                                  Gb28181CatalogSyncService gb28181CatalogSyncService) {
         this.accessConfigService = accessConfigService;
+        this.gb28181CatalogSyncService = gb28181CatalogSyncService;
     }
 
     @Override
@@ -83,6 +90,16 @@ public class AccessConfigController implements AccessConfigApi {
     public Map<String, Object> deleteGb28181Entry(UUID id) {
         accessConfigService.deleteGb28181Entry(id);
         return Map.of();
+    }
+
+    @Override
+    public CloudSyncPrecheckResponse precheckGb28181Entry(UUID id) {
+        return gb28181CatalogSyncService.precheck(id);
+    }
+
+    @Override
+    public CloudSyncResultResponse syncGb28181Entry(UUID id, CloudSyncRequest request) {
+        return gb28181CatalogSyncService.sync(id, request);
     }
 
     @Override

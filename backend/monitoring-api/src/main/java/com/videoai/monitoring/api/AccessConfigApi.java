@@ -2,6 +2,7 @@ package com.videoai.monitoring.api;
 
 import com.videoai.monitoring.common.dto.CertificateCreateRequest;
 import com.videoai.monitoring.common.dto.CheckPortRequest;
+import com.videoai.monitoring.common.dto.CloudSyncRequest;
 import com.videoai.monitoring.common.dto.Ga1400Config;
 import com.videoai.monitoring.common.dto.Ga1400EntryRequest;
 import com.videoai.monitoring.common.dto.Gb28181Config;
@@ -9,6 +10,8 @@ import com.videoai.monitoring.common.dto.Gb28181EntryRequest;
 import com.videoai.monitoring.common.vo.AccessConfigResponse;
 import com.videoai.monitoring.common.vo.CertificateResponse;
 import com.videoai.monitoring.common.vo.CheckPortResponse;
+import com.videoai.monitoring.common.vo.CloudSyncPrecheckResponse;
+import com.videoai.monitoring.common.vo.CloudSyncResultResponse;
 import com.videoai.monitoring.common.vo.Ga1400EntryResponse;
 import com.videoai.monitoring.common.vo.Gb28181EntryResponse;
 import com.videoai.monitoring.common.vo.HostIpsResponse;
@@ -64,6 +67,14 @@ public interface AccessConfigApi {
 
     @DeleteMapping("/gb28181/entries/{id}")
     Map<String, Object> deleteGb28181Entry(@PathVariable UUID id);
+
+    /** 云平台同步-GB28181 来源：向级联服务器发起 SIP Catalog 查询并做 gbCode 判重预检。 */
+    @PostMapping("/gb28181/entries/{id}/precheck")
+    CloudSyncPrecheckResponse precheckGb28181Entry(@PathVariable UUID id);
+
+    /** 云平台同步-GB28181 来源：把预检选中的设备按 gbCode 同步入库。 */
+    @PostMapping("/gb28181/entries/{id}/sync")
+    CloudSyncResultResponse syncGb28181Entry(@PathVariable UUID id, @RequestBody CloudSyncRequest request);
 
     @GetMapping("/certificates")
     List<CertificateResponse> listCertificates();

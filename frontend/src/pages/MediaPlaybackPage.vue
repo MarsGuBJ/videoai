@@ -2,28 +2,34 @@
   <section class="content review-wide media-playback-page">
     <div class="review-titlebar"><div><h1>录像回放</h1><p>按空间、设备与时间快速检索历史录像，支持时间轴定位、同步回放、分段回放和录像下载</p></div><div class="segmented"><button class="btn" @click="openRecordDownload">录像下载</button><button class="btn primary" @click="goLivePreview">切换实况</button></div></div>
     <div class="media-console-grid playback">
-      <aside class="panel media-resource-panel">
+      <aside v-show="showSider" class="panel media-resource-panel">
         <div class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in regions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ expandedRegions[region.fullPath] ? '⌄' : '›' }} {{ region.name }}</span><span>{{ region.count }} 台设备</span></button><div v-if="expandedRegions[region.fullPath]" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!regions.length" style="padding:12px;color:#888;">暂无录像资源，请先在设备管理中添加设备</div></div></div>
         <div class="media-record-query"><div class="media-resource-tabs" style="margin-bottom:0;"></div><label>开始时间<input class="input" type="datetime-local" v-model="queryStart" /></label><label>结束时间<input class="input" type="datetime-local" v-model="queryEnd" /></label><button class="btn primary" :disabled="searching" @click="searchRecordings">{{ searching ? '查询中…' : '录像查询' }}</button><ul v-if="segments.length" class="media-plan-list"><li :class="{ active: !!activeSegment }" style="cursor:pointer;" @click="playMergedResult"><b>{{ formatSegmentTime(segments[0].startTime) }} ~ {{ formatSegmentTime(segments[segments.length - 1].endTime, true) }}</b><span>{{ segments[0].cameraName || (selectedCamera && selectedCamera.name) || '' }}</span></li></ul><p v-else-if="searchError" class="hint-text">{{ searchError }}</p><p v-else-if="searched && !searching" class="hint-text">该时段无录像</p></div>
       </aside>
       <section class="panel media-stage-panel">
-        <div class="media-playback-player" :class="{ 'fit-video': !!playbackAspect }" :style="playbackAspect ? { aspectRatio: playbackAspect } : null">
-          <video-player v-if="playbackStreamUrl" ref="playbackPlayer" :url="playbackStreamUrl" format="flv" @resolution="onPlaybackResolution"></video-player>
-          <div v-else style="display:flex;align-items:center;justify-content:center;height:100%;color:#98a2b3;font-size:13px;">选择左侧摄像头并查询录像，点击录像结果开始回放</div>
-          <div class="media-playback-player-title">录像回放 · {{ playbackTitle }}</div>
-          <div class="media-playback-overlay-controls">
-            <div class="media-playback-button-group" aria-label="录像回放控制">
-              <button class="media-playback-step" type="button" title="跳到开始" aria-label="跳到开始" @click="seekPlayback(-playbackDuration)">|◀</button>
-              <button class="media-playback-step" type="button" title="后退10秒" aria-label="后退10秒" @click="seekPlayback(-10)">◀</button>
-              <button class="media-playback-toggle active" type="button" title="播放或暂停" :aria-label="playbackPlaying ? '暂停' : '播放'" @click="togglePlayback">{{ playbackPlaying ? 'Ⅱ' : '▶' }}</button>
-              <button class="media-playback-step" type="button" title="前进10秒" aria-label="前进10秒" @click="seekPlayback(10)">▶</button>
-              <button class="media-playback-step" type="button" title="跳到结束" aria-label="跳到结束" @click="seekPlayback(playbackDuration)">▶|</button>
-            </div>
-            <span>{{ formatClock(rangeStartMs) }}</span>
-            <input class="media-playback-progress" type="range" min="0" :max="playbackDuration" step="1" v-model.number="playbackCurrent" :disabled="!activeSegment" aria-label="录像播放进度" @pointerdown="scrubbing = true" @pointerup="scrubbing = false" @change="commitProgress" />
-            <span>{{ formatClock(rangeEndMs) }}</span>
-            <select class="media-playback-rate" v-model="speed" title="回放倍速（NVR 实测支持 0.25~32 倍）" aria-label="播放倍速" @change="onSpeedChange"><option v-for="option in SPEED_OPTIONS" :key="option" :value="String(option)">{{ option }}x</option></select>
-          </div>
+        <div class="media-playback-player playback-player-fill">
+          <playback-player
+            ref="playbackPlayerShell"
+            :stream-url="playbackStreamUrl"
+            :title="playbackCameraName"
+            :playing="playbackPlaying"
+            :speed="Number(speed)"
+            :current-ms="currentPlaybackMs"
+            :range-start-ms="rangeStartMs"
+            :range-end-ms="rangeEndMs"
+            :segments="timelineSegments"
+            :muted="muted"
+            :show-sidebar="showSider"
+            :mask-text="playbackMaskText"
+            @seek="onPlayerSeek"
+            @toggle-play="togglePlayback"
+            @speed-step="onSpeedStep"
+            @speed-reset="onSpeedReset"
+            @mute-toggle="toggleMute"
+            @capture="capturePlayback"
+            @close="closePlayback"
+            @toggle-sidebar="showSider = !showSider"
+          ></playback-player>
         </div>
       </section>
     </div>
@@ -36,7 +42,8 @@ import { api } from "../api";
 import type { RecordingSegment, RegionTreeNode } from "../api";
 import { deviceStatusLabel, deviceStatusRank } from "../utils/device-status";
 import { flattenRegionTree, loadRegionTree, normalizePath, type RegionNode } from "../utils/regions";
-import VideoPlayer from "../components/VideoPlayer.vue";
+import PlaybackPlayer from "../components/playback/PlaybackPlayer.vue";
+import type { TimelineSegment } from "../components/playback/PlaybackTimeline.vue";
 
 // 区域节点来自后端区域树（sortOrder 顺序）；设备占用的路径不在树中时（含「未分配」）按前缀补齐到末尾。
 // count 口径与原 buildRegionTree 一致：顶层节点含全部子孙，子节点仅统计精确挂载的设备数。
@@ -105,12 +112,12 @@ function parseLocalMs(value?: string): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
-// 现场海康 NVR（10.10.7.252/253）回放倍速实测支持 0.25~32 倍
-const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
+// 参考站（iSecure Center）回放工具栏倍速档位
+const SPEED_LEVELS = [0.25, 0.5, 1, 2, 4];
 
 export default defineComponent({
   name: "MediaPlaybackPage",
-  components: { VideoPlayer },
+  components: { PlaybackPlayer },
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
   inject: {
     openModal: { from: "openModal", default: (type: string, item?: any) => {} },
@@ -121,8 +128,9 @@ export default defineComponent({
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     return {
-      speed: "1",
-      SPEED_OPTIONS,
+      speed: 1 as number,
+      showSider: true,
+      muted: true,
       queryStart: toLocalDateTimeValue(today),
       queryEnd: toLocalDateTimeValue(now),
       searching: false,
@@ -141,8 +149,6 @@ export default defineComponent({
       selectedCamera: null as any,
       selectedRegion: null as RegionNode | null,
       playbackStreamUrl: undefined as string | undefined,
-      // 当前回放视频的真实宽高比（"1920 / 1080"）：播放器高度随视频高度调整
-      playbackAspect: "",
       regions: [] as RegionNode[],
       regionCameras: {} as Record<string, any[]>,
       expandedRegions: {} as Record<string, boolean>
@@ -160,10 +166,21 @@ export default defineComponent({
     currentPlaybackMs(): number {
       return this.segments.length ? this.rangeStartMs + this.playbackCurrent * 1000 : 0;
     },
-    playbackTitle(): string {
-      if (!this.selectedCamera) return "未选择摄像头";
-      if (!this.activeSegment) return this.selectedCamera.name;
-      return `${this.selectedCamera.name} · ${this.formatClock(this.currentPlaybackMs)}`;
+    playbackCameraName(): string {
+      return this.selectedCamera ? this.selectedCamera.name : "";
+    },
+    playbackMaskText(): string {
+      if (this.playbackStreamUrl) return "";
+      if (!this.selectedCamera) return "选择左侧摄像头并查询录像，点击录像结果开始回放";
+      if (!this.segments.length) return "该时段无录像";
+      return "点击左侧录像结果开始回放";
+    },
+    // 时间轴录像段：查询结果直接映射为 {startMs, endMs}
+    timelineSegments(): TimelineSegment[] {
+      return this.segments.map((segment) => ({
+        startMs: parseLocalMs(segment.startTime),
+        endMs: parseLocalMs(segment.endTime)
+      }));
     }
   },
   mounted() {
@@ -268,7 +285,7 @@ export default defineComponent({
       try {
         // 检索用秒级精度的原始时间段，避免 datetime-local 分钟精度截断漏段
         const result = await api.searchRecordings({ cameraId: target.id, startTime: toLocalIsoSeconds(pending.startMs), endTime: toLocalIsoSeconds(pending.endMs) });
-        this.segments = ((result && result.data) || []).slice().sort((a, b) => parseLocalMs(a.startTime) - parseLocalMs(b.startTime));
+        this.segments = ((result && result.data) || []).slice().sort((a, b) => parseLocalMs(a.startTime) - parseLocalMs(b.endTime));
         this.searched = true;
         if (!this.segments.length) {
           this.showToast("该时段无录像");
@@ -286,11 +303,6 @@ export default defineComponent({
       } finally {
         this.searching = false;
       }
-    },
-    formatClock(ms: number): string {
-      if (!ms) return "--:--:--";
-      const date = new Date(ms);
-      return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
     },
     stopProgressTimer() {
       if (this.playbackTimer) window.clearInterval(this.playbackTimer);
@@ -326,13 +338,6 @@ export default defineComponent({
       this.playbackDuration = 0;
       this.activeSegment = null;
       this.playbackStreamUrl = undefined;
-      this.playbackAspect = "";
-    },
-    // 回放视频元数据就绪：记录真实宽高比，播放器宽度占满、高度随视频收缩
-    onPlaybackResolution(resolution: { width: number; height: number }) {
-      if (resolution && resolution.width && resolution.height) {
-        this.playbackAspect = `${resolution.width} / ${resolution.height}`;
-      }
     },
     async searchRecordings() {
       if (!this.selectedCamera) {
@@ -412,7 +417,7 @@ export default defineComponent({
         this.playbackPlaying = true;
         this.startProgressTimer();
         if (this.playbackStreamUrl === result.url) {
-          // URL 相同不会触发 VideoPlayer 的 watch，先卸载再在下一帧重建流
+          // URL 相同不会触发播放器组件的 watch，先卸载再在下一帧重建流
           this.playbackStreamUrl = undefined;
           this.$nextTick(() => {
             this.playbackStreamUrl = result.url;
@@ -426,20 +431,23 @@ export default defineComponent({
         this.playbackBusy = false;
       }
     },
-    // 切换倍速：以当前回放位置为新起点按新倍速重新起流
-    onSpeedChange() {
-      if (!this.activeSegment || !this.playbackPlaying) return;
-      this.startPlaybackAt(this.playbackCurrent);
+    // ---- 播放器组件事件 ----
+    // 时间轴 / 时间选择框定位：绝对时刻 → 全局偏移重新起流
+    onPlayerSeek(ms: number) {
+      if (!this.segments.length) {
+        this.showToast("请先查询录像");
+        return;
+      }
+      this.startPlaybackAt(Math.round((ms - this.rangeStartMs) / 1000));
     },
     togglePlayback() {
       if (!this.activeSegment) {
         this.showToast("请先查询并点击左侧录像结果");
         return;
       }
-      const player = this.$refs.playbackPlayer as any;
       if (this.playbackPlaying) {
         // 暂停即停流，进度停留在当前位置
-        if (player) player.stop();
+        this.stopStreamOnly();
         this.playbackPlaying = false;
         this.stopProgressTimer();
         return;
@@ -451,13 +459,55 @@ export default defineComponent({
       // 连续推送流无法从暂停点续播，从当前位置重新起流
       this.startPlaybackAt(this.playbackCurrent);
     },
-    seekPlayback(delta: number) {
-      if (!this.activeSegment) return;
-      this.startPlaybackAt(this.playbackCurrent + delta);
+    // 仅停流（暂停）：保留进度与段信息
+    stopStreamOnly() {
+      this.playbackStreamUrl = undefined;
     },
-    commitProgress() {
-      if (!this.activeSegment) return;
-      this.startPlaybackAt(this.playbackCurrent);
+    // 倍速档位步进（参考站 JS_Fast / JS_Slow：每击一档）
+    onSpeedStep(direction: number) {
+      const index = SPEED_LEVELS.indexOf(Number(this.speed));
+      const next = Math.max(0, Math.min(SPEED_LEVELS.length - 1, (index < 0 ? 2 : index) + direction));
+      const speed = SPEED_LEVELS[next];
+      if (speed === Number(this.speed)) return;
+      this.speed = speed;
+      if (this.activeSegment && this.playbackPlaying) {
+        this.startPlaybackAt(this.playbackCurrent);
+      }
+    },
+    // 倍速文字点击 = 恢复默认速度（1×）
+    onSpeedReset() {
+      if (Number(this.speed) === 1) return;
+      this.speed = 1;
+      if (this.activeSegment && this.playbackPlaying) {
+        this.startPlaybackAt(this.playbackCurrent);
+      }
+    },
+    toggleMute() {
+      this.muted = !this.muted;
+      const shell = (this.$refs as any).playbackPlayerShell;
+      const player = shell?.videoInstance?.();
+      if (player) player.setMuted(this.muted);
+    },
+    // 抓图：截取当前画面并下载
+    capturePlayback() {
+      const shell = (this.$refs as any).playbackPlayerShell;
+      const player = shell?.videoInstance?.();
+      const dataUrl = player?.snapshot?.();
+      if (!dataUrl) {
+        this.showToast("暂无可抓取的画面");
+        return;
+      }
+      const link = document.createElement("a");
+      const date = new Date(this.currentPlaybackMs);
+      const name = this.selectedCamera ? this.selectedCamera.name : "回放";
+      link.download = `${name}_${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}_${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}.jpg`;
+      link.href = dataUrl;
+      link.click();
+      this.showToast("抓图成功");
+    },
+    // 全部关闭：停止回放并清空进度
+    closePlayback() {
+      this.resetPlayback();
     },
     toggleRegion(region: RegionNode) {
       if (!this.selectedRegion || this.selectedRegion.fullPath !== region.fullPath) {
@@ -504,3 +554,17 @@ export default defineComponent({
   }
 });
 </script>
+
+<style scoped>
+/* 复刻参考站：播放器铺满右侧舞台（视频区 + 时间轴 + 工具栏整体填充） */
+.media-playback-player.playback-player-fill {
+  display: flex;
+  min-width: 0;
+  min-height: 480px;
+  background: #262626;
+}
+
+.media-playback-player.playback-player-fill > :deep(.playback-player-shell) {
+  flex: 1;
+}
+</style>

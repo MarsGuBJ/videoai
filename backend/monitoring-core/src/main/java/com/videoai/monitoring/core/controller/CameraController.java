@@ -12,7 +12,9 @@ import com.videoai.monitoring.core.client.DeviceSourceProbe;
 import com.videoai.monitoring.core.service.CameraService;
 import com.videoai.monitoring.core.service.PtzService;
 import com.videoai.monitoring.core.service.impl.CameraStatusScanService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -40,6 +42,10 @@ public class CameraController implements CameraApi {
 
     @Override
     public CameraResponse create(CameraCreateRequest request) {
+        // 手工新增必须提供拉流地址（GB28181 同步入库的无地址设备走内部服务，不经过此入口）
+        if (request.sourceUrl() == null || request.sourceUrl().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "拉流地址不能为空");
+        }
         return cameraService.create(request);
     }
 

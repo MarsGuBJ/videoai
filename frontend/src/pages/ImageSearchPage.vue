@@ -30,7 +30,7 @@
         <span class="page-jump"><input class="page-jump-input" type="number" min="1" :max="pageCount" v-model="jumpPage" placeholder="页码" aria-label="跳转页码" @keyup.enter="jumpToPage" /><button @click="jumpToPage">确定</button></span>
       </div>
     </div>
-    <div v-else class="search-empty-state"><strong>等待图像检索</strong><span>上传参考图并点击「搜索」查看匹配结果</span></div>
+    <div v-else class="search-empty-state"><strong>暂无搜索结果</strong><strong>上传参考图并点击「搜索」查看匹配结果</strong></div>
     <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索，请稍候…</p></div></div>
     <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
   </section>

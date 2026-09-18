@@ -13,7 +13,7 @@
       <div v-else class="exact-last-video-panel">
         <input ref="exactVideoInput" class="hidden-file-input" type="file" accept="video/*,.mkv" @change="onFileChange" />
         <div class="exact-upload-actions" @click.stop><button class="btn" @click="clearLocalVideo">清空已上传视频</button><button class="btn" @click="triggerUpload">重新上传视频</button><button class="btn primary" :disabled="!localVideoUrl" @click="useLastLocalVideo">使用已上传视频</button></div>
-        <div v-if="localFileName" class="exact-last-video-card"><img :src="store.img.analyst" alt="已上传本地视频" /><div><strong>{{ localFileName }}</strong><p>{{ localFileSize }} · 已载入本地预览</p><div class="tags"><span class="tag blue">已上传</span><span class="tag">支持时间定位</span></div></div></div>
+        <div v-if="localFileName" class="exact-last-video-card"><img :src="localVideoPoster || store.img.analyst" alt="已上传本地视频" /><div><strong>{{ localFileName }}</strong><p>{{ localFileSize }} · 已载入本地预览</p><div class="tags"><span class="tag blue">已上传</span><span class="tag">支持时间定位</span></div></div></div>
         <div v-else class="exact-upload-drop" @click="triggerUpload" @dragover.prevent @drop.prevent="handleDrop"><div><span class="upload-mark">＋</span><strong>点击上传或拖拽视频到此处</strong><span class="hint-text">支持本地视频预览与时间定位</span></div></div>
       </div>
     </div>
@@ -27,7 +27,7 @@
       <div class="panel exact-left-workspace">
       <div class="exact-video-panel">
         <div class="exact-player" ref="exactPlayer">
-          <div class="exact-player-media"><video v-if="selectedSource.videoUrl" ref="exactVideo" :src="selectedSource.videoUrl" muted playsinline @timeupdate="syncVideoTime" @loadedmetadata="syncVideoTime" @ended="playerPlaying = false"></video><video-player v-else-if="selectedSource.streamUrl" ref="exactStreamPlayer" :url="selectedSource.streamUrl" format="flv"></video-player><img v-else :src="selectedSource.image" :alt="selectedSource.name" /></div>
+          <div class="exact-player-media"><video v-if="selectedSource.videoUrl" ref="exactVideo" :src="selectedSource.videoUrl" muted playsinline @timeupdate="syncVideoTime" @loadedmetadata="syncVideoTime" @ended="playerPlaying = false"></video><video-player v-else-if="selectedSource.streamUrl" ref="exactStreamPlayer" :url="selectedSource.streamUrl" format="flv" :native-controls="false"></video-player><img v-else :src="selectedSource.image" :alt="selectedSource.name" /></div>
           <button class="exact-fullscreen-btn" type="button" :title="playerFullscreen ? '退出全屏' : '全屏播放'" :aria-label="playerFullscreen ? '退出全屏' : '全屏播放'" @click="togglePlayerFullscreen">
             <svg v-if="!playerFullscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
             <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
@@ -41,6 +41,7 @@
           <div class="exact-dialog-chat-head"><strong>视频问答</strong></div>
           <div class="exact-chat-messages">
             <div v-for="(message, index) in questionMessages" :key="index" class="exact-chat-item" :class="message.role">
+              <div v-if="message.role === 'assistant' && message.thinkingSeconds != null" class="exact-thinking-row"><span class="exact-thinking-tag done">已思考</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(message.thinkingSeconds) }}</span></div>
               <div class="exact-chat-message" :class="message.role">{{ message.text }}</div>
               <div v-if="message.role === 'assistant' && message.analysisId" class="exact-message-actions">
                 <button class="exact-message-analysis-btn" :class="{ active: activeAnalysisId === message.analysisId }" type="button" title="分析概要" aria-label="分析概要" @click="loadAnalysisSnapshot(message.analysisId)">&#xf080;</button>
@@ -48,7 +49,7 @@
                 <button class="exact-message-detail-btn" type="button" title="分析详情" aria-label="分析详情" @click="openMessageDetail(message)">&#xf05a;</button>
               </div>
             </div>
-            <div v-if="questionBusy" class="exact-chat-loading">分析助手正在结合视频内容整理答案...</div>
+            <div v-if="questionBusy" class="exact-chat-loading"><span class="exact-thinking-row"><span class="exact-thinking-tag">思考中</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(thinkingElapsed) }}</span></span><div v-if="downloading || downloadSeconds != null" class="exact-phase-row"><span>正在智能分析中，请稍后</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(downloadElapsed) }}</span></div><div v-if="analyzePhase" class="exact-phase-row"><span>开始分析...</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(analyzeElapsed) }}</span></div><div v-if="analyzePhase">分析助手正在结合视频内容整理答案...</div></div>
           </div>
           <div class="exact-chat-quick"><button v-for="prompt in quickQuestions" :key="prompt.label" :class="{ active: activeQuickPrompt === prompt.label }" @click="fillQuickPrompt(prompt)">{{ prompt.label }}</button></div>
           <div class="exact-query-box"><textarea ref="exactQueryInput" class="textarea" v-model="query" :placeholder="queryPlaceholder" @keydown.enter.exact.prevent="submitVideoChat"></textarea><div class="exact-query-send"><button class="btn primary exact-send-btn" :disabled="questionBusy" aria-label="发送" title="发送" @click="submitVideoChat"><span class="send-icon" aria-hidden="true"></span></button></div></div>
@@ -67,10 +68,10 @@
           <div v-if="!analyzed" class="exact-empty-state"><div><strong>等待开始文搜</strong><br /><span>确认视频源后，输入描述并开始分析</span></div></div>
           <template v-else>
             <div class="exact-conclusion">
-              <div class="exact-summary-heading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg><strong>事件摘要</strong><details class="exact-export-menu"><summary class="btn">导出摘要</summary><div class="exact-export-options" role="menu"><button role="menuitem" @click="exportFromMenu('pdf', $event)">导出PDF</button><button role="menuitem" @click="exportFromMenu('word', $event)">导出Word</button><button role="menuitem" @click="exportFromMenu('md', $event)">导出MD</button></div></details></div>
-              <div class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>事件概况</div><p>{{ summary.overview }}</p></div>
-              <div v-if="summary.persons.length" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>涉及人员</div><ul><li v-for="person in summary.persons" :key="person">{{ person }}</li></ul></div>
-              <div v-if="summary.vehicles.length" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="11" rx="2"/><circle cx="8" cy="19" r="2"/><circle cx="16" cy="19" r="2"/></svg>涉及车辆</div><ul><li v-for="vehicle in summary.vehicles" :key="vehicle">{{ vehicle }}</li></ul></div>
+              <div class="exact-summary-heading"><div class="exact-summary-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg><strong>事件摘要</strong></div><details class="exact-export-menu"><summary class="btn">导出摘要</summary><div class="exact-export-options" role="menu"><button role="menuitem" @click="exportFromMenu('pdf', $event)">导出PDF</button><button role="menuitem" @click="exportFromMenu('word', $event)">导出Word</button><button role="menuitem" @click="exportFromMenu('md', $event)">导出MD</button></div></details></div>
+              <div v-if="summary.overview" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>事件概况</div><div class="exact-markdown" v-html="renderMarkdown(summary.overview)"></div></div>
+              <div v-if="summary.eventName" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41L11 3.83A2 2 0 0 0 9.59 3.24H4a2 2 0 0 0-2 2v5.59a2 2 0 0 0 .59 1.41l9.58 9.59a2 2 0 0 0 2.83 0l5.59-5.59a2 2 0 0 0 0-2.83z"/><circle cx="7.5" cy="7.5" r="0.5"/></svg>事件名称</div><p class="exact-summary-event-name">{{ summary.eventName }}</p></div>
+              <div v-if="summary.description" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>事件描述</div><div class="exact-markdown" v-html="renderMarkdown(summary.description)"></div></div>
             </div>
             <div class="exact-section-title" style="margin-top:16px;"><div><h3>分析结果</h3><p>共识别 {{ events.length }} 个关键事件，点击卡片定位上方视频。</p></div></div>
             <div class="exact-event-list">
@@ -79,7 +80,7 @@
                 <div>
                   <div class="exact-event-meta"><strong>发生时间 {{ event.time }}</strong><span>回放定位</span></div>
                   <h4>{{ event.name }}</h4>
-                  <p>{{ event.detail }}</p>
+                  <div class="exact-markdown exact-event-detail" v-html="renderMarkdown(event.detail)"></div>
                   <div class="exact-event-actions"><button class="btn" @click.stop="openResultCrop('imageSearch', event, index)">以图搜图</button><button class="btn primary" @click.stop="openResultCrop('quickDeploy', event, index)">快速布防</button><button class="btn" @click.stop="openResultCrop('track', event, index)">轨迹还原</button></div>
                 </div>
               </article>
@@ -108,7 +109,7 @@
           </div>
           <div class="result-toolbar exact-i2i-result-toolbar"><div class="result-count">共找到 <b>{{ activeResultTabObj.items.length }}</b> 条相似结果</div></div>
           <div v-if="activeResultTabObj.loading" class="track-empty">正在搜索相似目标，请稍候...</div>
-          <image-results v-else-if="activeResultTabObj.items.length" :items="activeResultTabObj.items" :show-score="true" :selectable="false" :hide-jump="true" :show-actions="true" @image-action="onImageSearchAction"></image-results>
+          <image-results v-else-if="activeResultTabObj.items.length" :items="activeResultTabObj.items" :show-score="true" :selectable="false" :hide-jump="true" :hide-description="true" :show-actions="false" :disable-open="true" :show-full-date="true"></image-results>
           <div v-else class="track-empty">未找到相似目标，可在事件卡片重新框选后再次搜索。</div>
         </div>
         <div v-else-if="activeResultTabObj && activeResultTabObj.type === 'quickDeploy'" class="exact-dialog-body exact-quick-deploy-tab" role="tabpanel" aria-label="快速布防">
@@ -118,7 +119,7 @@
           </template>
           <div v-else class="exact-quick-deploy-form">
             <div class="modal-form-row"><label><span class="required">*</span>任务名称：</label><input class="input" v-model="activeResultTabObj.deployTaskName" placeholder="请输入任务名称" /></div>
-            <div class="modal-form-row"><label><span class="required">*</span>布控点位：</label>
+            <div class="modal-form-row"><label><span class="required">*</span>布控区域：</label>
               <div class="exact-tree-select" @click.stop>
                 <button class="exact-tree-trigger" :class="{ open: activeResultTabObj.deployAreaOpen }" type="button" @click="activeResultTabObj.deployAreaOpen = !activeResultTabObj.deployAreaOpen"><span>{{ deployAreaLabel(activeResultTabObj) }}</span><span>{{ activeResultTabObj.deployAreaOpen ? '收起' : '展开' }}⌄</span></button>
                 <div v-if="activeResultTabObj.deployAreaOpen" class="exact-tree-dropdown">
@@ -134,17 +135,19 @@
             </div>
             <div class="modal-form-row"><label>布控目标：</label>
               <div class="deploy-target-field">
-                <div v-if="activeResultTabObj.payload.image" class="deploy-target-preview"><img :src="activeResultTabObj.payload.image" :alt="activeResultTabObj.payload.sourceName || '已框选布控目标'" /><span v-if="activeResultTabObj.payload.crop" class="transferred-crop-box" :style="cropStyleOf(activeResultTabObj.payload.crop)"></span></div>
-                <span v-else class="hint-text">未带入布控目标图</span>
+                <input ref="deployTargetInput" class="hidden-file-input" type="file" accept="image/*" @change="handleDeployTargetUpload" />
+                <div v-if="deployTargetSource(activeResultTabObj)" class="deploy-target-preview"><img :src="deployTargetSource(activeResultTabObj)" :alt="activeResultTabObj.deployTargetName || activeResultTabObj.payload.sourceName || '已框选布控目标'" /><span v-if="!activeResultTabObj.deployTargetUrl && activeResultTabObj.payload.crop" class="transferred-crop-box" :style="cropStyleOf(activeResultTabObj.payload.crop)"></span></div>
+                <button v-else class="file-upload-tile" style="height:96px;" type="button" @click="triggerDeployTargetUpload"><span><b>＋ 点击上传布控图像</b><br />支持 jpg / png / jpeg</span></button>
+                <button v-if="deployTargetSource(activeResultTabObj)" class="btn deploy-target-clear" type="button" @click="clearDeployTarget(activeResultTabObj)">清空</button>
               </div>
             </div>
             <div class="modal-form-row"><label><span class="required">*</span>布控算法：</label>
               <select class="select" v-model="activeResultTabObj.deployAlgorithmId"><option value="">请选择布控算法</option><option v-for="item in deployAlgorithmOptions" :key="item.id" :value="item.id">{{ item.name }}</option></select>
             </div>
-            <div class="modal-form-row"><label><span class="required">*</span>生效日期：</label>
+            <div class="modal-form-row"><label><span class="required">*</span>生效时间：</label>
               <div class="effective-range"><input class="input" type="date" v-model="activeResultTabObj.deployEffectiveStart" aria-label="生效开始日期" /><span class="range-arrow">→</span><input class="input" type="date" v-model="activeResultTabObj.deployEffectiveEnd" aria-label="生效结束日期" /></div>
             </div>
-            <div class="modal-form-row"><label><span class="required">*</span>循环时段：</label>
+            <div class="modal-form-row"><label><span class="required">*</span>循环周期：</label>
               <div class="effective-range"><input class="input" type="time" v-model="activeResultTabObj.deployCycleStart" aria-label="循环开始时间" /><span class="range-arrow">→</span><input class="input" type="time" v-model="activeResultTabObj.deployCycleEnd" aria-label="循环结束时间" /></div>
             </div>
             <div class="modal-form-row"><label><span class="required">*</span>置信度：</label>
@@ -191,10 +194,10 @@
           <div v-else-if="activeResultTabObj.items.length" class="track-result-content exact-track-result-content">
             <div class="metric-row"><span class="metric">总时长：<b>{{ trackDurationOf(activeResultTabObj.items) }}</b></span><span class="metric">经过点位：<b>{{ trackPointCountOf(activeResultTabObj.items) }}</b></span><span class="metric">轨迹置信：<b>{{ trackConfidenceOf(activeResultTabObj.items) }}%</b></span></div>
             <div class="timeline">
-              <article class="timeline-card" v-for="item in activeResultTabObj.items" :key="item.title + item.date">
+              <article class="timeline-card" v-for="(item, index) in activeResultTabObj.items" :key="item.title + item.date">
                 <div><h4>{{ item.title }}</h4><p>{{ item.desc }}</p><div class="tags"><span class="tag blue">{{ item.location }}</span><span class="tag">相似度 {{ item.score }}%</span></div></div>
                 <div class="timeline-card-controls"><span class="hint-text timeline-card-date">{{ item.date }}</span></div>
-                <button class="timeline-image-button" type="button" title="查看图片详情" @click="openResult(-1, item)"><img :src="item.image" :alt="item.title" /></button>
+                <button class="timeline-image-button" type="button" title="查看图片详情" @click="openTrackResultModal(activeResultTabObj, index)"><img :src="item.image" :alt="item.title" /></button>
               </article>
             </div>
           </div>
@@ -205,6 +208,39 @@
     </div>
   </section>
   <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeResultCrop" @confirm="confirmResultCrop"></image-crop-dialog>
+  <div v-if="trackResultModalItem" class="exact-result-modal-mask" @click.self="closeTrackResultModal">
+    <section class="exact-result-modal" role="dialog" aria-modal="true" aria-label="轨迹结果详情">
+      <div class="drawer-head"><h3>分析结果详情</h3><button class="close" aria-label="关闭" @click="closeTrackResultModal">×</button></div>
+      <div class="drawer-body drawer-image-result-body exact-result-modal-body">
+        <div class="drawer-media-tabs segmented" role="group" aria-label="结果媒体">
+          <button class="btn" :class="{ ghost: trackResultMediaTab === 'image' }" :aria-pressed="trackResultMediaTab === 'image'" @click="trackResultMediaTab = 'image'">图片</button>
+          <button class="btn" :class="{ ghost: trackResultMediaTab === 'video' }" :aria-pressed="trackResultMediaTab === 'video'" @click="trackResultMediaTab = 'video'">视频</button>
+        </div>
+        <div v-if="trackResultMediaTab === 'image'" class="drawer-hero-wrap">
+          <img class="drawer-hero" :src="trackResultModalItem.image" :alt="trackResultModalItem.title" />
+          <button class="drawer-hero-switch" type="button" aria-label="切换图片" @click="cycleTrackResultModal">切换图片</button>
+        </div>
+        <div v-else class="drawer-video-preview">
+          <img :src="trackResultModalItem.image" :alt="trackResultModalItem.title + '监控视频画面'" />
+          <span class="play-dot">▶</span>
+          <div class="video-control-line"><span>00:08</span><span class="video-progress"><i></i></span><span>00:30</span></div>
+        </div>
+        <dl class="detail-list">
+          <dt>结果名称</dt><dd>{{ trackResultModalItem.title }}</dd>
+          <dt>时间</dt><dd>{{ trackResultModalItem.date }}</dd>
+          <dt>位置</dt><dd>{{ trackResultModalItem.location }}</dd>
+          <dt>相似度</dt><dd>{{ trackResultModalItem.score }}%</dd>
+        </dl>
+        <div class="panel drawer-image-result-actions" style="padding:12px;">
+          <div class="drawer-image-result-action-buttons">
+            <button class="btn primary" @click="openTrackResultCrop('imageSearch')">以图搜图</button>
+            <button class="btn primary" @click="openTrackResultCrop('quickDeploy')">快速布防</button>
+            <button class="btn primary" @click="openTrackResultCrop('track')">轨迹还原</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
   <div v-if="messageDetailSnapshot" class="exact-result-modal-mask" @click.self="closeMessageDetail">
     <section class="exact-result-modal" role="dialog" aria-modal="true" aria-label="分析详情">
       <div class="drawer-head"><h3>分析详情</h3><button class="close" aria-label="关闭" @click="closeMessageDetail">×</button></div>
@@ -222,7 +258,18 @@
       </div>
     </section>
   </div>
-  <div v-if="searching || analyzing || uploadingVideo || preparingRecording" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>{{ uploadingVideo ? '正在上传视频到分析服务，请稍候...' : (analyzing ? '正在分析视频，请稍候...' : (preparingRecording ? '正在从 NVR 导出录像，时长较长时请耐心等待...' : '正在搜索回放，请稍候...')) }}</p></div></div>
+  <div v-if="searchErrorDialog" class="exact-result-modal-mask" @click.self="closeSearchErrorDialog">
+    <section class="exact-result-modal exact-search-error-modal" role="alertdialog" aria-modal="true" aria-label="查询录像失败">
+      <div class="drawer-head"><h3>{{ searchErrorDialog.title }}</h3><button class="close" aria-label="关闭" @click="closeSearchErrorDialog">×</button></div>
+      <div class="drawer-body exact-search-error-body">
+        <p class="exact-search-error-message">{{ searchErrorDialog.message }}</p>
+        <p v-if="searchErrorDialog.detail" class="exact-search-error-detail">错误详情：{{ searchErrorDialog.detail }}</p>
+        <p class="exact-search-error-hint">{{ searchErrorDialog.hint }}</p>
+        <div class="exact-search-error-actions"><button class="btn primary" @click="closeSearchErrorDialog">我知道了</button></div>
+      </div>
+    </section>
+  </div>
+  <div v-if="searching" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索回放，请稍候...</p></div></div>
 </template>
 
 <script lang="ts">
@@ -262,7 +309,99 @@ function analysisUrlFor(camera: any): string {
 const ANALYSIS_TEXT_KEYS = ["result", "text", "analysis", "summary", "answer", "content", "description"];
 const EVENT_TIME_KEYS = ["start_time", "start", "time", "timestamp", "begin_time", "begin"];
 const EVENT_DESC_KEYS = ["description", "content", "summary", "text", "result", "detail"];
-const EVENT_NAME_KEYS = ["title", "name", "event", "label", "type"];
+const EVENT_NAME_KEYS = ["event_name", "title", "name", "event", "label", "type"];
+
+// 视频理解结果缓存：同一视频 + 同一提问（含全量请求参数）直接命中，秒出结果
+// 模块级 Map：组件切走再回来仍然有效；LRU 淘汰，最多保留 20 条
+const ANALYSIS_CACHE_LIMIT = 20;
+const analysisResponseCache = new Map<string, any>();
+
+function analysisCacheKey(params: Record<string, any>): string {
+  return JSON.stringify(params);
+}
+
+function getCachedAnalysis(params: Record<string, any>): any {
+  const key = analysisCacheKey(params);
+  if (!analysisResponseCache.has(key)) return undefined;
+  const value = analysisResponseCache.get(key);
+  // 命中后刷新插入顺序，让 LRU 淘汰最久未用的条目
+  analysisResponseCache.delete(key);
+  analysisResponseCache.set(key, value);
+  return value;
+}
+
+function setCachedAnalysis(params: Record<string, any>, response: any) {
+  const key = analysisCacheKey(params);
+  analysisResponseCache.delete(key);
+  analysisResponseCache.set(key, response);
+  while (analysisResponseCache.size > ANALYSIS_CACHE_LIMIT) {
+    const oldest = analysisResponseCache.keys().next().value;
+    if (oldest === undefined) break;
+    analysisResponseCache.delete(oldest);
+  }
+}
+
+// 视频理解结构化结果：summary / event_name / description（优先 data 层与 focus_event，兼容首分段 result）
+function findVideoUnderstanding(response: any): { overview: string; eventName: string; description: string } {
+  const nodes: any[] = [];
+  [response, response && response.data].forEach(node => {
+    if (!node || typeof node !== "object") return;
+    nodes.push(node);
+    const firstSegment = Array.isArray(node.segments) && node.segments.length ? node.segments[0] : null;
+    if (firstSegment && typeof firstSegment.result === "object" && firstSegment.result) nodes.push(firstSegment.result);
+  });
+  for (const node of nodes) {
+    const overview = typeof node.summary === "string" ? node.summary.trim() : "";
+    const focus = node.focus_event && typeof node.focus_event === "object" ? node.focus_event : null;
+    const firstEvent = Array.isArray(node.events) && node.events.length && typeof node.events[0] === "object" ? node.events[0] : null;
+    const source = focus || firstEvent || node;
+    const eventName = typeof source.event_name === "string" ? source.event_name.trim() : "";
+    const description = typeof source.description === "string" ? source.description.trim() : "";
+    if (overview || eventName || description) return { overview, eventName, description };
+  }
+  return { overview: "", eventName: "", description: "" };
+}
+
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderMarkdownInline(text: string): string {
+  return escapeHtml(text)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+}
+
+// 轻量 Markdown 渲染：支持 # 标题、**加粗**、*斜体*、`行内代码`、无序/有序列表、空行分段与段内换行；先转义 HTML 再替换，避免注入
+function markdownToHtml(text: string): string {
+  const blocks = String(text || "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+  const html: string[] = [];
+  for (const block of blocks) {
+    const lines = block.split("\n").map(line => line.trimEnd()).filter(line => line.trim());
+    if (!lines.length) continue;
+    const heading = lines.length === 1 ? lines[0].match(/^(#{1,4})\s+(.*)$/) : null;
+    if (heading) {
+      const level = Math.min(heading[1].length, 4);
+      html.push(`<div class="md-h md-h${level}">${renderMarkdownInline(heading[2])}</div>`);
+      continue;
+    }
+    const isUl = lines.every(line => /^[-*•]\s+/.test(line.trim()));
+    const isOl = lines.every(line => /^\d+[.、)]\s*/.test(line.trim()));
+    if (isUl || isOl) {
+      const items = lines.map(line => `<li>${renderMarkdownInline(line.trim().replace(/^[-*•]\s+|^\d+[.、)]\s*/, ""))}</li>`).join("");
+      html.push(isUl ? `<ul>${items}</ul>` : `<ol>${items}</ol>`);
+      continue;
+    }
+    html.push(`<p>${lines.map(line => renderMarkdownInline(line)).join("<br />")}</p>`);
+  }
+  return html.join("");
+}
 
 // 宽容提取响应中的文本结论：先查当前层已知字段，再递归嵌套对象，最后兜底 message
 function findAnalysisText(node: any, depth = 0): string {
@@ -345,8 +484,12 @@ function mapAnalysisSegments(response: any, images: string[]) {
     const raw = typeof segment.raw_text === "string" ? segment.raw_text.trim() : "";
     const text = raw || findAnalysisText(segment.result);
     if (text) texts.push(text);
+    const resultObj = segment.result && typeof segment.result === "object" ? segment.result : null;
+    const segName = resultObj && typeof resultObj.event_name === "string" && resultObj.event_name.trim()
+      ? resultObj.event_name.trim()
+      : `分段 ${index + 1}`;
     events.push({
-      name: `分段 ${index + 1}`,
+      name: segName,
       time: formatHms(start),
       start,
       image: images[index % images.length],
@@ -380,11 +523,17 @@ function clockToSeconds(value: any): number {
 }
 
 function mapAnalysisEvent(item: any, index: number, images: string[], segmentSeconds: number) {
-  const image = images[index % images.length];
+  const keyFrame = item && typeof item.key_frame === "object" && item.key_frame ? item.key_frame : null;
+  const frameImage = keyFrame && typeof keyFrame.image_url === "string" && keyFrame.image_url.trim() ? keyFrame.image_url.trim() : "";
+  const image = frameImage || images[index % images.length];
   if (typeof item === "string") {
     return { name: `分段 ${index + 1}`, time: formatHms(index * segmentSeconds), start: index * segmentSeconds, image, detail: item };
   }
-  const rawTime = EVENT_TIME_KEYS.map(key => item[key]).find(value => value !== undefined && value !== null && value !== "");
+  const range = item.time_range && typeof item.time_range === "object" ? item.time_range : null;
+  let rawTime = EVENT_TIME_KEYS.map(key => item[key]).find(value => value !== undefined && value !== null && value !== "");
+  if ((rawTime === undefined || rawTime === null || rawTime === "") && range && range.start_seconds !== undefined && range.start_seconds !== null) {
+    rawTime = range.start_seconds;
+  }
   const start = clockToSeconds(rawTime);
   const time = typeof rawTime === "string" && rawTime.trim() ? rawTime.trim() : formatHms(start);
   const desc = EVENT_DESC_KEYS.map(key => item[key]).find(value => typeof value === "string" && value.trim());
@@ -496,12 +645,17 @@ export default defineComponent({
       localFileName: lastLocalVideo.name || "",
       localFileSize: lastLocalVideo.size || "",
       localVideoUrl: lastLocalVideo.url || "",
+      localVideoPoster: lastLocalVideo.poster || "",
       localVideoFile: null as File | null,
       uploadingVideo: false,
       selectedSource: null,
       sourceConfirmed: false,
       pendingSourceChange: false,
       cropDialogOpen: false,
+      trackResultModalItem: null as any,
+      trackResultModalIndex: -1,
+      trackResultModalTab: null as any,
+      trackResultMediaTab: "image",
       cropAction: "",
       cropTarget: null,
       cropTargetIndex: -1,
@@ -512,10 +666,22 @@ export default defineComponent({
       questionInput: "",
       questionBusy: false,
       questionMessages: [],
+      thinkingStartedAt: 0,
+      thinkingElapsed: 0,
+      thinkingTimer: null as any,
+      // 问答阶段计时：视频下载（首次需下载时）与分析接口调用
+      downloading: false,
+      downloadBaseAt: 0,
+      downloadElapsed: 0,
+      downloadSeconds: null as number | null,
+      analyzePhase: false,
+      analyzeBaseAt: 0,
+      analyzeElapsed: 0,
       analysisSnapshots: [] as any[],
       activeAnalysisId: null as string | null,
       analysisSnapshotCounter: 0,
       messageDetailSnapshot: null as any,
+      searchErrorDialog: null as any,
       resultTabs: [] as any[],
       activeResultTab: "summary",
       resultTabSeq: 0,
@@ -538,6 +704,8 @@ export default defineComponent({
       results: [],
       summary: {
         overview: "",
+        eventName: "",
+        description: "",
         persons: [],
         vehicles: []
       }
@@ -715,6 +883,23 @@ export default defineComponent({
       if (this.searching) return;
       const selectedCamera = this.selectedCamera as any;
       const analysisUrl = analysisUrlFor(selectedCamera);
+      // 时间段约束兜底（控件已做交互限制，这里防手动输入绕过）：
+      // 开始时间必须早于结束时间，且开始/结束时间都不能晚于当前时间
+      const rangeStart = this.onlineStart.trim().replace("T", " ");
+      const rangeEnd = this.onlineEnd.trim().replace("T", " ");
+      const rangeStartMs = parseLocalMs(rangeStart);
+      const rangeEndMs = parseLocalMs(rangeEnd);
+      if (rangeStartMs && rangeEndMs) {
+        if (rangeStartMs >= rangeEndMs) {
+          this.showToast("开始时间必须早于结束时间");
+          return;
+        }
+        const nowMs = Date.now();
+        if (rangeStartMs > nowMs || rangeEndMs > nowMs) {
+          this.showToast("开始时间和结束时间不能晚于当前时间");
+          return;
+        }
+      }
       let streamUrl = "";
       let recordingParams = null as any;
       let durationSeconds = 200;
@@ -749,12 +934,15 @@ export default defineComponent({
           streamUrl = stream.url || "";
         } catch (error: any) {
           this.searching = false;
-          this.showToast(`回放流启动失败：${(error && error.message) || "请稍后重试"}`);
+          this.openSearchErrorDialog(
+            "回放流启动失败，未能查询到该监控点在所选时段的录像。",
+            (error && error.message) || "服务未返回具体错误信息"
+          );
           return;
         }
         if (!streamUrl) {
           this.searching = false;
-          this.showToast("该时段未获取到回放流地址");
+          this.openSearchErrorDialog("该时段未查询到录像，请调整时间范围后重试。");
           return;
         }
         recordingParams = { cameraId: selectedCamera.code, startTime, endTime };
@@ -873,6 +1061,8 @@ export default defineComponent({
       }];
       this.questionInput = "";
       this.questionBusy = false;
+      this.stopThinkingTimer();
+      this.resetPhaseTimers();
       // 切换视频源后清空分析快照与右侧动态页签（各页签的轮询随页签移除而作废）
       this.analysisSnapshots = [];
       this.activeAnalysisId = null;
@@ -880,6 +1070,7 @@ export default defineComponent({
       this.messageDetailSnapshot = null;
       this.resultTabs = [];
       this.activeResultTab = "summary";
+      this.closeTrackResultModal();
     },
     switchVideoView(view) {
       this.videoView = view;
@@ -908,8 +1099,43 @@ export default defineComponent({
       this.localVideoFile = file;
       this.localFileName = file.name;
       this.localFileSize = `${(file.size / 1024 / 1024).toFixed(1)} MB`;
-      this.store.lastLocalVideo = { name: this.localFileName, size: this.localFileSize, url: this.localVideoUrl };
-      this.showToast("本地视频已载入，请确认视频源");
+      this.localVideoPoster = "";
+      this.store.lastLocalVideo = { name: this.localFileName, size: this.localFileSize, url: this.localVideoUrl, poster: "" };
+      this.captureLocalVideoPoster(this.localVideoUrl);
+      // 上传后立即确认视频源：播放器载入该视频，右侧展示视频问答信息栏
+      this.confirmLocalSource();
+    },
+    // 截取上传视频的第一帧作为卡片缩略图；失败时保留占位图
+    captureLocalVideoPoster(url) {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      const cleanup = () => {
+        video.removeAttribute("src");
+        video.load();
+      };
+      video.addEventListener("loadeddata", () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth || 320;
+          canvas.height = video.videoHeight || 180;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const poster = canvas.toDataURL("image/jpeg", 0.7);
+          this.localVideoPoster = poster;
+          if (this.store.lastLocalVideo && this.store.lastLocalVideo.url === url) this.store.lastLocalVideo.poster = poster;
+          const source = this.selectedSource as any;
+          if (source && source.sourceType === "本地上传" && source.videoUrl === url) source.image = poster;
+        } catch {
+          // 截帧失败保留占位图
+        } finally {
+          cleanup();
+        }
+      });
+      video.addEventListener("error", cleanup);
+      video.src = url;
     },
     useLastLocalVideo() {
       if (!this.localVideoUrl) {
@@ -931,7 +1157,7 @@ export default defineComponent({
         time: "本地上传 · 待分析",
         duration: "00:45",
         durationSeconds: 2700,
-        image: (this as any).store.img.analyst,
+        image: this.localVideoPoster || (this as any).store.img.analyst,
         videoUrl: this.localVideoUrl,
         sourceType: "本地上传"
       };
@@ -950,6 +1176,7 @@ export default defineComponent({
       this.localVideoFile = null;
       this.localFileName = "";
       this.localFileSize = "";
+      this.localVideoPoster = "";
       this.store.lastLocalVideo = null;
       if (this.$refs.exactVideoInput) (this.$refs.exactVideoInput as HTMLInputElement).value = "";
     },
@@ -982,6 +1209,63 @@ export default defineComponent({
       this.currentTime = 0;
       this.query = "查找视频中出现的白色车辆，以及人员进入限制区域的情况";
     },
+    startThinkingTimer() {
+      this.stopThinkingTimer();
+      this.thinkingStartedAt = Date.now();
+      this.thinkingElapsed = 0;
+      this.thinkingTimer = setInterval(() => {
+        const now = Date.now();
+        this.thinkingElapsed = (now - this.thinkingStartedAt) / 1000;
+        if (this.downloadBaseAt) this.downloadElapsed = (now - this.downloadBaseAt) / 1000;
+        if (this.analyzeBaseAt) this.analyzeElapsed = (now - this.analyzeBaseAt) / 1000;
+      }, 100);
+    },
+    stopThinkingTimer() {
+      if (this.thinkingTimer) {
+        clearInterval(this.thinkingTimer);
+        this.thinkingTimer = null;
+      }
+      if (!this.thinkingStartedAt) return 0;
+      const seconds = (Date.now() - this.thinkingStartedAt) / 1000;
+      this.thinkingStartedAt = 0;
+      this.thinkingElapsed = seconds;
+      return seconds;
+    },
+    formatThinkingSeconds(seconds) {
+      const value = Math.max(0, Number(seconds) || 0);
+      return `${value.toFixed(1)}s`;
+    },
+    // 每轮问答开始前重置阶段计时（下载/分析）
+    resetPhaseTimers() {
+      this.downloading = false;
+      this.downloadBaseAt = 0;
+      this.downloadElapsed = 0;
+      this.downloadSeconds = null;
+      this.analyzePhase = false;
+      this.analyzeBaseAt = 0;
+      this.analyzeElapsed = 0;
+    },
+    // 首次需下载视频（本地上传 MinIO / 在线监控 NVR 导出）时开始下载计时
+    startDownloadPhase() {
+      this.downloading = true;
+      this.downloadElapsed = 0;
+      this.downloadBaseAt = Date.now();
+    },
+    // 下载完成后停止计时，downloadSeconds 留存最终耗时
+    stopDownloadPhase() {
+      if (this.downloadBaseAt) {
+        this.downloadSeconds = (Date.now() - this.downloadBaseAt) / 1000;
+        this.downloadElapsed = this.downloadSeconds;
+        this.downloadBaseAt = 0;
+      }
+      this.downloading = false;
+    },
+    // 调用分析接口前开始分析计时
+    startAnalyzePhase() {
+      this.analyzePhase = true;
+      this.analyzeElapsed = 0;
+      this.analyzeBaseAt = Date.now();
+    },
     async startAnalysis() {
       if (!this.selectedSource) {
         this.showToast("请先确定视频源");
@@ -993,27 +1277,38 @@ export default defineComponent({
         return;
       }
       if (this.analyzing || this.uploadingVideo || this.preparingRecording) return;
+      // 从用户发送提示词起计时，直到本次 AI 消息完成
+      this.startThinkingTimer();
+      this.resetPhaseTimers();
+      this.questionBusy = true;
       // 本地视频：首次分析前上传到 MinIO，换取分析服务可拉取的 videoUrl
       if (selectedSource.sourceType === "本地上传" && !selectedSource.analysisUrl) {
         if (!this.localVideoFile) {
           this.showToast("请重新上传本地视频");
+          this.stopThinkingTimer();
+          this.questionBusy = false;
           return;
         }
         this.uploadingVideo = true;
+        this.startDownloadPhase();
         try {
           const uploaded = await api.uploadAnalysisVideo(this.localVideoFile);
           selectedSource.analysisUrl = uploaded.videoUrl;
         } catch (error) {
           this.showToast(error instanceof Error ? error.message : "视频上传失败");
+          this.stopThinkingTimer();
+          this.questionBusy = false;
           return;
         } finally {
           this.uploadingVideo = false;
+          this.stopDownloadPhase();
         }
       }
       // 在线监控仅有流地址时：首个问答提示词发出后才从 NVR 导出录像 MP4，
       // 导出成功后播放器切换为该文件；后续对话复用同一 analysisUrl，不再重复导出
       if (selectedSource.sourceType === "在线监控" && !selectedSource.analysisUrl && selectedSource.recordingParams) {
         this.preparingRecording = true;
+        this.startDownloadPhase();
         try {
           const exported = await api.getRecordingFileUrl(selectedSource.recordingParams);
           selectedSource.analysisUrl = exported.videoUrl || "";
@@ -1026,22 +1321,27 @@ export default defineComponent({
           }
         } catch (error: any) {
           this.showToast(`录像导出失败：${(error && error.message) || "请稍后重试"}`);
+          this.stopThinkingTimer();
+          this.questionBusy = false;
           return;
         } finally {
           this.preparingRecording = false;
+          this.stopDownloadPhase();
         }
       }
       if (!selectedSource.analysisUrl) {
         this.showToast("当前视频源不可分析，请重新搜索回放");
+        this.stopThinkingTimer();
+        this.questionBusy = false;
         return;
       }
+      this.startAnalyzePhase();
       const question = this.query.trim();
       this.lastQuery = question;
       this.questionMessages.push({ role: "user", text: question });
       this.analyzing = true;
-      this.questionBusy = true;
       try {
-        const response = await api.analyzeMinioVideo({
+        const requestParams = {
           videoUrl: selectedSource.analysisUrl,
           prompt: question,
           fps: 1,
@@ -1050,7 +1350,12 @@ export default defineComponent({
             ? Math.min(20, Math.max(1, Math.ceil((selectedSource.durationSeconds || 60) / 60)))
             : this.estimateMaxSegments(),
           height: 480
-        });
+        };
+        let response = getCachedAnalysis(requestParams);
+        if (response === undefined) {
+          response = await api.analyzeMinioVideo(requestParams);
+          setCachedAnalysis(requestParams, response);
+        }
         const img = (this as any).store.img;
         const images = [img.portrait, img.car, img.target];
         const segments = mapAnalysisSegments(response, images);
@@ -1058,7 +1363,7 @@ export default defineComponent({
         const upstreamError = findAnalysisError(response);
         if (upstreamError || (!overview && !segments.events.length && !findAnalysisEvents(response).length)) {
           const message = upstreamError || "接口未返回有效分析结果，请检查视频分析服务后重试";
-          this.questionMessages.push({ role: "assistant", text: `分析失败：${message}` });
+          this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(`分析失败：${message}`);
           return;
         }
@@ -1066,7 +1371,14 @@ export default defineComponent({
           ? segments.events
           : findAnalysisEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60))) as any;
         this.applyEventFrameImages(this.events, selectedSource.analysisUrl);
-        this.summary = { overview, persons: [], vehicles: [] };
+        const understanding = findVideoUnderstanding(response);
+        this.summary = {
+          overview: understanding.overview || overview,
+          eventName: understanding.eventName,
+          description: understanding.description,
+          persons: [],
+          vehicles: []
+        };
         this.results = [];
         this.analyzed = true;
         this.selectedEventIndex = 0;
@@ -1076,13 +1388,13 @@ export default defineComponent({
         }
         const answerText = `已完成视频源文搜。\n\n事件摘要：${overview}\n\n已识别 ${this.events.length} 个关键事件，右侧可查看事件摘要、分析结果，并继续对视频提问。`;
         const snapshot = this.saveAnalysisSnapshot(answerText, question);
-        this.questionMessages.push({ role: "assistant", text: answerText, analysisId: snapshot.id });
+        this.questionMessages.push({ role: "assistant", text: answerText, analysisId: snapshot.id, thinkingSeconds: this.stopThinkingTimer() });
         this.activeAnalysisId = snapshot.id;
         this.query = "";
         this.showToast("文搜分析完成，已生成事件结论");
       } catch (error) {
         const message = error instanceof Error ? error.message : "视频分析失败";
-        this.questionMessages.push({ role: "assistant", text: `分析失败：${message}` });
+        this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
         this.showToast(message);
       } finally {
         this.analyzing = false;
@@ -1093,6 +1405,9 @@ export default defineComponent({
       this.activeQuickPrompt = "";
       if (this.analyzed) this.askVideoQuestion(this.query);
       else this.startAnalysis();
+    },
+    renderMarkdown(text) {
+      return markdownToHtml(text);
     },
     formatTime(seconds) {
       const value = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -1223,9 +1538,14 @@ export default defineComponent({
       this.query = "";
       this.questionInput = "";
       this.questionBusy = true;
+      // 从用户发送提示词起计时，直到本次 AI 消息完成
+      this.startThinkingTimer();
+      // 视频已下载，直接进入分析阶段计时
+      this.resetPhaseTimers();
+      this.startAnalyzePhase();
       try {
         // 追问同样走视频分析接口：以问题为 prompt 重新分析当前视频源
-        const response = await api.analyzeMinioVideo({
+        const requestParams = {
           videoUrl: selectedSource.analysisUrl,
           prompt: question,
           fps: 1,
@@ -1234,7 +1554,12 @@ export default defineComponent({
             ? Math.min(20, Math.max(1, Math.ceil((selectedSource.durationSeconds || 60) / 60)))
             : this.estimateMaxSegments(),
           height: 480
-        });
+        };
+        let response = getCachedAnalysis(requestParams);
+        if (response === undefined) {
+          response = await api.analyzeMinioVideo(requestParams);
+          setCachedAnalysis(requestParams, response);
+        }
         const img = (this as any).store.img;
         const images = [img.portrait, img.car, img.target];
         const segments = mapAnalysisSegments(response, images);
@@ -1242,7 +1567,7 @@ export default defineComponent({
         const upstreamError = findAnalysisError(response);
         if (upstreamError || (!answer && !segments.events.length && !findAnalysisEvents(response).length)) {
           const message = upstreamError || "接口未返回有效分析结果，请检查视频分析服务后重试";
-          this.questionMessages.push({ role: "assistant", text: `分析失败：${message}` });
+          this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(`分析失败：${message}`);
           return;
         }
@@ -1256,14 +1581,21 @@ export default defineComponent({
           this.currentTime = (this.events[0] as any).start;
           this.seekVideo(this.currentTime);
         }
-        this.summary = { overview: answer, persons: [], vehicles: [] };
+        const understanding = findVideoUnderstanding(response);
+        this.summary = {
+          overview: understanding.overview || answer,
+          eventName: understanding.eventName,
+          description: understanding.description,
+          persons: [],
+          vehicles: []
+        };
         this.results = [];
         const snapshot = this.saveAnalysisSnapshot(answer, question);
-        this.questionMessages.push({ role: "assistant", text: answer, analysisId: snapshot.id });
+        this.questionMessages.push({ role: "assistant", text: answer, analysisId: snapshot.id, thinkingSeconds: this.stopThinkingTimer() });
         this.activeAnalysisId = snapshot.id;
       } catch (error) {
         const message = error instanceof Error ? error.message : "视频分析失败";
-        this.questionMessages.push({ role: "assistant", text: `分析失败：${message}` });
+        this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
         this.showToast(message);
       } finally {
         this.questionBusy = false;
@@ -1300,7 +1632,7 @@ export default defineComponent({
         return { items: [] as any[], loading: false, runId: 0, fileName: "", start: this.onlineStart || "", end: this.onlineEnd || "", place: "全部区域", similarity: 50 };
       }
       if (type === "quickDeploy") {
-        return { savedTask: null, deployTaskName: "", deployAlgorithmId: "", deployCameraSelections: [] as string[], deployAreaOpen: false, deployAreaExpanded: {} as Record<string, boolean>, deployEffectiveStart: "", deployEffectiveEnd: "", deployCycleStart: "00:00", deployCycleEnd: "23:59", deploySimilarity: 50, deployDescription: "", deploySaving: false };
+        return { savedTask: null, deployTaskName: "", deployAlgorithmId: "", deployCameraSelections: [] as string[], deployAreaOpen: false, deployAreaExpanded: {} as Record<string, boolean>, deployEffectiveStart: "", deployEffectiveEnd: "", deployCycleStart: "00:00", deployCycleEnd: "23:59", deploySimilarity: 50, deployDescription: "", deploySaving: false, deployTargetUrl: "", deployTargetName: "", deployTargetCleared: false };
       }
       const expandedAreas: Record<string, boolean> = {};
       (this.areas as any[]).forEach((area, index) => { expandedAreas[area.name] = index === 0; });
@@ -1320,6 +1652,9 @@ export default defineComponent({
       else if (type === "track") this.runTrackSearch(tab);
     },
     closeResultTab(id) {
+      const closing = this.resultTabs.find(tab => tab.id === id);
+      if (closing && closing.deployTargetUrl) URL.revokeObjectURL(closing.deployTargetUrl);
+      if (closing && this.trackResultModalTab === closing) this.closeTrackResultModal();
       this.resultTabs = this.resultTabs.filter(tab => tab.id !== id);
       if (this.activeResultTab === id) this.activeResultTab = "summary";
     },
@@ -1458,20 +1793,6 @@ export default defineComponent({
     handleTrackTargetUpload(event) {
       this.handleResultTabImageUpload(event, "track");
     },
-    // 以图搜图结果卡片上的三个动作：把检索结果规整为事件结构后走同一套裁图流转
-    onImageSearchAction(payload) {
-      const item = payload && payload.item;
-      if (!item || !payload.action) return;
-      this.openResultCrop(payload.action, {
-        name: item.title,
-        title: item.title,
-        time: item.date ? item.date.slice(11, 19) : "",
-        start: 0,
-        image: item.image,
-        detail: item.desc || "",
-        date: item.date
-      }, -1);
-    },
     prepareQuickDeployTab() {
       if (this.deployAlgorithmOptions.length) return;
       api.algorithms().then(list => {
@@ -1480,8 +1801,45 @@ export default defineComponent({
         this.showToast("算法列表加载失败");
       });
     },
+    // 布控目标：优先显示本地上传图，否则显示页签带入的框选图；清空后显示上传入口（参照原型 ExactQuickDeployPanel）
+    deployTargetSource(tab) {
+      if (tab.deployTargetCleared) return "";
+      return tab.deployTargetUrl || (tab.payload && tab.payload.image) || "";
+    },
+    resetDeployTargetUpload(tab) {
+      if (tab.deployTargetUrl) URL.revokeObjectURL(tab.deployTargetUrl);
+      tab.deployTargetUrl = "";
+      tab.deployTargetName = "";
+      const input = this.$refs.deployTargetInput as HTMLInputElement | undefined;
+      if (input) input.value = "";
+    },
+    triggerDeployTargetUpload() {
+      const input = this.$refs.deployTargetInput as HTMLInputElement | undefined;
+      if (input) input.click();
+    },
+    handleDeployTargetUpload(event) {
+      const tab = this.activeResultTabObj;
+      if (!tab || tab.type !== "quickDeploy") return;
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        this.showToast("请选择图片文件");
+        event.target.value = "";
+        return;
+      }
+      if (tab.deployTargetUrl) URL.revokeObjectURL(tab.deployTargetUrl);
+      tab.deployTargetUrl = URL.createObjectURL(file);
+      tab.deployTargetName = file.name;
+      tab.deployTargetCleared = false;
+      this.showToast("布控目标已添加");
+    },
+    clearDeployTarget(tab) {
+      this.resetDeployTargetUpload(tab);
+      tab.deployTargetCleared = true;
+      this.showToast("布控目标已清空");
+    },
     deployAreaLabel(tab) {
-      if (!tab.deployCameraSelections.length) return "请选择布控点位（可多选摄像机）";
+      if (!tab.deployCameraSelections.length) return "请选择布控区域（可多选摄像机）";
       const names: string[] = [];
       (this.areas as any[]).forEach(area => area.cameras.forEach((camera: any) => {
         if (tab.deployCameraSelections.includes(camera.code)) names.push(`${area.name} / ${camera.name}`);
@@ -1505,7 +1863,7 @@ export default defineComponent({
         return;
       }
       if (!tab.deployCameraSelections.length) {
-        this.showToast("请选择布控点位");
+        this.showToast("请选择布控区域");
         return;
       }
       if (!tab.deployAlgorithmId) {
@@ -1513,7 +1871,7 @@ export default defineComponent({
         return;
       }
       if (!tab.deployEffectiveStart || !tab.deployEffectiveEnd) {
-        this.showToast("请选择生效日期");
+        this.showToast("请选择生效时间");
         return;
       }
       if (tab.deploySaving) return;
@@ -1635,6 +1993,34 @@ export default defineComponent({
       const total = items.reduce((sum, item) => sum + (Number(item.score) || 0), 0);
       return Math.round(total / items.length);
     },
+    // 轨迹结果详情弹窗（参照原型 imageResultModal）：页内居中弹窗，不跳转全局抽屉
+    openTrackResultModal(tab, index) {
+      const item = tab.items[index];
+      if (!item) return;
+      this.trackResultModalTab = tab;
+      this.trackResultModalItem = item;
+      this.trackResultModalIndex = index;
+      this.trackResultMediaTab = "image";
+    },
+    closeTrackResultModal() {
+      this.trackResultModalItem = null;
+      this.trackResultModalIndex = -1;
+      this.trackResultModalTab = null;
+      this.trackResultMediaTab = "image";
+    },
+    cycleTrackResultModal() {
+      const items = this.trackResultModalTab ? this.trackResultModalTab.items : [];
+      if (!items.length) return;
+      const next = (this.trackResultModalIndex + 1) % items.length;
+      this.trackResultModalIndex = next;
+      this.trackResultModalItem = items[next];
+    },
+    openTrackResultCrop(action) {
+      const item = this.trackResultModalItem;
+      if (!item) return;
+      this.closeTrackResultModal();
+      this.openResultCrop(action, item, -1);
+    },
     cloneAnalysisData(value) {
       return JSON.parse(JSON.stringify(value));
     },
@@ -1682,13 +2068,24 @@ export default defineComponent({
     closeMessageDetail() {
       this.messageDetailSnapshot = null;
     },
+    openSearchErrorDialog(message, detail = "") {
+      this.searchErrorDialog = {
+        title: "查询录像失败",
+        message,
+        detail: String(detail || "").trim(),
+        hint: "建议：确认监控点在线、所选时段存在录像后重试；若多次失败请联系管理员检查 NVR 回放服务。"
+      };
+    },
+    closeSearchErrorDialog() {
+      this.searchErrorDialog = null;
+    },
     exportFromMenu(type, event) {
       const menu = (event.currentTarget as HTMLElement).closest("details") as HTMLDetailsElement;
       if (menu) menu.open = false;
       this.exportReport(type);
     },
     reportContent() {
-      return `文搜视频分析报告\n\n视频源：${this.selectedSource ? (this.selectedSource as any).name : "-"}\n来源：${this.selectedSource ? this.sourceTypeLabel : "-"}\n检索内容：${this.lastQuery || this.query || "-"}\n\n事件摘要：\n${this.summary.overview}\n涉及人员：${this.summary.persons.join("；")}\n涉及车辆：${this.summary.vehicles.join("；")}\n\n分析事件：\n${this.events.map(item => `${item.time} ${item.name}：${item.detail}`).join("\n")}\n\n分析结果：\n${this.results.map(item => `${item.title}：${item.value}。${item.detail}`).join("\n")}`;
+      return `文搜视频分析报告\n\n视频源：${this.selectedSource ? (this.selectedSource as any).name : "-"}\n来源：${this.selectedSource ? this.sourceTypeLabel : "-"}\n检索内容：${this.lastQuery || this.query || "-"}\n\n事件概况：\n${this.summary.overview}\n事件名称：${this.summary.eventName || "-"}\n事件描述：${this.summary.description || "-"}\n\n分析事件：\n${this.events.map(item => `${item.time} ${item.name}：${item.detail}`).join("\n")}\n\n分析结果：\n${this.results.map(item => `${item.title}：${item.value}。${item.detail}`).join("\n")}`;
     },
     exportReport(type) {
       if (!this.analyzed) {
@@ -1713,6 +2110,10 @@ export default defineComponent({
   },
   beforeUnmount() {
     this.stopSimulation();
+    if (this.thinkingTimer) {
+      clearInterval(this.thinkingTimer);
+      this.thinkingTimer = null;
+    }
     document.removeEventListener("fullscreenchange", this.syncFullscreenState);
   }
 });

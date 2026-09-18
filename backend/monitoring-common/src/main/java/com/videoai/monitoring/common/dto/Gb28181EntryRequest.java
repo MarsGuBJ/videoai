@@ -1,19 +1,16 @@
 package com.videoai.monitoring.common.dto;
 
 /**
- * Upsert request body for a GB/T 28181 access config entry (multi-entry table).
- * Has no id/timestamps; mirrors the field set of {@link Gb28181Config}.
+ * Upsert request body for a GB/T 28181 cascade (上级联) server entry.
+ * Simplified model: name / SIP ID / SIP IP / SIP port / username / password.
+ * sipId 可空（级联服务器国标编码，云平台同步 Catalog 查询时必填）。
  */
 public record Gb28181EntryRequest(
-        boolean enabled,
+        String name,
         String sipId,
-        String sipDomain,
         String sipIp,
         String sipPort,
-        String password,
-        String parentPort,
-        String receivePortStart,
-        String receivePortEnd,
-        String name
+        String username,
+        String password
 ) {
 }

@@ -172,6 +172,9 @@ public class PtzServiceImpl implements PtzService {
     }
 
     private static URI parseUri(String sourceUrl) {
+        if (sourceUrl == null || sourceUrl.isBlank()) {
+            return URI.create("http://invalid");
+        }
         try {
             return URI.create(sourceUrl);
         } catch (IllegalArgumentException exception) {

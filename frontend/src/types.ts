@@ -480,16 +480,12 @@ export type AccessGb28181Config = {
 
 export type AccessGb28181Entry = {
   id: string;
-  name?: string;
-  enabled: boolean;
-  sipId: string;
-  sipDomain: string;
+  name: string;
   sipIp: string;
   sipPort: string;
+  sipId?: string | null;
+  username: string;
   password: string;
-  parentPort: string;
-  receivePortStart: string;
-  receivePortEnd: string;
   onlineStatus?: "ONLINE" | "OFFLINE" | "UNKNOWN";
   lastCheckAt?: string;
   createdAt: string;
@@ -534,6 +530,7 @@ export type CloudDeviceItem = {
   ip: string;
   port: string;
   sourceUrl: string;
+  gbCode?: string | null;
   status: "new" | "update" | null;
   localCameraId: string | null;
 };

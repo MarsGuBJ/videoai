@@ -24,7 +24,7 @@
         <button type="button" @click="jumpToPage">确定</button>
       </div>
     </div>
-    <div v-else class="search-empty-state"><strong>等待图像检索</strong><span>设置筛选条件或输入目标描述后，点击「搜索图片」</span></div>
+    <div v-else class="search-empty-state"><strong>暂无搜索结果</strong><strong>设置筛选条件或输入目标描述后，点击「搜索图片」</strong></div>
     <div v-if="previewImage" class="image-lightbox" @click.self="closeImagePreview">
       <button class="image-lightbox-close" type="button" aria-label="关闭" @click="closeImagePreview">×</button>
       <img class="image-lightbox-img" :src="previewImage" alt="结果大图" />
