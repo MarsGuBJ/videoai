@@ -100,6 +100,9 @@ export default defineComponent({
       hls: null as Hls | null,
       retryTimer: null as number | null,
       retryCount: 0,
+      // 当前流是否已禁用音轨：现场部分摄像头（如 4号楼枪机）主码流带 G.711(PCMA) 音频，
+      // mpegts.js 不支持会抛 DemuxException/CodecUnsupported 导致整体播放失败，此时按无音频重建
+      noAudio: false,
     };
   },
   computed: {
@@ -123,6 +126,8 @@ export default defineComponent({
   },
   watch: {
     url() {
+      // 切换流时恢复音轨自动探测，由新流的报错再决定是否禁用
+      this.noAudio = false;
       this.setupStream();
     },
     reloadToken() {
@@ -219,8 +224,25 @@ export default defineComponent({
         // MSE append 在延迟窗口内的异常由 mpegts 内部 try/catch 兜底。
         const token = this.streamToken;
         window.setTimeout(() => {
+          // <video> 已被新流接管（token 变更/元素更换）时，先摘掉旧播放器对元素的引用：
+          // mpegts 的 unload()/destroy() 会 pause() 其 _media_element（在引擎 _player_engine 上），
+          // 不摘掉会把新流刚起的播放停掉
+          const elementTakenOver = token !== this.streamToken || (video ? this.videoElement !== video : false);
+          if (elementTakenOver) {
+            try {
+              (player as any)._media_element = null;
+              const engine = (player as any)._player_engine;
+              if (engine) {
+                engine._media_element = null;
+              }
+            } catch {
+              // 忽略
+            }
+          }
           try {
-            player.pause();
+            if (!elementTakenOver) {
+              player.pause();
+            }
           } catch {
             // 播放器内部状态异常时仍继续销毁
           }
@@ -341,7 +363,7 @@ export default defineComponent({
         // mpegts.js 兼容 flv.js API，同时支持 H.264 和 H.265（FLV CodecID 12）passthrough
         const player = markRaw(
           mpegts.createPlayer(
-            { type: 'flv', url, isLive: true },
+            { type: 'flv', url, isLive: true, hasAudio: !this.noAudio },
             {
               enableWorker: false,
               enableStashBuffer: false,
@@ -367,6 +389,13 @@ export default defineComponent({
           if (token !== this.streamToken || this.player !== player) return;
           if (type === 'MediaError' && isHevcError(details, data)) {
             this.showHevcUnsupported();
+            return;
+          }
+          // G.711(PCMA) 等 mpegts.js 不支持的音轨会让解复用整体失败（内部以 MediaError/CodecUnsupported
+          // 上报，info 形如 "Flv: Unsupported audio codec idx: 7"）：改为无音频重建（忽略音轨）
+          if (type === 'MediaError' && !this.noAudio && isUnsupportedAudioError(details, data)) {
+            this.noAudio = true;
+            this.restart();
             return;
           }
           if (type === 'NetworkError' || type === 'MediaError') {
@@ -565,6 +594,29 @@ function canPlayHevc(codec: string): boolean {
   }
   const candidates = [codec, 'hvc1.1.6.L123.00', 'hev1.1.6.L123.00'];
   return candidates.some((c) => MediaSource.isTypeSupported(`video/mp4; codecs="${c}"`));
+}
+
+/** mpegts.js DemuxException 是否为不支持的音频编码（如 G.711/PCMA，info 形如 "Flv: Unsupported audio codec idx: 7"）。 */
+function isUnsupportedAudioError(details: unknown, data: unknown): boolean {
+  if (String(details || '') !== 'CodecUnsupported') {
+    return false;
+  }
+  return /audio/i.test(isHevcErrorText(data));
+}
+
+/** 与 isHevcError 相同的文本提取，供其它错误判定复用。 */
+function isHevcErrorText(value: unknown): string {
+  if (!value) {
+    return '';
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 /** mpegts.js MediaError 的 details/data 是否为 HEVC 不支持报错。 */
