@@ -67,6 +67,8 @@ export default defineComponent({
         message: ""
       },
       toastTimer: null as any,
+      // 复核任务提交中标志：防止提交请求未返回时重复点击创建多条任务
+      reviewTaskSubmitting: false,
       sidebarCollapsed: false,
       sxinOpen: false,
       sxinMessageHandler: null as any
@@ -286,6 +288,9 @@ export default defineComponent({
         this.showToast("请选择事件编码、大模型并上传图片");
         return;
       }
+      // 提交中禁止重复提交，避免一次双击创建多条相同任务
+      if (this.reviewTaskSubmitting) return;
+      this.reviewTaskSubmitting = true;
       const form = new FormData();
       form.append("reviewTypeId", payload.reviewTypeId);
       form.append("llmConfigId", payload.llmConfigId);
@@ -299,6 +304,8 @@ export default defineComponent({
       } catch (error) {
         // 提交失败时保留弹窗，便于用户修正后重试
         this.showToast(error instanceof Error ? error.message : "复核任务提交失败");
+      } finally {
+        this.reviewTaskSubmitting = false;
       }
     },
     async submitAlgorithm(payload: any) {
@@ -513,7 +520,7 @@ export default defineComponent({
   </div>
   <drawer-host :drawer="drawer" :store="store" @close="closeDrawer" @route="handleDrawerRoute" @action="handleDrawerAction" @quick-deploy="openQuickDeployModal" @crop-action="openDrawerCrop"></drawer-host>
   <image-crop-dialog :open="drawerCrop.open" :item="drawerCrop.item" :action="drawerCrop.action" :item-index="drawerCrop.itemIndex" @close="closeDrawerCrop" @confirm="confirmDrawerCrop"></image-crop-dialog>
-  <modal-host :modal="modal" :store="store" :state="state" @close="closeModal" @submit="submitModal"></modal-host>
+  <modal-host :modal="modal" :store="store" :state="state" :review-task-submitting="reviewTaskSubmitting" @close="closeModal" @submit="submitModal"></modal-host>
   <button v-if="!sxinOpen" class="sxin-fab" title="打开 SXin 智能体" aria-label="打开 SXin 智能体" @click="openSxin"><span class="sxin-fab-mark">S</span></button>
   <sxin-agent v-if="sxinOpen" @close="closeSxin"></sxin-agent>
   <div class="toast" :class="{ show: toast.show }">{{ toast.message }}</div>

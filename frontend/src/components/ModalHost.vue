@@ -40,7 +40,7 @@ const QUICK_REPLAY_SEARCH_WINDOW_MS = 30 * 60 * 1000;
 export default {
   name: "ModalHost",
   components: { VideoPlayer },
-  props: ["modal", "store", "state"],
+  props: ["modal", "store", "state", "reviewTaskSubmitting"],
   emits: ["close", "submit"],
   // Aliased injection + same-named method wrapper for `showToast` (used in the
   // template, which is type-checked); runtime behavior matches the prototype's
@@ -218,7 +218,7 @@ export default {
     },
     submitLabel() {
       const labels: any = {
-        reviewTask: "确定",
+        reviewTask: this.reviewTaskSubmitting ? "提交中…" : "确定",
         mediaExport: "导出",
         mediaMove: "确认移动",
         mediaCapability: "批量保存",
@@ -879,6 +879,7 @@ export default {
         return;
       }
       if (this.modal.type === "reviewTask") {
+        if (this.reviewTaskSubmitting) return;
         if (!this.reviewTypeId) { this.showToast("请选择事件编码"); return; }
         if (!this.reviewLlmId) { this.showToast("请选择大模型"); return; }
         if (!this.reviewImageFile) { this.showToast("请上传图片"); return; }
@@ -914,6 +915,17 @@ export default {
     handleReviewImage(event: any) {
       const file = event.target.files && event.target.files[0];
       if (!file) return;
+      // 与后端 save_review_image 校验一致：仅图片、不超过 20MB；前置拦截避免超大请求被 nginx 413 直接拒绝
+      if (!file.type || !file.type.startsWith("image/")) {
+        this.showToast("仅支持图片文件");
+        event.target.value = "";
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        this.showToast("图片大小不能超过 20MB");
+        event.target.value = "";
+        return;
+      }
       if (this.reviewImageUrl) URL.revokeObjectURL(this.reviewImageUrl);
       this.reviewImageFile = file;
       this.reviewImageName = file.name;
@@ -1710,7 +1722,7 @@ export default {
         </template>
         <template v-else>
           <button class="btn" @click="$emit('close')">取消</button>
-          <button class="btn primary" :class="{ danger: modal.type === 'mediaDelete' }" :disabled="modal.type === 'mediaCapability' && capabilitySaving" @click="handleSubmit">{{ submitLabel }}</button>
+          <button class="btn primary" :class="{ danger: modal.type === 'mediaDelete' }" :disabled="(modal.type === 'mediaCapability' && capabilitySaving) || (modal.type === 'reviewTask' && reviewTaskSubmitting)" @click="handleSubmit">{{ submitLabel }}</button>
         </template>
       </div>
     </section>
