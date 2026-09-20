@@ -3,11 +3,12 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from app import state
 from app.schemas.event_info import EventInfoCreate, EventInfoOut, EventInfoUpdate
 from app.services.event_infos import (
+    assert_event_info_not_referenced,
     delete_event_info_from_db,
     event_info_out,
     persist_event_info,
@@ -87,9 +88,9 @@ def update_event_info(event_id: str, request: EventInfoUpdate) -> EventInfoOut:
 
 @router.delete("/api/event-infos/{event_id}")
 def delete_event_info(event_id: str) -> dict[str, str]:
-    """删除事件信息：移出内存并删库。"""
-    record = state.event_infos_store.pop(event_id, None)
-    if not record:
-        raise HTTPException(status_code=404, detail="Event info not found")
+    """删除事件信息：被复核类型/复核任务引用时 409 拒绝，否则移出内存并删库。"""
+    record = require_event_info(event_id)
+    assert_event_info_not_referenced(record)
+    state.event_infos_store.pop(event_id, None)
     delete_event_info_from_db(event_id)
     return {"deleted": event_id}

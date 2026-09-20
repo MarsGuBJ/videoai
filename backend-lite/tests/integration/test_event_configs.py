@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 import app.api.routers.event_dedup_rules as dedup_rules_router
 import app.api.routers.event_infos as event_infos_router
 import app.api.routers.event_push_tasks as push_tasks_router
+import app.api.routers.review_types as review_types_router
+from app import state
 
 EVENT_INFO_PAYLOAD = {
     "name": "人员聚集",
@@ -152,6 +154,56 @@ def test_delete_event_info_unknown_id_returns_404(client: TestClient):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Event info not found"
+
+
+def test_delete_event_info_referenced_by_review_type_returns_409(client: TestClient, monkeypatch):
+    created = _create_event_info(client, monkeypatch)
+    monkeypatch.setattr(review_types_router, "persist_review_type", lambda record: None)
+    response = client.post(
+        "/api/review-types",
+        json={"name": "聚集复核", "code": created["code"], "prompt": "判断是否聚集"},
+    )
+    assert response.status_code == 200
+
+    response = client.delete(f"/api/event-infos/{created['id']}")
+
+    assert response.status_code == 409
+    assert "复核类型" in response.json()["detail"]
+    assert "聚集复核" in response.json()["detail"]
+    # 事件信息未被删除
+    assert len(client.get("/api/event-infos").json()) == 1
+
+
+def test_delete_event_info_referenced_by_review_task_returns_409(client: TestClient, monkeypatch):
+    created = _create_event_info(client, monkeypatch)
+    state.review_tasks_store[str(uuid4())] = {
+        "review_type_code": created["code"],
+        "review_type_name": created["name"],
+    }
+
+    response = client.delete(f"/api/event-infos/{created['id']}")
+
+    assert response.status_code == 409
+    assert "复核任务" in response.json()["detail"]
+    assert len(client.get("/api/event-infos").json()) == 1
+
+
+def test_delete_event_info_allowed_after_review_type_removed(client: TestClient, monkeypatch):
+    monkeypatch.setattr(event_infos_router, "delete_event_info_from_db", lambda event_id: None)
+    created = _create_event_info(client, monkeypatch)
+    monkeypatch.setattr(review_types_router, "persist_review_type", lambda record: None)
+    monkeypatch.setattr(review_types_router, "delete_review_type_from_db", lambda type_id: None)
+    review_type = client.post(
+        "/api/review-types",
+        json={"name": "聚集复核", "code": created["code"], "prompt": "判断是否聚集"},
+    ).json()
+    assert client.delete(f"/api/event-infos/{created['id']}").status_code == 409
+
+    client.delete(f"/api/review-types/{review_type['id']}")
+    response = client.delete(f"/api/event-infos/{created['id']}")
+
+    assert response.status_code == 200
+    assert client.get("/api/event-infos").json() == []
 
 
 # ---------------- 去重规则 /api/event-dedup-rules ----------------

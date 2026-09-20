@@ -33,6 +33,40 @@ def require_event_info(event_id: str) -> dict[str, Any]:
     return record
 
 
+def assert_event_info_not_referenced(record: dict[str, Any]) -> None:
+    """删除前校验事件信息未被复核类型或复核任务引用。
+
+    复核类型按事件编码（code）引用事件信息；复核任务创建时快照了
+    review_type_code，同样按编码判断。
+
+    Args:
+        record: 待删除的事件信息字典。
+
+    Raises:
+        HTTPException: 被引用时 409，detail 说明引用来源。
+    """
+    code = str(record["code"])
+    used_by_types = [
+        str(item["name"])
+        for item in state.review_types_store.values()
+        if str(item.get("code")) == code
+    ]
+    if used_by_types:
+        raise HTTPException(
+            status_code=409,
+            detail=f"事件配置已被复核类型「{used_by_types[0]}」引用，无法删除",
+        )
+    used_by_tasks = any(
+        str(item.get("review_type_code")) == code
+        for item in state.review_tasks_store.values()
+    )
+    if used_by_tasks:
+        raise HTTPException(
+            status_code=409,
+            detail="事件配置已被复核任务引用，无法删除",
+        )
+
+
 def event_info_out(record: dict[str, Any]) -> EventInfoOut:
     """把内存态事件信息字典转为对外 DTO。
 
