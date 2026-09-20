@@ -33,6 +33,62 @@ def require_review_type(type_id: str) -> dict[str, Any]:
     return record
 
 
+def assert_review_type_unique(name: str, code: str, exclude_id: str | None = None) -> None:
+    """创建/更新前校验复核类型名称/编码未重复。
+
+    Args:
+        name: 待校验的复核类型名称。
+        code: 待校验的复核类型编码。
+        exclude_id: 更新场景下需排除的自身 ID。
+
+    Raises:
+        HTTPException: 名称或编码已存在时 409。
+    """
+    for item in state.review_types_store.values():
+        if exclude_id is not None and str(item.get("id")) == exclude_id:
+            continue
+        if str(item.get("code")) == code or str(item.get("name")) == name:
+            raise HTTPException(
+                status_code=409,
+                detail=f"复核类型「{item.get('name')}」（{item.get('code')}）已存在，请勿重复创建",
+            )
+
+
+def assert_review_type_not_referenced(record: dict[str, Any]) -> None:
+    """删除前校验复核类型未被定时任务或复核任务引用。
+
+    定时任务按 review_type_id 引用；复核任务创建时快照了
+    review_type_code，按编码判断。
+
+    Args:
+        record: 待删除的复核类型字典。
+
+    Raises:
+        HTTPException: 被引用时 409，detail 说明引用来源。
+    """
+    type_id = str(record["id"])
+    used_by_schedules = [
+        str(item["name"])
+        for item in state.review_schedules_store.values()
+        if str(item.get("review_type_id")) == type_id
+    ]
+    if used_by_schedules:
+        raise HTTPException(
+            status_code=409,
+            detail=f"复核类型已被定时任务「{used_by_schedules[0]}」引用，无法删除",
+        )
+    code = str(record["code"])
+    used_by_tasks = any(
+        str(item.get("review_type_code")) == code
+        for item in state.review_tasks_store.values()
+    )
+    if used_by_tasks:
+        raise HTTPException(
+            status_code=409,
+            detail="复核类型已被复核任务引用，无法删除",
+        )
+
+
 def review_type_out(record: dict[str, Any]) -> ReviewTypeOut:
     """把内存态复核类型字典转为对外 DTO。
 

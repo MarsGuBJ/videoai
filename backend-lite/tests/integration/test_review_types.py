@@ -4,7 +4,9 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+import app.api.routers.review_schedules as review_schedules_router
 import app.api.routers.review_types as review_types_router
+from app import state
 
 CREATE_PAYLOAD = {
     "name": "人员跌倒",
@@ -121,3 +123,76 @@ def test_delete_review_type_unknown_id_returns_404(client: TestClient):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Review type not found"
+
+
+def test_create_review_type_duplicate_code_returns_409(client: TestClient, monkeypatch):
+    _create_review_type(client, monkeypatch)
+
+    response = client.post("/api/review-types", json={**CREATE_PAYLOAD, "name": "换个名字"})
+
+    assert response.status_code == 409
+    assert "已存在" in response.json()["detail"]
+    # 未新增
+    assert len(client.get("/api/review-types").json()) == 1
+
+
+def test_create_review_type_duplicate_name_returns_409(client: TestClient, monkeypatch):
+    _create_review_type(client, monkeypatch)
+
+    response = client.post("/api/review-types", json={**CREATE_PAYLOAD, "code": "other_code"})
+
+    assert response.status_code == 409
+    assert "已存在" in response.json()["detail"]
+
+
+def test_update_review_type_to_duplicate_code_returns_409(client: TestClient, monkeypatch):
+    _create_review_type(client, monkeypatch)
+    other = _create_review_type(client, monkeypatch, name="烟雾检测", code="smoke")
+
+    response = client.put(f"/api/review-types/{other['id']}", json={"code": "person_fall"})
+
+    assert response.status_code == 409
+    # 自身名称/编码不变更时不误报
+    ok = client.put(f"/api/review-types/{other['id']}", json={"remark": "正常更新"})
+    assert ok.status_code == 200
+
+
+def _create_schedule(client: TestClient, monkeypatch, review_type_id: str) -> dict:
+    monkeypatch.setattr(review_schedules_router, "persist_review_schedule", lambda record: None)
+    response = client.post(
+        "/api/review-schedules",
+        json={"name": "定时复核", "reviewTypeId": review_type_id, "cron": "*/30 * * * *",
+              "enabled": True, "batchSize": 50},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_delete_review_type_referenced_by_schedule_returns_409(client: TestClient, monkeypatch):
+    created = _create_review_type(client, monkeypatch)
+    schedule = _create_schedule(client, monkeypatch, created["id"])
+
+    response = client.delete(f"/api/review-types/{created['id']}")
+
+    assert response.status_code == 409
+    assert "定时任务" in response.json()["detail"]
+    # 类型仍在；删掉定时任务后可正常删除
+    assert any(item["id"] == created["id"] for item in client.get("/api/review-types").json())
+    monkeypatch.setattr(review_schedules_router, "delete_review_schedule_from_db", lambda sid: None)
+    monkeypatch.setattr(review_types_router, "delete_review_type_from_db", lambda tid: None)
+    assert client.delete(f"/api/review-schedules/{schedule['id']}").status_code == 200
+    assert client.delete(f"/api/review-types/{created['id']}").status_code == 200
+
+
+def test_delete_review_type_referenced_by_task_returns_409(client: TestClient, monkeypatch):
+    created = _create_review_type(client, monkeypatch)
+    state.review_tasks_store[str(uuid4())] = {
+        "id": str(uuid4()),
+        "review_type_name": created["name"],
+        "review_type_code": created["code"],
+    }
+
+    response = client.delete(f"/api/review-types/{created['id']}")
+
+    assert response.status_code == 409
+    assert "复核任务" in response.json()["detail"]
