@@ -252,6 +252,10 @@
         <dl class="detail-list" style="margin-top:12px;">
           <template v-for="result in messageDetailSnapshot.results" :key="result.title"><dt>{{ result.title }}</dt><dd>{{ result.value }}。{{ result.detail }}</dd></template>
         </dl>
+        <div v-if="messageDetailSnapshot.raw" class="exact-message-detail-raw">
+          <h4>接口返回全部字段</h4>
+          <pre>{{ formatMessageDetailRaw(messageDetailSnapshot.raw) }}</pre>
+        </div>
       </div>
     </section>
   </div>
@@ -1321,7 +1325,7 @@ export default defineComponent({
           this.seekVideo(this.currentTime);
         }
         const answerText = `已完成视频源文搜。\n\n事件摘要：${overview}\n\n已识别 ${this.events.length} 个关键事件，右侧可查看事件摘要、分析结果，并继续对视频提问。`;
-        const snapshot = this.saveAnalysisSnapshot(answerText, question);
+        const snapshot = this.saveAnalysisSnapshot(answerText, question, response);
         this.questionMessages.push({ role: "assistant", text: answerText, analysisId: snapshot.id, thinkingSeconds: this.stopThinkingTimer() });
         this.activeAnalysisId = snapshot.id;
         this.query = "";
@@ -1520,7 +1524,7 @@ export default defineComponent({
           vehicles: []
         };
         this.results = [];
-        const snapshot = this.saveAnalysisSnapshot(answer, question);
+        const snapshot = this.saveAnalysisSnapshot(answer, question, response);
         this.questionMessages.push({ role: "assistant", text: answer, analysisId: snapshot.id, thinkingSeconds: this.stopThinkingTimer() });
         this.activeAnalysisId = snapshot.id;
       } catch (error) {
@@ -1954,8 +1958,8 @@ export default defineComponent({
     cloneAnalysisData(value) {
       return JSON.parse(JSON.stringify(value));
     },
-    // 每轮分析/追问完成后留存快照：摘要、事件列表、选中事件下标的深拷贝
-    saveAnalysisSnapshot(answer, query) {
+    // 每轮分析/追问完成后留存快照：摘要、事件列表、选中事件下标、接口原始返回的深拷贝
+    saveAnalysisSnapshot(answer, query, rawResponse = null) {
       this.analysisSnapshotCounter += 1;
       const snapshot = {
         id: `analysis-${this.analysisSnapshotCounter}`,
@@ -1964,10 +1968,19 @@ export default defineComponent({
         summary: this.cloneAnalysisData(this.summary),
         events: this.cloneAnalysisData(this.events),
         results: this.cloneAnalysisData(this.results),
-        selectedEventIndex: this.selectedEventIndex
+        selectedEventIndex: this.selectedEventIndex,
+        raw: rawResponse ? this.cloneAnalysisData(rawResponse) : null
       };
       this.analysisSnapshots.push(snapshot);
       return snapshot;
+    },
+    // 分析详情弹窗：格式化展示接口返回的全部字段
+    formatMessageDetailRaw(raw) {
+      try {
+        return JSON.stringify(raw, null, 2);
+      } catch {
+        return String(raw);
+      }
     },
     loadAnalysisSnapshot(snapshotId) {
       const snapshot = this.analysisSnapshots.find(item => item.id === snapshotId);

@@ -5,7 +5,7 @@
       <div class="algorithm-toolbar"><button class="btn primary" @click="openCreate">新建</button></div>
       <table class="prototype-table">
         <colgroup><col style="width:auto;" /><col style="width:170px;" /><col style="width:210px;" /><col /><col style="width:110px;" /><col style="width:125px;" /><col style="width:150px;" /><col style="width:100px;" /></colgroup>
-        <thead><tr><th>ID</th><th class="left">事件名称</th><th class="left">算法编码</th><th class="left">提示词</th><th class="left">备注</th><th>注入事件字段</th><th>更新时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>ID</th><th class="left">算法名称</th><th class="left">算法编码</th><th class="left">提示词</th><th class="left">备注</th><th>注入事件字段</th><th>更新时间</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
             <td :title="row.id" style="white-space:nowrap;">{{ row.id }}</td><td class="left">{{ row.name }}</td><td class="left">{{ row.code }}</td><td class="left ellipsis">{{ row.prompt }}</td><td class="left ellipsis">{{ row.remark }}</td><td><span v-if="row.injectEvent" class="mini-tag">{{ row.injectEvent }}</span><span v-else>-</span></td><td>{{ formatTime(row.updatedAt) }}</td>

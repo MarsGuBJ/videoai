@@ -11258,6 +11258,31 @@
       font-size: 11px;
     }
 
+    .exact-message-detail-raw {
+      margin-top: 12px;
+    }
+
+    .exact-message-detail-raw h4 {
+      margin: 0 0 6px;
+      color: #344054;
+      font-size: 12px;
+    }
+
+    .exact-message-detail-raw pre {
+      margin: 0;
+      max-height: 320px;
+      overflow: auto;
+      padding: 10px 12px;
+      border: 1px solid #e4ecf7;
+      border-radius: 6px;
+      background: #f8fafd;
+      color: #475467;
+      font-size: 11px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
     .exact-search-error-modal {
       width: 420px;
     }
