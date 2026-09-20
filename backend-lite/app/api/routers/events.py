@@ -12,6 +12,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app import state
 from app.schemas.event import (
+    DeploymentEventHandleRequest,
+    DeploymentEventItem,
     DeploymentEventPage,
     DeploymentEventStats,
     DeploymentEventSummary,
@@ -24,6 +26,7 @@ from app.schemas.face import FaceScanSummary
 from app.services.deployment_events import (
     deployment_events_stats,
     deployment_events_summary,
+    handle_deployment_event,
     query_deployment_events,
 )
 from app.services.events import (
@@ -80,6 +83,12 @@ def list_deployment_events(
     except SQLAlchemyError as exc:
         logger.error("deployment-events query failed: %s", exc)
         return DeploymentEventPage(items=[], total=0, page=safe_page, size=safe_size)
+
+
+@router.post("/api/deployment-events/{event_id}/handle", response_model=DeploymentEventItem)
+def handle_event(event_id: UUID, request: DeploymentEventHandleRequest) -> DeploymentEventItem:
+    """处置布控事件：写入处置状态（已处置/已关闭）、时间与说明留痕。"""
+    return handle_deployment_event(str(event_id), request.action, request.note)
 
 
 @router.get("/api/deployment-events/summary", response_model=DeploymentEventSummary)

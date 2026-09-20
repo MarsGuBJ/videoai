@@ -1,6 +1,7 @@
 """事件（人脸事件 / 目标事件 / 匹配事件）DTO。"""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -51,6 +52,9 @@ class DeploymentEventItem(BaseModel):
     eventType: str
     algorithmCode: str | None = None
     reviewStatus: str | None = None
+    handleStatus: str | None = None
+    handledAt: datetime | None = None
+    handleNote: str | None = None
     faceProfileId: UUID | None = None
     faceProfileName: str | None = None
     faceProfilePhotoUrl: str | None = None
@@ -66,9 +70,15 @@ class DeploymentEventItem(BaseModel):
     createdAt: datetime
 
 
+class DeploymentEventHandleRequest(BaseModel):
+    """事件处置请求：action=handle 处置 / close 关闭，note 为处置说明（留痕）。"""
+
+    action: Literal["handle", "close"]
+    note: str | None = None
+
+
 class DeploymentEventPage(BaseModel):
     """布控事件分页响应。"""
-
     items: list[DeploymentEventItem]
     total: int
     page: int

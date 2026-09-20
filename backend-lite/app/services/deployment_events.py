@@ -4,6 +4,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
+from fastapi import HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -24,8 +25,41 @@ logger = logging.getLogger(__name__)
 
 REVIEW_STATUS_VALID = "有效"
 REVIEW_STATUS_INVALID = "无效"
+HANDLE_STATUS_HANDLED = "已处置"
+HANDLE_STATUS_CLOSED = "已关闭"
 AREA_FALLBACK = "未分区"
 STATS_AREA_TOP_N = 5
+
+
+def handle_deployment_event(event_id: str, action: str, note: str | None = None) -> DeploymentEventItem:
+    """处置布控事件：写入处置状态/时间/说明（留痕）并返回更新后的条目。
+
+    Args:
+        event_id: deployment_events.id（UUID 字符串）。
+        action: handle 处置 / close 关闭。
+        note: 处置说明，可为空。
+
+    Returns:
+        更新后的对外条目。
+
+    Raises:
+        HTTPException: 事件不存在时 404；数据库异常时 500。
+    """
+    handle_status = HANDLE_STATUS_HANDLED if action == "handle" else HANDLE_STATUS_CLOSED
+    try:
+        with SessionLocal() as pgdb:
+            row = pgdb.get(DeploymentEventORM, UUID(event_id))
+            if row is None:
+                raise HTTPException(status_code=404, detail="Deployment event not found")
+            row.handle_status = handle_status
+            row.handled_at = datetime.now(timezone.utc)
+            row.handle_note = note or ""
+            pgdb.commit()
+            pgdb.refresh(row)
+            return deployment_event_item(row)
+    except (SQLAlchemyError, ValueError) as exc:
+        logger.error("deployment event handle failed: %s", exc)
+        raise HTTPException(status_code=500, detail="事件处置失败") from exc
 
 
 def update_deployment_event_review_status(event_id: str, verdict: str) -> None:
@@ -53,6 +87,9 @@ def deployment_event_item(row: DeploymentEventORM) -> DeploymentEventItem:
         eventType=row.event_type,
         algorithmCode=row.algorithm_code or _task_algorithm_code(row.deployment_task_id),
         reviewStatus=row.review_status,
+        handleStatus=row.handle_status,
+        handledAt=row.handled_at,
+        handleNote=row.handle_note or None,
         faceProfileId=row.face_profile_id,
         faceProfileName=row.face_profile_name,
         faceProfilePhotoUrl=row.face_profile_photo_url,

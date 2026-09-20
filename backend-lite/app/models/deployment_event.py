@@ -36,6 +36,11 @@ class DeploymentEventORM(Base):
     # 复核状态：空/有效/无效
     review_status: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
+    # 处置留痕：未处置/已处置/已关闭 + 处置时间与说明
+    handle_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    handle_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     # 人脸比对事件字段
     face_profile_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     face_profile_name: Mapped[str | None] = mapped_column(String(200), nullable=True)

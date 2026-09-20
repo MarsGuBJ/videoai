@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -377,3 +378,68 @@ def test_face_ingest_writes_task_algorithm_code(client: TestClient, monkeypatch)
     assert response.status_code == 200
     assert len(fake_session.added) == 1
     assert fake_session.added[0].algorithm_code == "algo-gather-v1"
+
+
+# ---------------- 事件处置 /api/deployment-events/{id}/handle ----------------
+
+
+def test_handle_event_returns_updated_status(client: TestClient, monkeypatch):
+    event_id = uuid4()
+
+    def fake_handle(eid, action, note=None):
+        assert eid == str(event_id)
+        assert action == "handle"
+        assert note == "现场确认，已通知安保"
+        return _sample_item(
+            id=event_id,
+            handleStatus="已处置",
+            handledAt=OCCURRED_AT,
+            handleNote="现场确认，已通知安保",
+        )
+
+    monkeypatch.setattr(events_router, "handle_deployment_event", fake_handle)
+
+    response = client.post(
+        f"/api/deployment-events/{event_id}/handle",
+        json={"action": "handle", "note": "现场确认，已通知安保"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handleStatus"] == "已处置"
+    assert body["handleNote"] == "现场确认，已通知安保"
+    assert body["handledAt"]
+
+
+def test_close_event_returns_closed_status(client: TestClient, monkeypatch):
+    event_id = uuid4()
+    monkeypatch.setattr(
+        events_router,
+        "handle_deployment_event",
+        lambda eid, action, note=None: _sample_item(
+            id=event_id, handleStatus="已关闭", handledAt=OCCURRED_AT
+        ),
+    )
+
+    response = client.post(f"/api/deployment-events/{event_id}/handle", json={"action": "close"})
+
+    assert response.status_code == 200
+    assert response.json()["handleStatus"] == "已关闭"
+
+
+def test_handle_event_unknown_id_returns_404(client: TestClient, monkeypatch):
+    def fake_handle(eid, action, note=None):
+        raise HTTPException(status_code=404, detail="Deployment event not found")
+
+    monkeypatch.setattr(events_router, "handle_deployment_event", fake_handle)
+
+    response = client.post(f"/api/deployment-events/{uuid4()}/handle", json={"action": "handle"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Deployment event not found"
+
+
+def test_handle_event_invalid_action_returns_422(client: TestClient):
+    response = client.post(f"/api/deployment-events/{uuid4()}/handle", json={"action": "archive"})
+
+    assert response.status_code == 422

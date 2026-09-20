@@ -68,6 +68,15 @@ def ensure_deployment_event_schema() -> None:
             conn.execute(
                 text("ALTER TABLE deployment_events ADD COLUMN IF NOT EXISTS review_status VARCHAR(10)")
             )
+            conn.execute(
+                text("ALTER TABLE deployment_events ADD COLUMN IF NOT EXISTS handle_status VARCHAR(20)")
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_events ADD COLUMN IF NOT EXISTS handled_at TIMESTAMPTZ")
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_events ADD COLUMN IF NOT EXISTS handle_note VARCHAR(500)")
+            )
     except SQLAlchemyError as exc:  # 数据库不可达时跳过迁移，不阻断启动
         logger.error("deployment event schema ensure failed: %s", exc)
 
