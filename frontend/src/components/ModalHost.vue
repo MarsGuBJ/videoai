@@ -66,6 +66,7 @@ export default {
       algorithmPackageFile: null as File | null,
       algorithmPackageName: "",
       algorithmEngines: [] as AlgorithmEngine[],
+      algorithmEventInfos: [] as EventInfo[],
       deployTaskName: "",
       deployAlgorithmCode: "",
       deployRecognitionPerMinute: 10,
@@ -754,6 +755,12 @@ export default {
           .then((engines) => { this.algorithmEngines = engines; })
           .catch((error) => this.showToast(`算法引擎加载失败：${error instanceof Error ? error.message : error}`));
       }
+      // 算法编号下拉：选项来自事件配置页（事件信息）的编码，与原型一致
+      if (!this.algorithmEventInfos.length) {
+        api.eventInfos()
+          .then((rows) => { this.algorithmEventInfos = rows; })
+          .catch((error) => this.showToast(`事件编码加载失败：${error instanceof Error ? error.message : error}`));
+      }
     },
     initDeployTaskForm() {
       const item = this.modal.item;
@@ -1320,7 +1327,10 @@ export default {
           </div>
           <div class="modal-form-row">
             <label><span class="required">*</span>算法编号：</label>
-            <input class="input" v-model="algorithmCode" :disabled="isAlgorithmEdit" placeholder="请输入算法编号" />
+            <select class="select" v-model="algorithmCode" :disabled="isAlgorithmEdit">
+              <option value="" disabled>请选择算法编号</option>
+              <option v-for="row in algorithmEventInfos" :key="row.code" :value="row.code">{{ row.code }}（{{ row.name }}）</option>
+            </select>
           </div>
           <div class="modal-form-row" v-if="!isAlgorithmEdit">
             <label><span class="required">*</span>算法引擎：</label>

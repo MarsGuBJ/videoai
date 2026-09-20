@@ -1,7 +1,7 @@
 <template>
   <section class="content review-wide">
-    <div class="review-titlebar"><div><h1>事件配置</h1><p>配置事件字典、去重和消息订阅</p></div></div>
-    <div class="exact-mode-tabs" style="margin-bottom: 14px" role="tablist">
+    <div class="review-titlebar"><div><h1>事件配置</h1><p>配置事件字典、去重规则和消息订阅</p></div></div>
+    <div class="exact-mode-tabs event-config-page-tabs" role="tablist">
       <button v-for="tab in tabs" :key="tab.key" class="exact-mode-tab" :class="{ active: activeTab === tab.key }" role="tab" :aria-selected="activeTab === tab.key" @click="activeTab = tab.key">{{ tab.title }}</button>
     </div>
     <event-config-info-page v-if="activeTab === 'info'" :embedded="true" :store="store" :state="state" :selected-version="selectedVersion" :selected-deploy-task="selectedDeployTask" :selected-event="selectedEvent" :selected-algorithm="selectedAlgorithm"></event-config-info-page>

@@ -367,6 +367,8 @@ export type DeploymentEventQuery = {
   cameraId?: string;
   eventType?: string;
   keyword?: string;
+  reviewStatus?: string;
+  area?: string;
   startTime?: string;
   endTime?: string;
 };

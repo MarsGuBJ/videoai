@@ -427,6 +427,8 @@ export const api = {
     if (params.cameraId) search.set('cameraId', params.cameraId);
     if (params.eventType) search.set('eventType', params.eventType);
     if (params.keyword) search.set('keyword', params.keyword);
+    if (params.reviewStatus) search.set('reviewStatus', params.reviewStatus);
+    if (params.area) search.set('area', params.area);
     if (params.startTime) search.set('startTime', params.startTime);
     if (params.endTime) search.set('endTime', params.endTime);
     return request<DeploymentEventPage>(`/api/deployment-events?${search.toString()}`);

@@ -139,6 +139,22 @@ def test_list_deployment_events_passes_filters(client: TestClient, monkeypatch):
     assert captured["end_time"] is not None
 
 
+def test_list_deployment_events_passes_review_status_and_area(client: TestClient, monkeypatch):
+    captured: dict = {}
+
+    def fake_query(**kwargs):
+        captured.update(kwargs)
+        return [], 0
+
+    monkeypatch.setattr(events_router, "query_deployment_events", fake_query)
+
+    response = client.get("/api/deployment-events?reviewStatus=待复核&area=园区南门")
+
+    assert response.status_code == 200
+    assert captured["review_status"] == "待复核"
+    assert captured["area"] == "园区南门"
+
+
 def test_list_deployment_events_db_error_returns_empty_page(client: TestClient, monkeypatch):
     def broken_query(**kwargs):
         raise SQLAlchemyError("db down")

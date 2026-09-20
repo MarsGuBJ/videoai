@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 REVIEW_STATUS_VALID = "有效"
 REVIEW_STATUS_INVALID = "无效"
+REVIEW_STATUS_UNREVIEWED = "待复核"
 HANDLE_STATUS_HANDLED = "已处置"
 HANDLE_STATUS_CLOSED = "已关闭"
 AREA_FALLBACK = "未分区"
@@ -114,6 +115,8 @@ def query_deployment_events(
     camera_id: UUID | None = None,
     event_type: str | None = None,
     keyword: str | None = None,
+    review_status: str | None = None,
+    area: str | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
 ) -> tuple[list[DeploymentEventItem], int]:
@@ -138,6 +141,19 @@ def query_deployment_events(
                     DeploymentEventORM.camera_name.ilike(like),
                 )
             )
+        if review_status:
+            if review_status == REVIEW_STATUS_UNREVIEWED:
+                # 待复核为虚拟状态：复核结论未回写（NULL 或空串）的事件
+                query = query.filter(
+                    or_(
+                        DeploymentEventORM.review_status.is_(None),
+                        DeploymentEventORM.review_status == "",
+                    )
+                )
+            else:
+                query = query.filter(DeploymentEventORM.review_status == review_status)
+        if area:
+            query = query.filter(DeploymentEventORM.camera_area == area)
         if start_time is not None:
             query = query.filter(DeploymentEventORM.occurred_at >= start_time)
         if end_time is not None:

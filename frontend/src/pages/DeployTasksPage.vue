@@ -3,12 +3,12 @@
     <div class="review-titlebar"><div><h1>布控任务</h1><p>管理算法布控任务、监控点位、告警规则和运行状态</p></div></div>
     <summary-cards :cards="cards"></summary-cards>
     <div class="review-board">
-      <div class="page-actions"><div class="left"><button class="btn primary" @click="openModal('deployTask')">新建布控任务</button><button class="btn" @click="loadTasks">查询</button><button class="btn" @click="resetFilters">重置</button><input class="input" style="width:260px;" v-model="keyword" placeholder="搜索任务名称、任务ID" /><select class="select" style="width:150px;" v-model="statusFilter"><option value="">全部状态</option><option value="running">运行中</option><option value="stopped">已停止</option></select><select class="select" style="width:170px;" v-model="algorithmFilter"><option value="">全部算法</option><option v-for="algorithm in algorithms" :key="algorithm.id" :value="algorithm.id">{{ algorithm.name }}</option></select></div></div>
+      <div class="page-actions"><div class="left"><button class="btn primary" @click="openModal('deployTask')">新建布控任务</button><button class="btn" @click="loadTasks">查询</button><button class="btn" @click="resetFilters">重置</button><input class="input" style="width:260px;" v-model="keyword" placeholder="搜索任务名称、任务ID" /><select class="select" style="width:150px;" v-model="statusFilter"><option value="">全部状态</option><option value="running">运行中</option><option value="stopped">已停止</option></select><select class="select" style="width:170px;" v-model="algorithmFilter"><option value="">全部算法</option><option v-for="algorithm in algorithms" :key="algorithm.id" :value="algorithm.id">{{ algorithm.name }}</option></select><select class="select" style="width:150px;" v-model="areaFilter"><option value="">全部区域</option><option v-for="area in areaOptions" :key="area" :value="area">{{ area }}</option></select></div></div>
       <table class="prototype-table">
         <colgroup><col style="width:118px;" /><col style="width:145px;" /><col style="width:120px;" /><col style="width:96px;" /><col style="width:108px;" /><col style="width:64px;" /><col style="width:60px;" /><col style="width:112px;" /><col style="width:140px;" /></colgroup>
-        <thead><tr><th>任务ID</th><th class="left">任务名称</th><th>算法名称</th><th>布控区域</th><th>点位数</th><th>状态</th><th>识别频次</th><th>创建时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>任务ID</th><th class="left">任务名称</th><th>算法名称</th><th>布控区域</th><th>生效时间</th><th>状态</th><th>告警数</th><th>创建时间</th><th>操作</th></tr></thead>
         <tbody>
-          <tr v-for="row in filteredRows" :key="row.id"><td class="ellipsis" :title="row.id">{{ row.id }}</td><td class="left">{{ row.name }}</td><td>{{ row.algorithm }}</td><td>{{ row.area }}</td><td>{{ row.areaCount }}</td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td>{{ row.recognitionPerMinute }} 次/分</td><td>{{ row.created }}</td><td><button class="link-blue" @click="openDeployDetail(row)">详情</button><button class="link-blue" @click="openModal('deployTask', row.raw)">编辑</button><button class="link-blue" @click="toggleTask(row)">{{ row.status === "运行中" ? "停止" : "启动" }}</button><button class="link-red" @click="removeTask(row)">删除</button></td></tr>
+          <tr v-for="row in filteredRows" :key="row.id"><td class="ellipsis" :title="row.id">{{ row.id }}</td><td class="left">{{ row.name }}</td><td>{{ row.algorithm }}</td><td>{{ row.area }}</td><td>{{ row.time }}</td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td>{{ row.alerts }}</td><td>{{ row.created }}</td><td><button class="link-blue" @click="openDeployDetail(row)">详情</button><button class="link-blue" @click="openModal('deployTask', row.raw)">编辑</button><button class="link-blue" @click="toggleTask(row)">{{ row.status === "运行中" ? "停止" : "启动" }}</button><button class="link-red" @click="removeTask(row)">删除</button></td></tr>
           <tr v-if="!loading && !filteredRows.length"><td colspan="9" class="empty-cell">暂无布控任务</td></tr>
           <tr v-if="loading"><td colspan="9" class="empty-cell">加载中...</td></tr>
         </tbody>
@@ -68,10 +68,19 @@ export default defineComponent({
       loading: false,
       keyword: "",
       statusFilter: "",
-      algorithmFilter: ""
+      algorithmFilter: "",
+      areaFilter: "",
+      todayAlerts: 0
     };
   },
   computed: {
+    areaOptions(): string[] {
+      const set = new Set<string>();
+      for (const row of this.rows) {
+        if (row.area && row.area !== "—") set.add(row.area);
+      }
+      return Array.from(set);
+    },
     filteredRows() {
       const keyword = this.keyword.trim().toLowerCase();
       return this.rows.filter((row) => {
@@ -79,6 +88,7 @@ export default defineComponent({
         if (this.statusFilter === "running" && row.status !== "运行中") return false;
         if (this.statusFilter === "stopped" && row.status !== "已停止") return false;
         if (this.algorithmFilter && row.raw.algorithmId !== this.algorithmFilter) return false;
+        if (this.areaFilter && row.area !== this.areaFilter) return false;
         return true;
       });
     },
@@ -86,13 +96,14 @@ export default defineComponent({
       return [
         { label: "任务总数", value: this.rows.length },
         { label: "运行中", value: this.rows.filter((row) => row.status === "运行中").length },
-        { label: "已停止", value: this.rows.filter((row) => row.status === "已停止").length }
+        { label: "今日告警", value: this.todayAlerts }
       ];
     }
   },
   mounted() {
     this.loadTasks();
     this.loadAlgorithms();
+    this.loadTodayAlerts();
   },
   methods: {
     openModal(...args: any[]) {
@@ -108,6 +119,7 @@ export default defineComponent({
       this.keyword = "";
       this.statusFilter = "";
       this.algorithmFilter = "";
+      this.areaFilter = "";
     },
     async loadTasks() {
       if (this.loading) return;
@@ -115,10 +127,27 @@ export default defineComponent({
       try {
         const tasks = await api.deploymentTasks();
         this.rows = tasks.map(mapTaskToRow);
+        await Promise.all(
+          this.rows.map(async (row) => {
+            try {
+              const page = await api.deploymentEvents({ taskId: row.id, size: 1 });
+              row.alerts = page.total;
+            } catch {
+              // 告警数加载失败时保持 0
+            }
+          })
+        );
       } catch (e) {
         this.showToast(e instanceof Error ? e.message : "布控任务加载失败");
       } finally {
         this.loading = false;
+      }
+    },
+    async loadTodayAlerts() {
+      try {
+        this.todayAlerts = (await api.deploymentEventSummary()).today;
+      } catch (e) {
+        console.error("load today alerts failed", e);
       }
     },
     async loadAlgorithms() {

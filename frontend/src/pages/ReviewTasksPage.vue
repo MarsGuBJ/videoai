@@ -3,9 +3,11 @@
     <div class="review-titlebar"><div><h1>任务管理</h1><p>异常事件复查、人工补核、离线分析与效果测试</p></div></div>
     <div class="review-board">
       <div class="prototype-filter">
-        <div class="review-task-filter-actions"><button class="btn primary" @click="openModal('reviewTask')">上传复核任务</button><button class="btn" @click="loadRows()">查询</button><button class="btn" @click="resetFilters">重置</button></div>
+        <div class="review-task-filter-actions"><button class="btn primary" @click="openModal('reviewTask')">上传复核任务</button><button class="btn" @click="applyFilters">查询</button><button class="btn" @click="resetFilters">重置</button></div>
         <div class="filter-item"><span>搜索：</span><input class="input" v-model="keyword" placeholder="搜索任务ID、事件类型" /></div>
         <div class="filter-item"><span>状态：</span><select class="select" v-model="statusFilter"><option value="">全部</option><option>进行中</option><option>已完成</option><option>失败</option></select></div>
+        <div class="filter-item"><span>开始时间：</span><input class="input" type="datetime-local" v-model="startTime" aria-label="开始时间" /></div>
+        <div class="filter-item"><span>结束时间：</span><input class="input" type="datetime-local" v-model="endTime" aria-label="结束时间" /></div>
       </div>
       <table class="prototype-table">
         <colgroup><col style="width:90px;" /><col style="width:200px;" /><col style="width:170px;" /><col style="width:150px;" /><col style="width:110px;" /><col style="width:110px;" /><col style="width:80px;" /></colgroup>
@@ -48,14 +50,25 @@ export default defineComponent({
       loading: false,
       statusFilter: "",
       keyword: "",
+      startTime: "",
+      endTime: "",
       pollTimer: null as number | null
     };
   },
   computed: {
     filteredRows(): ReviewTask[] {
       const keyword = this.keyword.trim().toLowerCase();
+      // datetime-local 精度到分钟，结束时间按当分 59 秒兜底，避免同分任务被截掉
+      const start = this.startTime ? new Date(this.startTime).getTime() : null;
+      const end = this.endTime ? new Date(this.endTime).getTime() + 59999 : null;
       return this.rows.filter((row) => {
         if (this.statusFilter && row.status !== this.statusFilter) return false;
+        if (start !== null || end !== null) {
+          const created = new Date(row.createdAt).getTime();
+          if (Number.isNaN(created)) return false;
+          if (start !== null && created < start) return false;
+          if (end !== null && created > end) return false;
+        }
         if (!keyword) return true;
         return [row.id, row.reviewTypeName, row.reviewTypeCode]
           .some((field) => (field || "").toLowerCase().includes(keyword));
@@ -103,9 +116,19 @@ export default defineComponent({
         this.pollTimer = null;
       }
     },
+    applyFilters() {
+      // 起止倒置时拦截并提示，与录像回放页保持一致
+      if (this.startTime && this.endTime && this.startTime > this.endTime) {
+        this.showToast("开始时间必须早于结束时间");
+        return;
+      }
+      this.loadRows();
+    },
     resetFilters() {
       this.statusFilter = "";
       this.keyword = "";
+      this.startTime = "";
+      this.endTime = "";
     },
     formatTime(iso?: string | null): string {
       if (!iso) return "-";

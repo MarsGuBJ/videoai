@@ -62,6 +62,8 @@ def list_deployment_events(
     cameraId: UUID | None = None,
     eventType: str | None = None,
     keyword: str | None = None,
+    reviewStatus: str | None = None,
+    area: str | None = None,
     startTime: datetime | None = None,
     endTime: datetime | None = None,
 ) -> DeploymentEventPage:
@@ -76,6 +78,8 @@ def list_deployment_events(
             camera_id=cameraId,
             event_type=eventType,
             keyword=keyword,
+            review_status=reviewStatus,
+            area=area,
             start_time=startTime,
             end_time=endTime,
         )

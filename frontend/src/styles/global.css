@@ -6810,6 +6810,10 @@
     .event-config-switch.active { background: #6978ff; }
     .event-config-switch.active::after { transform: translateX(20px); }
 
+    .event-config-page-tabs {
+      margin-bottom: 16px;
+    }
+
     .event-config-pagination {
       display: flex;
       align-items: center;

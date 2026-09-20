@@ -3,7 +3,7 @@
     <div v-if="!embedded" class="review-titlebar"><div><h1>消息订阅配置</h1><p>管理事件推送任务、推送地址、状态和推送日志</p></div><button class="btn" @click="setRoute('eventConfig')">返回事件配置</button></div>
     <div class="event-config-page-board"><div class="event-config-filter"><div class="event-config-filter-left"><button class="btn primary" @click="openCreate">＋ 新增推送</button><button class="btn primary" @click="showToast('已按当前条件查询')">查询</button><button class="btn" @click="reset">重置</button><button class="btn danger" @click="removeSelected">一键删除</button><span style="color:#41546a;font-size:13px;">搜索</span><input v-model="keyword" class="input" style="width:190px;" placeholder="请输入" /><span style="color:#41546a;font-size:13px;">推送类型</span><select v-model="type" class="select" style="width:120px;"><option value="">请选择</option><option value="mq">mq</option><option value="http">http</option></select></div></div>
       <div class="table-wrap"><table class="prototype-table"><thead><tr><th><input type="checkbox" aria-label="选择全部" :checked="allSelected" @change="toggleAll" /></th><th>序号</th><th class="left">任务名称</th><th>推送类型<span style="display:inline-grid;place-items:center;width:14px;height:14px;margin-left:4px;border:1px solid #b6c2cf;border-radius:50%;color:#98a2b3;font-size:10px;vertical-align:middle;">?</span></th><th>推送地址<span style="display:inline-grid;place-items:center;width:14px;height:14px;margin-left:4px;border:1px solid #b6c2cf;border-radius:50%;color:#98a2b3;font-size:10px;vertical-align:middle;">?</span></th><th>状态</th><th>描述</th><th>操作</th></tr></thead><tbody><tr v-for="(row, index) in paginatedRows" :key="row.id"><td><input type="checkbox" :aria-label="'选择' + row.name" :checked="selectedIds.includes(row.id)" @change="toggleSelect(row.id)" /></td><td>{{ (activePage - 1) * pageSize + index + 1 }}</td><td class="left">{{ row.name }}</td><td>{{ row.type }}</td><td><code>{{ row.address }}</code></td><td><button class="event-config-switch" :class="{ active: row.enabled }" type="button" :aria-label="row.enabled ? '已启用' : '已停用'" @click="toggle(row)"></button></td><td>{{ row.desc || "-" }}</td><td><div class="event-config-actions"><button class="link-blue" @click="openLogs(row)">推送日志</button><button class="link-blue" @click="openEdit(row)">编辑</button><button class="link-blue danger" @click="remove(row)">删除</button></div></td></tr><tr v-if="!loading && !paginatedRows.length"><td colspan="8" class="empty-cell">暂无匹配推送任务</td></tr><tr v-if="loading"><td colspan="8" class="empty-cell">加载中...</td></tr></tbody></table></div>
-      <div class="event-config-pagination"><span style="color:#98a2b3;font-size:11px;margin-right:auto;">共 {{ filteredRows.length }} 条</span><button type="button" aria-label="上一页" :disabled="activePage === 1" @click="activePage--">‹</button><button v-for="page in pageCount" :key="page" type="button" :class="{ active: activePage === page }" @click="activePage = page">{{ page }}</button><button type="button" aria-label="下一页" :disabled="activePage === pageCount" @click="activePage++">›</button><select class="select" v-model.number="pageSize" aria-label="每页条数" @change="activePage = 1"><option :value="10">10条/页</option><option :value="20">20条/页</option><option :value="50">50条/页</option></select></div>
+      <div class="event-config-pagination"><button type="button" aria-label="上一页" :disabled="activePage === 1" @click="activePage--">‹</button><button v-for="page in leadingPages" :key="page" type="button" :class="{ active: activePage === page }" @click="activePage = page">{{ page }}</button><span v-if="pageCount > 4">…</span><button v-if="pageCount > 3" type="button" :class="{ active: activePage === pageCount }" @click="activePage = pageCount">{{ pageCount }}</button><select class="select" v-model.number="pageSize" aria-label="每页条数" @change="activePage = 1"><option :value="10">10条/页</option><option :value="20">20条/页</option></select><span>跳至</span><input class="input" type="number" min="1" v-model="jumpTarget" aria-label="跳至页码" @keyup.enter="jumpTo" @change="jumpTo" /><span>页</span></div>
     </div>
     <div v-if="modal === 'form'" class="event-config-modal-mask" @click.self="closeModal">
       <section class="event-config-modal wide" role="dialog" aria-modal="true" :aria-label="editing ? '编辑推送任务' : '新增推送任务'">
@@ -70,6 +70,7 @@ export default defineComponent({
       type: "",
       activePage: 1,
       pageSize: 10,
+      jumpTarget: "",
       historyPage: 1,
       modal: null as string | null,
       logTab: "latest",
@@ -112,6 +113,9 @@ export default defineComponent({
     pageCount(): number {
       return Math.max(1, Math.ceil(this.filteredRows.length / this.pageSize));
     },
+    leadingPages(): number[] {
+      return [1, 2, 3].filter(page => page <= this.pageCount);
+    },
     paginatedRows(): PushTask[] {
       const start = (this.activePage - 1) * this.pageSize;
       return this.filteredRows.slice(start, start + this.pageSize);
@@ -123,6 +127,11 @@ export default defineComponent({
   },
   methods: {
     reset() { this.keyword = ""; this.type = ""; this.activePage = 1; },
+    jumpTo() {
+      const target = Math.floor(Number(this.jumpTarget));
+      if (target >= 1) this.activePage = Math.min(target, this.pageCount);
+      this.jumpTarget = "";
+    },
     async loadRows() {
       if (this.loading) return;
       this.loading = true;

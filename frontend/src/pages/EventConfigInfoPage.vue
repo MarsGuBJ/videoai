@@ -4,7 +4,7 @@
     <div class="event-config-page-board">
       <div class="event-config-filter"><div class="event-config-filter-left"><button class="btn primary" @click="openCreate">＋ 新增</button><button class="btn" @click="reset">重置</button><button class="btn primary" @click="showToast('已按当前条件查询')">查询</button><input v-model="keyword" class="input" style="width:260px;" placeholder="请输入名称" /></div><button v-if="!embedded" class="btn" @click="setRoute('eventConfig')">返回事件配置</button></div>
       <div class="table-wrap"><table class="prototype-table"><thead><tr><th class="left">名称</th><th>编码</th><th>事件等级</th><th>事件分类</th><th>状态</th><th>图标</th><th>排序(倒序)</th><th>操作</th></tr></thead><tbody><tr v-for="row in paginatedRows" :key="row.id"><td class="left">{{ row.name }}</td><td><code>{{ row.code }}</code></td><td>{{ row.level }}</td><td>{{ row.category }}</td><td><span class="event-config-dot-status" :class="{ muted: !row.enabled }">{{ row.enabled ? "启用中" : "已停用" }}</span></td><td><span class="event-config-entry-icon event-config-icon-cell">&#xf03e;</span></td><td>{{ row.sortOrder }}⌄</td><td><div class="event-config-actions"><button class="link-blue" @click="openEdit(row)">修改</button><button class="link-blue" @click="toggle(row)">{{ row.enabled ? "停用" : "启用" }}</button><button class="link-blue danger" @click="remove(row)">删除</button></div></td></tr><tr v-if="!loading && !paginatedRows.length"><td colspan="8" class="empty-cell">暂无匹配事件</td></tr><tr v-if="loading"><td colspan="8" class="empty-cell">加载中...</td></tr></tbody></table></div>
-      <div class="event-config-pagination"><span style="color:#98a2b3;font-size:11px;margin-right:auto;">共 {{ filteredRows.length }} 条</span><button type="button" aria-label="上一页" :disabled="activePage === 1" @click="activePage--">‹</button><button v-for="page in pageCount" :key="page" type="button" :class="{ active: activePage === page }" @click="activePage = page">{{ page }}</button><button type="button" aria-label="下一页" :disabled="activePage === pageCount" @click="activePage++">›</button><select class="select" v-model.number="pageSize" aria-label="每页条数" @change="activePage = 1"><option :value="10">10条/页</option><option :value="20">20条/页</option><option :value="50">50条/页</option></select></div>
+      <div class="event-config-pagination"><button type="button" aria-label="上一页" :disabled="activePage === 1" @click="activePage--">‹</button><button v-for="page in leadingPages" :key="page" type="button" :class="{ active: activePage === page }" @click="activePage = page">{{ page }}</button><span v-if="pageCount > 4">…</span><button v-if="pageCount > 3" type="button" :class="{ active: activePage === pageCount }" @click="activePage = pageCount">{{ pageCount }}</button><select class="select" v-model.number="pageSize" aria-label="每页条数" @change="activePage = 1"><option :value="10">10条/页</option><option :value="20">20条/页</option></select><span>跳至</span><input class="input" type="number" min="1" v-model="jumpTarget" aria-label="跳至页码" @keyup.enter="jumpTo" @change="jumpTo" /><span>页</span></div>
     </div>
     <div v-if="modalOpen" class="event-config-modal-mask" @click.self="closeForm">
       <section class="event-config-modal wide" role="dialog" aria-modal="true" :aria-label="editing ? '修改配置信息' : '新增配置信息'">
@@ -45,12 +45,13 @@ export default defineComponent({
       keyword: "",
       activePage: 1,
       pageSize: 10,
+      jumpTarget: "",
       rows: [] as EventInfo[],
       loading: false,
       saving: false,
       modalOpen: false,
       editing: null as EventInfo | null,
-      form: { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "中心推理平台", eventSource: "", algorithmCode: "", attrs: [] as { key: string; value: string }[] }
+      form: { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "", eventSource: "", algorithmCode: "", attrs: [] as { key: string; value: string }[] }
     };
   },
   computed: {
@@ -60,6 +61,9 @@ export default defineComponent({
     },
     pageCount(): number {
       return Math.max(1, Math.ceil(this.filteredRows.length / this.pageSize));
+    },
+    leadingPages(): number[] {
+      return [1, 2, 3].filter(page => page <= this.pageCount);
     },
     paginatedRows(): EventInfo[] {
       const start = (this.activePage - 1) * this.pageSize;
@@ -71,6 +75,11 @@ export default defineComponent({
   },
   methods: {
     reset() { this.keyword = ""; this.activePage = 1; },
+    jumpTo() {
+      const target = Math.floor(Number(this.jumpTarget));
+      if (target >= 1) this.activePage = Math.min(target, this.pageCount);
+      this.jumpTarget = "";
+    },
     async loadRows() {
       if (this.loading) return;
       this.loading = true;
@@ -83,7 +92,7 @@ export default defineComponent({
       }
     },
     blankForm() {
-      return { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "中心推理平台", eventSource: "", algorithmCode: "", attrs: [{ key: "", value: "" }, { key: "", value: "" }] };
+      return { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "", eventSource: "", algorithmCode: "", attrs: [{ key: "", value: "" }, { key: "", value: "" }] };
     },
     openCreate() { this.editing = null; this.form = this.blankForm(); this.modalOpen = true; },
     openEdit(row: EventInfo) {
