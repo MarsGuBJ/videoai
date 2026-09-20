@@ -3,7 +3,8 @@
     <div class="review-titlebar"><div><h1>录像回放</h1><p>按空间、设备与时间快速检索历史录像，支持时间轴定位、同步回放、分段回放和录像下载</p></div><div class="segmented"><button class="btn" @click="openRecordDownload">录像下载</button><button class="btn primary" @click="goLivePreview">切换实况</button></div></div>
     <div class="media-console-grid playback">
       <aside v-show="showSider" class="panel media-resource-panel">
-        <div class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in regions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ expandedRegions[region.fullPath] ? '⌄' : '›' }} {{ region.name }}</span><span>{{ region.count }} 台设备</span></button><div v-if="expandedRegions[region.fullPath]" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!regions.length" style="padding:12px;color:#888;">暂无录像资源，请先在设备管理中添加设备</div></div></div>
+        <input class="input" placeholder="搜索监控点名称/IP" aria-label="搜索监控点名称或IP" v-model="searchKeyword" />
+        <div class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in displayRegions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ isRegionExpanded(region) ? '⌄' : '›' }} {{ region.name }}</span><span>{{ regionCount(region) }} 台设备</span></button><div v-if="isRegionExpanded(region)" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!displayRegions.length" style="padding:12px;color:#888;">{{ searchKeyword ? '无匹配监控点' : '暂无录像资源，请先在设备管理中添加设备' }}</div></div></div>
         <div class="media-record-query"><div class="media-resource-tabs" style="margin-bottom:0;"></div><label>开始时间<input class="input" type="datetime-local" v-model="queryStart" /></label><label>结束时间<input class="input" type="datetime-local" v-model="queryEnd" /></label><button class="btn primary" :disabled="searching" @click="searchRecordings">{{ searching ? '查询中…' : '录像查询' }}</button><ul v-if="segments.length" class="media-plan-list"><li :class="{ active: !!activeSegment }" style="cursor:pointer;" @click="playMergedResult"><b>{{ formatSegmentTime(segments[0].startTime) }} ~ {{ formatSegmentTime(segments[segments.length - 1].endTime, true) }}</b><span>{{ segments[0].cameraName || (selectedCamera && selectedCamera.name) || '' }}</span></li></ul><p v-else-if="searchError" class="hint-text">{{ searchError }}</p><p v-else-if="searched && !searching" class="hint-text">该时段无录像</p></div>
       </aside>
       <section class="panel media-stage-panel">
@@ -46,9 +47,8 @@ import PlaybackPlayer from "../components/playback/PlaybackPlayer.vue";
 import type { TimelineSegment } from "../components/playback/PlaybackTimeline.vue";
 
 // 区域节点来自后端区域树（sortOrder 顺序）；设备占用的路径不在树中时（含「未分配」）按前缀补齐到末尾。
-// count 口径与原 buildRegionTree 一致：顶层节点含全部子孙，子节点仅统计精确挂载的设备数。
+// count 口径：所有节点均统计整个子树的设备合计（父节点仅显示统计数字，子节点的设备不并入父节点）。
 function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<string, any[]>): RegionNode[] {
-  const exactCount = (path: string) => (regionCameras[path] || []).length;
   const subtreeCount = (path: string) =>
     Object.keys(regionCameras)
       .filter((p) => p === path || p.startsWith(path + " / "))
@@ -57,7 +57,7 @@ function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<st
     name: item.name,
     fullPath: item.fullPath,
     child: item.depth > 0,
-    count: item.depth > 0 ? exactCount(item.fullPath) : subtreeCount(item.fullPath)
+    count: subtreeCount(item.fullPath)
   }));
   const seen = new Set(regions.map((region) => region.fullPath));
   const missing: string[] = [];
@@ -72,12 +72,11 @@ function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<st
   missing.forEach((fullPath) => {
     seen.add(fullPath);
     const segments = fullPath.split(" / ");
-    const child = segments.length > 1;
     regions.push({
       name: segments[segments.length - 1],
       fullPath,
-      child,
-      count: child ? exactCount(fullPath) : subtreeCount(fullPath)
+      child: segments.length > 1,
+      count: subtreeCount(fullPath)
     });
   });
   return regions;
@@ -136,6 +135,7 @@ export default defineComponent({
       searching: false,
       searched: false,
       searchError: "",
+      searchKeyword: "",
       segments: [] as RecordingSegment[],
       activeSegment: null as RecordingSegment | null,
       playbackPlaying: false,
@@ -155,6 +155,11 @@ export default defineComponent({
     };
   },
   computed: {
+    // 搜索时仅显示子树内有命中设备的区域节点
+    displayRegions(): RegionNode[] {
+      if (!this.searchKeyword.trim()) return this.regions;
+      return this.regions.filter((region) => this.regionCount(region) > 0);
+    },
     // 查询结果合并为一条：整体起点 = 首段开始时间，整体终点 = 末段结束时间
     rangeStartMs(): number {
       return this.segments.length ? parseLocalMs(this.segments[0].startTime) : 0;
@@ -220,6 +225,7 @@ export default defineComponent({
           id: cam.id,
           name: cam.name,
           code: cam.id,
+          ip: cam.ip,
           type: cam.protocol || cam.streamApp || "IPC",
           status: deviceStatusLabel(cam),
           onlineStatus: cam.onlineStatus,
@@ -246,15 +252,36 @@ export default defineComponent({
       this.selectedRegion = null;
       this.selectedCamera = null;
     },
-    // 顶层区域展开时显示其全部子孙区域的设备，与 count 口径一致
+    // 每个区域节点只显示直接挂载的设备，子区域的设备不并入父节点（父节点仅显示子树合计数）；
+    // 搜索关键字按名称/IP 过滤
     camerasForRegion(region: RegionNode): any[] {
-      const result: any[] = [];
+      const keyword = this.searchKeyword.trim().toLowerCase();
+      const result: any[] = this.regionCameras[region.fullPath] || [];
+      if (!keyword) return result;
+      return result.filter((camera) =>
+        camera.name.toLowerCase().includes(keyword) ||
+        String(camera.ip || "").toLowerCase().includes(keyword)
+      );
+    },
+    // 节点设备数 = 整个子树的设备合计（含所有子孙区域）；搜索时统计子树内命中数
+    regionCount(region: RegionNode): number {
+      const keyword = this.searchKeyword.trim().toLowerCase();
+      let total = 0;
       for (const path of Object.keys(this.regionCameras)) {
-        if (path === region.fullPath || path.startsWith(region.fullPath + " / ")) {
-          result.push(...this.regionCameras[path]);
-        }
+        if (path !== region.fullPath && !path.startsWith(region.fullPath + " / ")) continue;
+        const list = this.regionCameras[path];
+        total += keyword
+          ? list.filter((camera) =>
+              camera.name.toLowerCase().includes(keyword) ||
+              String(camera.ip || "").toLowerCase().includes(keyword)
+            ).length
+          : list.length;
       }
-      return result;
+      return total;
+    },
+    // 搜索时资源树节点全部展开，便于直接看到命中的监控点
+    isRegionExpanded(region: RegionNode): boolean {
+      return !!this.expandedRegions[region.fullPath] || !!this.searchKeyword.trim();
     },
     // 即时回放「切至历史录像」带入的回放参数（state.playbackQuery）：
     // 选中设备 → 按即时回放的时间段检索 → 从同一位置直接播放该录像片段

@@ -40,7 +40,7 @@
           <div class="exact-dialog-chat-head"><strong>视频问答</strong></div>
           <div class="exact-chat-messages">
             <div v-for="(message, index) in questionMessages" :key="index" class="exact-chat-item" :class="message.role">
-              <div v-if="message.role === 'assistant' && message.thinkingSeconds != null" class="exact-thinking-row"><span class="exact-thinking-tag done">已思考</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(message.thinkingSeconds) }}</span></div>
+              <div v-if="message.role === 'assistant' && message.thinkingSeconds != null" class="exact-thinking-row"><span class="exact-thinking-tag done">已思考</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(message.thinkingSeconds) }}</span><span v-if="message.downloadSeconds != null" class="exact-thinking-timer">视频下载 {{ formatThinkingSeconds(message.downloadSeconds) }}</span><span v-if="message.analyzeSeconds != null" class="exact-thinking-timer">调用接口 {{ formatThinkingSeconds(message.analyzeSeconds) }}</span></div>
               <div class="exact-chat-message" :class="message.role">{{ message.text }}</div>
               <div v-if="message.role === 'assistant' && message.analysisId" class="exact-message-actions">
                 <button class="exact-message-analysis-btn" :class="{ active: activeAnalysisId === message.analysisId }" type="button" title="分析概要" aria-label="分析概要" @click="loadAnalysisSnapshot(message.analysisId)">&#xf080;</button>
@@ -518,6 +518,9 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
   };
 }
 
+// 视频理解接口报错时的友好提示（聊天消息与 toast 统一使用）
+const VIDEO_UNDERSTANDING_ERROR_TIP = "呃，大脑溜号了！请找管理员。";
+
 // 模板中直接使用注入的 openResult；vue-tsc 不会把 inject 键推导到模板 this 上，
 // 因此以类型补丁形式合并进 ComponentCustomProperties（运行时 inject 声明保持不变）。
 declare module "vue" {
@@ -557,6 +560,8 @@ export default defineComponent({
       preparingRecording: false,
       streamBusy: false,
       pendingStreamOffset: null as number | null,
+      // 播放代际：每次停止/换源/切到录像文件时递增，使在途的起流结果失效
+      streamGeneration: 0,
       analyzing: false,
       onlineStart: "",
       onlineEnd: "",
@@ -956,6 +961,8 @@ export default defineComponent({
       }
       const startMs = parseLocalMs(params.startTime) + offset * 1000;
       this.streamBusy = true;
+      // 记录播放代际：起流期间若已停止/换源/切到录像文件，返回的流过期，直接丢弃
+      const generation = this.streamGeneration;
       try {
         const result = await api.startRecordingStream({
           cameraId: params.cameraId,
@@ -963,6 +970,10 @@ export default defineComponent({
           endTime: params.endTime,
           speed: Number(this.playbackRate)
         });
+        // 只播放最晚加载的视频：过期起流结果不再下发，避免与当前视频交叠播放
+        if (generation !== this.streamGeneration || this.selectedSource !== selectedSource || !selectedSource.streamUrl || selectedSource.videoUrl) {
+          return;
+        }
         this.currentTime = offset;
         this.playerPlaying = true;
         this.startPlayTimer();
@@ -970,7 +981,8 @@ export default defineComponent({
           // URL 相同不会触发 VideoPlayer 的 watch，先卸载再在下一帧重建流
           selectedSource.streamUrl = undefined;
           this.$nextTick(() => {
-            if (this.selectedSource === selectedSource) selectedSource.streamUrl = result.url;
+            if (generation !== this.streamGeneration || this.selectedSource !== selectedSource || selectedSource.videoUrl) return;
+            selectedSource.streamUrl = result.url;
           });
         } else {
           selectedSource.streamUrl = result.url;
@@ -1121,6 +1133,25 @@ export default defineComponent({
       this.localVideoPoster = "";
       this.store.lastLocalVideo = null;
       if (this.$refs.exactVideoInput) (this.$refs.exactVideoInput as HTMLInputElement).value = "";
+      // 当前视频源正是被删除的本地视频时：播放器和视频问答栏一并收起，回到空页面状态
+      const selectedSource = this.selectedSource as any;
+      if (selectedSource && selectedSource.sourceType === "本地上传") {
+        this.stopSimulation();
+        this.selectedSource = null;
+        this.sourceConfirmed = false;
+        this.pendingSourceChange = false;
+        this.analyzed = false;
+        this.videoView = "record";
+        this.events = [];
+        this.results = [];
+        this.summary = { overview: "", persons: [], vehicles: [] };
+        this.questionMessages = [];
+        this.questionInput = "";
+        this.currentTime = 0;
+        this.resultTabs = [];
+        this.activeResultTab = "summary";
+        this.activeAnalysisId = null;
+      }
     },
     backToSource() {
       this.stopSimulation();
@@ -1207,6 +1238,14 @@ export default defineComponent({
       this.analyzePhase = true;
       this.analyzeElapsed = 0;
       this.analyzeBaseAt = Date.now();
+    },
+    // 推送助手消息：顺带留存本轮阶段耗时（视频下载/调用接口），消息显示后时间提示不消失
+    pushAssistantMessage(message) {
+      this.questionMessages.push({
+        ...message,
+        downloadSeconds: this.downloadSeconds,
+        analyzeSeconds: this.analyzePhase && this.analyzeBaseAt ? (Date.now() - this.analyzeBaseAt) / 1000 : null
+      });
     },
     async startAnalysis() {
       if (!this.selectedSource) {
@@ -1305,9 +1344,9 @@ export default defineComponent({
         const overview = understanding.overview;
         const upstreamError = findAnalysisError(response);
         if (upstreamError || (!overview && !findUnderstandingEvents(response).length)) {
-          const message = upstreamError || "接口未返回有效分析结果，请检查视频分析服务后重试";
-          this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
-          this.showToast(`分析失败：${message}`);
+          console.error("视频理解接口返回错误：", upstreamError || response);
+          this.pushAssistantMessage({ role: "assistant", text: VIDEO_UNDERSTANDING_ERROR_TIP, thinkingSeconds: this.stopThinkingTimer() });
+          this.showToast(VIDEO_UNDERSTANDING_ERROR_TIP);
           return;
         }
         this.events = findUnderstandingEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60)) as any;
@@ -1326,14 +1365,14 @@ export default defineComponent({
         }
         const answerText = `已完成视频源文搜。\n\n事件摘要：${overview}\n\n已识别 ${this.events.length} 个关键事件，右侧可查看事件摘要、分析结果，并继续对视频提问。`;
         const snapshot = this.saveAnalysisSnapshot(answerText, question, response);
-        this.questionMessages.push({ role: "assistant", text: answerText, analysisId: snapshot.id, thinkingSeconds: this.stopThinkingTimer() });
+        this.pushAssistantMessage({ role: "assistant", text: answerText, analysisId: snapshot.id, thinkingSeconds: this.stopThinkingTimer() });
         this.activeAnalysisId = snapshot.id;
         this.query = "";
         this.showToast("文搜分析完成，已生成事件结论");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "视频分析失败";
-        this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
-        this.showToast(message);
+        console.error("视频理解接口调用失败：", error);
+        this.pushAssistantMessage({ role: "assistant", text: VIDEO_UNDERSTANDING_ERROR_TIP, thinkingSeconds: this.stopThinkingTimer() });
+        this.showToast(VIDEO_UNDERSTANDING_ERROR_TIP);
       } finally {
         this.analyzing = false;
         this.questionBusy = false;
@@ -1420,6 +1459,8 @@ export default defineComponent({
       this.playTimer = null;
       this.playerPlaying = false;
       this.pendingStreamOffset = null;
+      // 播放代际递增：使在途的起流结果（restartStreamAt 的 await 返回）失效
+      this.streamGeneration += 1;
       const video = this.$refs.exactVideo as HTMLVideoElement;
       if (video && !video.paused) video.pause();
       const streamPlayer = this.$refs.exactStreamPlayer as any;
@@ -1505,9 +1546,9 @@ export default defineComponent({
         const answer = understanding.overview;
         const upstreamError = findAnalysisError(response);
         if (upstreamError || (!answer && !findUnderstandingEvents(response).length)) {
-          const message = upstreamError || "接口未返回有效分析结果，请检查视频分析服务后重试";
-          this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
-          this.showToast(`分析失败：${message}`);
+          console.error("视频理解接口返回错误：", upstreamError || response);
+          this.pushAssistantMessage({ role: "assistant", text: VIDEO_UNDERSTANDING_ERROR_TIP, thinkingSeconds: this.stopThinkingTimer() });
+          this.showToast(VIDEO_UNDERSTANDING_ERROR_TIP);
           return;
         }
         const parsedEvents = findUnderstandingEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60));
@@ -1525,12 +1566,12 @@ export default defineComponent({
         };
         this.results = [];
         const snapshot = this.saveAnalysisSnapshot(answer, question, response);
-        this.questionMessages.push({ role: "assistant", text: answer, analysisId: snapshot.id, thinkingSeconds: this.stopThinkingTimer() });
+        this.pushAssistantMessage({ role: "assistant", text: answer, analysisId: snapshot.id, thinkingSeconds: this.stopThinkingTimer() });
         this.activeAnalysisId = snapshot.id;
       } catch (error) {
-        const message = error instanceof Error ? error.message : "视频分析失败";
-        this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
-        this.showToast(message);
+        console.error("视频理解接口调用失败：", error);
+        this.pushAssistantMessage({ role: "assistant", text: VIDEO_UNDERSTANDING_ERROR_TIP, thinkingSeconds: this.stopThinkingTimer() });
+        this.showToast(VIDEO_UNDERSTANDING_ERROR_TIP);
       } finally {
         this.questionBusy = false;
       }

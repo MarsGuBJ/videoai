@@ -5,7 +5,7 @@
       <aside class="panel media-resource-panel">
         <div class="media-resource-tabs"><button :class="{ active: activeResourceTab === 'monitor' }" @click="activeResourceTab = 'monitor'">监控点</button><button :class="{ active: activeResourceTab === 'favorite' }" @click="activeResourceTab = 'favorite'">收藏</button><button :class="{ active: activeResourceTab === 'history' }" @click="activeResourceTab = 'history'">场景</button></div>
         <input class="input" placeholder="搜索监控点名称/IP" aria-label="搜索监控点名称或IP" v-model="searchKeyword" />
-        <div v-if="activeResourceTab === 'monitor'" class="media-playback-tree"><div class="media-panel-head"><b>监控资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in displayRegions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ isRegionExpanded(region) ? '⌄' : '›' }} {{ region.name }}</span><span>{{ camerasForRegion(region).length }} 台设备</span></button><div v-if="isRegionExpanded(region)" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" draggable="true" title="点击放入当前窗口，或拖拽到目标窗口" @dragstart="onCameraDragStart($event, camera)" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span class="media-tree-status" :class="deviceStatusClass(camera.camera)">{{ camera.status }}</span><span class="link-blue" :title="isFavorite(camera.code) ? '取消收藏' : '收藏'" @click.stop="toggleFavorite(camera.code)">{{ isFavorite(camera.code) ? '★' : '☆' }}</span></button></div></div><div v-if="!displayRegions.length" style="padding:12px;color:#888;">{{ searchKeyword ? '无匹配监控点' : '暂无监控点，请先在设备管理中添加设备' }}</div></div></div>
+        <div v-if="activeResourceTab === 'monitor'" class="media-playback-tree"><div class="media-panel-head"><b>监控资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in displayRegions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ isRegionExpanded(region) ? '⌄' : '›' }} {{ region.name }}</span><span>{{ regionCount(region) }} 台设备</span></button><div v-if="isRegionExpanded(region)" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" draggable="true" title="点击放入当前窗口，或拖拽到目标窗口" @dragstart="onCameraDragStart($event, camera)" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span class="media-tree-status" :class="deviceStatusClass(camera.camera)">{{ camera.status }}</span><span class="link-blue" :title="isFavorite(camera.code) ? '取消收藏' : '收藏'" @click.stop="toggleFavorite(camera.code)">{{ isFavorite(camera.code) ? '★' : '☆' }}</span></button></div></div><div v-if="!displayRegions.length" style="padding:12px;color:#888;">{{ searchKeyword ? '无匹配监控点' : '暂无监控点，请先在设备管理中添加设备' }}</div></div></div>
         <ul v-else-if="activeResourceTab === 'favorite'" class="media-resource-list"><li class="group">我的收藏</li><li v-for="camera in favoriteCameras" :key="camera.code" style="cursor:pointer;" @click="selectCameraById(camera.code)"><span class="online-dot">★</span>{{ camera.name }}<span class="link-red" style="margin-left:auto;" @click.stop="toggleFavorite(camera.code)">取消</span></li><li v-if="!favoriteCameras.length" style="color:#888;">暂无收藏，在监控点列表点击 ☆ 收藏</li></ul>
         <ul v-else class="media-plan-list"><li v-for="scene in sceneRecords" :key="scene.id" style="cursor:pointer;" title="点击还原该场景的全部视频流" @click="restoreScene(scene)"><template v-if="renamingSceneId === scene.id"><input class="input" v-model="renamingSceneName" style="width:100%;" @click.stop @keyup.enter="confirmRenameScene" @keyup.esc="cancelRenameScene" /><div style="display:flex;gap:10px;"><span class="link-blue" @click.stop="confirmRenameScene">确定</span><span class="link-red" @click.stop="cancelRenameScene">取消</span></div></template><template v-else><b>▦ {{ scene.name }}</b><span>{{ scene.time }}</span><div style="display:flex;gap:10px;"><span class="link-blue" @click.stop="startRenameScene(scene)">改名</span><span class="link-red" @click.stop="askRemoveScene(scene)">删除</span></div></template></li><li v-if="!sceneRecords.length" style="color:#888;">暂无保存的场景，点击「保存场景」记录当前分屏与视频流</li></ul>
       </aside>
@@ -59,9 +59,8 @@ type CameraPreset = {
 };
 
 // 区域节点来自后端区域树（sortOrder 顺序）；设备占用的路径不在树中时（含「未分配」）按前缀补齐到末尾。
-// count 口径与原 buildRegionTree 一致：顶层节点含全部子孙，子节点仅统计精确挂载的设备数。
+// count 口径：所有节点均统计整个子树的设备合计（父节点仅显示统计数字，子节点的设备不并入父节点）。
 function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<string, any[]>): RegionNode[] {
-  const exactCount = (path: string) => (regionCameras[path] || []).length;
   const subtreeCount = (path: string) =>
     Object.keys(regionCameras)
       .filter((p) => p === path || p.startsWith(path + " / "))
@@ -70,7 +69,7 @@ function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<st
     name: item.name,
     fullPath: item.fullPath,
     child: item.depth > 0,
-    count: item.depth > 0 ? exactCount(item.fullPath) : subtreeCount(item.fullPath)
+    count: subtreeCount(item.fullPath)
   }));
   const seen = new Set(regions.map((region) => region.fullPath));
   const missing: string[] = [];
@@ -85,12 +84,11 @@ function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<st
   missing.forEach((fullPath) => {
     seen.add(fullPath);
     const segments = fullPath.split(" / ");
-    const child = segments.length > 1;
     regions.push({
       name: segments[segments.length - 1],
       fullPath,
-      child,
-      count: child ? exactCount(fullPath) : subtreeCount(fullPath)
+      child: segments.length > 1,
+      count: subtreeCount(fullPath)
     });
   });
   return regions;
@@ -207,9 +205,10 @@ export default defineComponent({
       }
       return best;
     },
+    // 搜索时仅显示子树内有命中设备的区域节点
     displayRegions(): RegionNode[] {
       if (!this.searchKeyword.trim()) return this.regions;
-      return this.regions.filter(region => this.camerasForRegion(region).length > 0);
+      return this.regions.filter(region => this.regionCount(region) > 0);
     },
     favoriteCameras(): any[] {
       return this.cameraList
@@ -377,6 +376,22 @@ export default defineComponent({
         camera.name.toLowerCase().includes(keyword) ||
         String(camera.camera?.ip || "").toLowerCase().includes(keyword)
       );
+    },
+    // 节点设备数 = 整个子树的设备合计（含所有子孙区域）；搜索时统计子树内命中数
+    regionCount(region: RegionNode): number {
+      const keyword = this.searchKeyword.trim().toLowerCase();
+      let total = 0;
+      for (const path of Object.keys(this.regionCameras)) {
+        if (path !== region.fullPath && !path.startsWith(region.fullPath + " / ")) continue;
+        const list = this.regionCameras[path];
+        total += keyword
+          ? list.filter(camera =>
+              camera.name.toLowerCase().includes(keyword) ||
+              String(camera.camera?.ip || "").toLowerCase().includes(keyword)
+            ).length
+          : list.length;
+      }
+      return total;
     },
     ensureStarted() {
       for (const feed of this.visibleFeeds) {
