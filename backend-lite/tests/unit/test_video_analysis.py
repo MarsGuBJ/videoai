@@ -18,14 +18,14 @@ class FakeResponse:
 
 
 def test_analyze_proxy_maps_payload_and_forwards_response(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """camelCase 入参映射为 snake_case，上游 2xx 响应原样透传。"""
+    """camelCase 入参映射为 snake_case（question 缺省取 prompt），上游 2xx 响应原样透传。"""
     captured = {}
 
     def fake_post(url, json, timeout):
         captured["url"] = url
         captured["json"] = json
         captured["timeout"] = timeout
-        return FakeResponse({"code": 0, "data": {"result": "有人出现"}})
+        return FakeResponse({"code": 0, "data": {"summary": "有人出现"}})
 
     monkeypatch.setattr(requests, "post", fake_post)
 
@@ -35,10 +35,11 @@ def test_analyze_proxy_maps_payload_and_forwards_response(client: TestClient, mo
     )
 
     assert response.status_code == 200
-    assert response.json() == {"code": 0, "data": {"result": "有人出现"}}
-    assert captured["url"] == "http://192.168.11.192:8775/analyze_minio_video"
+    assert response.json() == {"code": 0, "data": {"summary": "有人出现"}}
+    assert captured["url"] == "http://192.168.11.192:8775/api/v1/video-understanding/structure"
     assert captured["json"] == {
         "video_url": "http://192.168.11.194:9000/public/a.mp4",
+        "question": "是否有人出现",
         "fps": 1,
         "segment_seconds": 60,
         "max_segments": 1,
@@ -46,6 +47,30 @@ def test_analyze_proxy_maps_payload_and_forwards_response(client: TestClient, mo
         "prompt": "是否有人出现",
     }
     assert captured["timeout"] == video_analysis.VIDEO_ANALYSIS_API_TIMEOUT_SECONDS
+
+
+def test_analyze_proxy_uses_explicit_question(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """单独传 question 时优先使用 question 而非 prompt。"""
+    captured = {}
+
+    def fake_post(url, json, timeout):
+        captured["json"] = json
+        return FakeResponse({"code": 0})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    response = client.post(
+        "/api/video-analysis/analyze",
+        json={
+            "videoUrl": "http://192.168.11.194:9000/public/a.mp4",
+            "prompt": "分析画面",
+            "question": " 有人跌倒吗 ",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["json"]["question"] == "有人跌倒吗"
+    assert captured["json"]["prompt"] == "分析画面"
 
 
 def test_analyze_proxy_clamps_numeric_fields(client: TestClient, monkeypatch: pytest.MonkeyPatch):

@@ -17,18 +17,20 @@ router = APIRouter()
 
 @router.post("/api/video-analysis/analyze")
 def video_analysis_analyze_proxy(request: VideoAnalysisRequest) -> dict[str, Any]:
-    """代理：MinIO 视频智能分析（文搜视频）；记录关键词用于统计。"""
+    """代理：视频理解结构化接口（文搜视频，见《视频理解接口0910》）；记录关键词用于统计。"""
     prompt = required_text(request.prompt, "prompt")
     record_search_keyword(prompt, SEARCH_TYPE_TEXT_VIDEO)
     payload = {
         "video_url": required_text(request.videoUrl, "videoUrl"),
+        # 未单独传 question 时以 prompt 作为用户问题
+        "question": (request.question or "").strip() or prompt,
         "fps": max(1, int(request.fps)),
         "segment_seconds": max(1, int(request.segmentSeconds)),
         "max_segments": max(1, int(request.maxSegments)),
         "height": max(1, int(request.height)),
         "prompt": prompt,
     }
-    return video_analysis_api_post("/analyze_minio_video", payload)
+    return video_analysis_api_post("/api/v1/video-understanding/structure", payload)
 
 
 @router.post("/api/video-analysis/upload-video")

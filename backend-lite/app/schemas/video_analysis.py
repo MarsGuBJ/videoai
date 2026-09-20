@@ -6,6 +6,8 @@ from pydantic import BaseModel
 class VideoAnalysisRequest(BaseModel):
     videoUrl: str
     prompt: str
+    # 用户问题（视频理解结构化接口必填）；缺省时服务端以 prompt 代替
+    question: str = ""
     fps: int = 1
     segmentSeconds: int = 60
     maxSegments: int = 1
