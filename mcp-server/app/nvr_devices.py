@@ -8,12 +8,14 @@ sourceUrl 直连 IPC 的摄像头（录像存在某台 NVR 上）通过 ``NvrCha
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
+import re
 import threading
 import time
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import unquote, urlparse
@@ -47,16 +49,20 @@ class DeviceCredentials:
     sdk_port: int = DEFAULT_SDK_PORT
 
 
-def parse_device_credentials(camera: Camera, sdk_port: int | None = None) -> DeviceCredentials:
+def parse_device_credentials(
+    camera: Camera, sdk_port: int | None = None, fallback_track_id: str = ""
+) -> DeviceCredentials:
     """Parse the NVR device credentials bound to a camera.
 
     通道号优先取 ``nvrChannel``，否则由 ``nvrTrackId`` 换算（如 "201" -> 通道 2）。
+    两者都缺失时用 ``fallback_track_id``（仅 sourceUrl 指向录像设备本体时由调用方
+    从 URL 路径提取，见 ``resolve_device_credentials``）。
 
     Raises:
         ValueError: 摄像头未绑定 NVR，或 sourceUrl 无法解析出主机/用户名/密码时。
     """
     port = sdk_port or int(os.getenv(SDK_PORT_ENV, "") or DEFAULT_SDK_PORT)
-    track_id = (camera.nvrTrackId or camera.nvrChannel or "").strip()
+    track_id = (camera.nvrTrackId or camera.nvrChannel or "").strip() or fallback_track_id
     if not track_id:
         raise ValueError(f"camera {camera.id} is not bound to an NVR: nvrTrackId/nvrChannel is missing")
     source_url = (camera.sourceUrl or "").strip()
@@ -76,6 +82,18 @@ def parse_device_credentials(camera: Camera, sdk_port: int | None = None) -> Dev
         track_id=track_id,
         sdk_port=port,
     )
+
+
+TRACK_ID_PATH_PATTERN = re.compile(r"/Streaming/(?:Channels|tracks)/(\d+)", re.IGNORECASE)
+
+
+def track_id_from_source_url(source_url: str) -> str:
+    """从录像设备的 sourceUrl 路径提取 trackId（如 /Streaming/Channels/12801 → "12801"）。
+
+    仅对 sourceUrl 指向 NVR/CVR 本体的摄像头可靠；取不到时返回 ""。
+    """
+    match = TRACK_ID_PATH_PATTERN.search(urlparse(source_url).path or "")
+    return match.group(1) if match else ""
 
 
 def resolve_device_channel(camera: Camera, track_id: str) -> int:
@@ -104,10 +122,11 @@ def parse_input_proxy_channels(xml_text: str) -> list[tuple[int, str]]:
 
 
 class NvrChannelLookup:
-    """IPC → NVR 通道反查：拉取各已知 NVR 的 ISAPI 输入代理通道列表，按源 IPC 地址建映射。
+    """IPC → 录像设备（NVR/CVR）通道反查：拉取各已知设备的 ISAPI 输入代理通道列表，按源 IPC 地址建映射。
 
-    结果整体缓存 ``ttl_seconds``；单台 NVR 不可达或认证失败只记日志，不阻塞其余 NVR。
-    凭据用 NVR 设备的（与下载白名单一致），不是摄像头 sourceUrl 内嵌的 IPC 凭据。
+    结果整体缓存 ``ttl_seconds``；单台设备不可达或认证失败只记日志，不阻塞其余设备。
+    默认凭据用 NVR 设备的（与下载白名单一致），``device_credentials`` 可为凭据不同的设备
+    （如 CVR）按主机覆盖；反查命中哪个设备就用哪个设备的凭据登录。
     """
 
     def __init__(
@@ -117,17 +136,23 @@ class NvrChannelLookup:
         password: str,
         timeout: float = 15,
         ttl_seconds: int = 600,
+        device_credentials: Mapping[str, tuple[str, str]] | None = None,
     ) -> None:
         self.hosts = tuple(hosts)
         self.username = username
         self.password = password
         self.timeout = timeout
         self.ttl_seconds = ttl_seconds
+        self._device_credentials = dict(device_credentials or {})
         self._cache: dict[str, tuple[str, int]] = {}
         self._expires_at = 0.0
 
+    def credentials_for(self, host: str) -> tuple[str, str]:
+        """返回指定录像设备的登录凭据：优先设备专属凭据，否则默认凭据。"""
+        return self._device_credentials.get(host, (self.username, self.password))
+
     async def lookup(self, ipc_host: str) -> tuple[str, int] | None:
-        """返回 IPC 所属的 (nvr_host, 通道号)；不在任何已知 NVR 上时返回 None。"""
+        """返回 IPC 所属的 (设备主机, 通道号)；不在任何已知设备上时返回 None。"""
         now = time.monotonic()
         if now < self._expires_at:
             return self._cache.get(ipc_host)
@@ -136,20 +161,25 @@ class NvrChannelLookup:
         return self._cache.get(ipc_host)
 
     async def _fetch_all(self) -> dict[str, tuple[str, int]]:
+        # 并发拉取各设备通道列表，避免单台不可达设备拖慢整体反查
+        results = await asyncio.gather(*(self._fetch_channels_safe(host) for host in self.hosts))
         mapping: dict[str, tuple[str, int]] = {}
-        for host in self.hosts:
-            try:
-                channels = await self._fetch_channels(host)
-            except Exception as exc:  # noqa: BLE001  # 单台 NVR 失败不阻塞整体反查；消息不含密码
-                logger.warning("NVR channel lookup failed on %s: %s", host, type(exc).__name__)
-                continue
+        for host, channels in zip(self.hosts, results, strict=True):
             for channel, ip_address in channels:
                 mapping.setdefault(ip_address, (host, channel))
         return mapping
 
+    async def _fetch_channels_safe(self, host: str) -> list[tuple[int, str]]:
+        try:
+            return await self._fetch_channels(host)
+        except Exception as exc:  # noqa: BLE001  # 单台设备失败不阻塞整体反查；消息不含密码
+            logger.warning("NVR channel lookup failed on %s: %s", host, type(exc).__name__)
+            return []
+
     async def _fetch_channels(self, host: str) -> list[tuple[int, str]]:
+        username, password = self.credentials_for(host)
         async with httpx.AsyncClient(
-            auth=httpx.DigestAuth(self.username, self.password),
+            auth=httpx.DigestAuth(username, password),
             timeout=self.timeout,
         ) as client:
             response = await client.get(f"http://{host}/ISAPI/ContentMgmt/InputProxy/channels")
@@ -164,22 +194,32 @@ async def resolve_device_credentials(
 ) -> DeviceCredentials:
     """解析摄像头录像检索/回放/下载应使用的 NVR 设备凭据。
 
-    - ``sourceUrl`` 指向已知 NVR：沿用内嵌凭据与 nvrTrackId/nvrChannel 换算的通道；
-    - ``sourceUrl`` 直连 IPC：反查已知 NVR 的输入通道映射，命中时用该 NVR 的下载凭据与
+    - ``sourceUrl`` 指向已知 NVR/CVR：沿用内嵌凭据与 nvrTrackId/nvrChannel 换算的通道；
+      平台未填 trackId 时从 sourceUrl 路径兜底（如 /Streaming/Channels/12801 → track 12801）；
+    - ``sourceUrl`` 直连 IPC：反查已知 NVR/CVR 的输入通道映射，命中时用该设备的凭据与
       实际通道号（直连 IPC 的平台 nvrTrackId 可能是批量导入的脏数据，不作准）；
-    - 反查未命中：回退原解析逻辑（未绑定 NVR 时照旧报 ``ValueError``）。
+    - 反查未命中：回退原解析逻辑（未绑定 NVR 时报 ``ValueError``，消息注明反查未命中）。
     """
     host = urlparse((camera.sourceUrl or "").strip()).hostname or ""
     if not host or host in known_nvr_hosts or channel_lookup is None:
-        return parse_device_credentials(camera)
+        # sourceUrl 指向录像设备本体时，trackId 可从 URL 通道路径兜底
+        fallback = track_id_from_source_url(camera.sourceUrl or "") if host in known_nvr_hosts else ""
+        return parse_device_credentials(camera, fallback_track_id=fallback)
     hit = await channel_lookup.lookup(host)
     if hit is None:
-        return parse_device_credentials(camera)
+        try:
+            return parse_device_credentials(camera)
+        except ValueError as exc:
+            raise ValueError(
+                f"{exc}; IPC {host} reverse lookup missed:"
+                " not found in any known NVR/CVR input channel list"
+            ) from None
     nvr_host, channel = hit
+    username, password = channel_lookup.credentials_for(nvr_host)
     return DeviceCredentials(
         host=nvr_host,
-        username=channel_lookup.username,
-        password=channel_lookup.password,
+        username=username,
+        password=password,
         channel=channel,
         track_id=str(channel * 100 + 1),
     )

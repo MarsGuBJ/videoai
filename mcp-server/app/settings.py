@@ -55,6 +55,9 @@ class Settings:
     hcnetsdk_download_username: str
     hcnetsdk_download_password: str
     hcnetsdk_download_channel: int
+    cvr_hosts: tuple[str, ...]
+    cvr_username: str
+    cvr_password: str
     hcnetsdk_max_live_sessions: int
     minio_endpoint: str
     minio_port: int
@@ -106,6 +109,10 @@ def load_settings() -> Settings:
         hcnetsdk_download_username=_env("HCNETSDK_DOWNLOAD_USERNAME", "admin"),
         hcnetsdk_download_password=_env("HCNETSDK_DOWNLOAD_PASSWORD", ""),
         hcnetsdk_download_channel=_env_int("HCNETSDK_DOWNLOAD_CHANNEL", 1),
+        # CVR 中心存储（DS-A80348S）：凭据与 NVR 不同，反查命中时按设备取凭据
+        cvr_hosts=_env_csv("CVR_HOSTS", "172.21.200.21,172.21.200.22,172.21.200.23"),
+        cvr_username=_env("CVR_USERNAME", "admin"),
+        cvr_password=_env("CVR_PASSWORD", "Sdtjh@2025"),
         # 每台设备同时保持的 SDK 回放会话上限；0 表示不限制（demo 环境 NVR 并发受限时才设，如 2）
         hcnetsdk_max_live_sessions=_env_int("HCNETSDK_MAX_LIVE_SESSIONS", 0),
         minio_endpoint=_env("MINIO_ENDPOINT", "192.168.11.194"),

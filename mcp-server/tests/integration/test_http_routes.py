@@ -228,7 +228,9 @@ def test_download_recording_http_rejects_unknown_nvr():
     )
 
     assert response.status_code == 400
-    assert response.json()["error"]["message"] == "nvr must be one of: 10.10.7.252, 10.10.7.253"
+    assert response.json()["error"]["message"] == (
+        "nvr must be one of: 10.10.7.252, 10.10.7.253, 172.21.200.21, 172.21.200.22, 172.21.200.23"
+    )
 
 
 def test_download_recording_mcp_schema_nvr_optional():
@@ -578,6 +580,9 @@ def test_recording_live_direct_ipc_camera_resolves_to_its_nvr(monkeypatch):
     class FakeLookup:
         username = "nvr-user"
         password = "nvr-pass"  # noqa: S105
+
+        def credentials_for(self, host):
+            return (self.username, self.password)
 
         async def lookup(self, ipc_host):
             assert ipc_host == "10.10.0.99"

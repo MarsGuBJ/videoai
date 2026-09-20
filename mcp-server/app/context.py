@@ -75,14 +75,18 @@ nvr_devices = NvrDeviceRegistry(
     settings.request_timeout_seconds,
     max_live_sessions=settings.hcnetsdk_max_live_sessions,
 )
-# 已知 NVR 主机集合：摄像头 sourceUrl 指向它们时按 NVR 直连解析；否则视为直连 IPC，
-# 通过 channel_lookup 反查其所属 NVR 与通道（平台 nvrTrackId 对直连 IPC 可能是脏数据）
-known_nvr_hosts = frozenset({settings.hcnetsdk_host, *settings.hcnetsdk_download_nvr_hosts})
+# 已知录像设备主机集合（NVR + CVR）：摄像头 sourceUrl 指向它们时按设备直连解析；
+# 否则视为直连 IPC，通过 channel_lookup 反查其所属设备与通道（平台 nvrTrackId 对直连 IPC 可能是脏数据）
+known_nvr_hosts = frozenset(
+    {settings.hcnetsdk_host, *settings.hcnetsdk_download_nvr_hosts, *settings.cvr_hosts}
+)
+# 反查覆盖 NVR 下载白名单与 CVR 集群；CVR 凭据与 NVR 不同，按设备主机取凭据
 channel_lookup = NvrChannelLookup(
-    settings.hcnetsdk_download_nvr_hosts,
+    (*settings.hcnetsdk_download_nvr_hosts, *settings.cvr_hosts),
     settings.hcnetsdk_download_username,
     settings.hcnetsdk_download_password,
     settings.request_timeout_seconds,
+    device_credentials=dict.fromkeys(settings.cvr_hosts, (settings.cvr_username, settings.cvr_password)),
 )
 hcnetsdk_downloaders = {
     host: HcNetSdkPlaybackProxy(
@@ -101,6 +105,25 @@ hcnetsdk_downloaders = {
     )
     for host in settings.hcnetsdk_download_nvr_hosts
 }
+hcnetsdk_downloaders.update(
+    {
+        host: HcNetSdkPlaybackProxy(
+            host,
+            settings.hcnetsdk_download_port,
+            settings.cvr_username,
+            settings.cvr_password,
+            settings.hcnetsdk_download_channel,
+            settings.zlm_http_url,
+            settings.zlm_public_http_url,
+            settings.zlm_secret,
+            settings.zlm_rtmp_push_base,
+            settings.playback_ttl_seconds,
+            settings.request_timeout_seconds,
+            max_live_sessions=settings.hcnetsdk_max_live_sessions,
+        )
+        for host in settings.cvr_hosts
+    }
+)
 recording_mp4_storage = RecordingMp4Storage(
     settings.minio_endpoint,
     settings.minio_port,

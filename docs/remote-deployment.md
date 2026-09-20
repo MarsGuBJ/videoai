@@ -5,6 +5,7 @@
 ## 服务器信息
 
 - SSH 管理入口：`public@119.3.237.220 -p 3479`
+- 新现场（172.21 网段，cisdi-4090-2）：`user@172.17.136.189`（端口 22，即 `.tools/remote_ssh.py` / `remote_sync.py` 的默认目标），项目目录 `/home/user/videoai`，端口绑定 `172.17.136.189`。ZLM 使用宿主机共享实例（zlmmediakit_main_1，`0.0.0.0:1935`/`0.0.0.0:81`），因此本项目 compose 的 zlm **不能绑定主机 1935**（已在远程 compose 注释，RTMP 推流走 `rtmp://172.17.136.189:1935/live` 到共享 ZLM）；`VIDEOAI_ZLM_HTTP_URL`/`VIDEOAI_ZLM_PUBLIC_HTTP_URL` 指向 `http://172.17.136.189:81`。CVR 中心存储 `172.21.200.21/22/23`（admin/Sdtjh@2025）经 `CVR_HOSTS`/`CVR_USERNAME`/`CVR_PASSWORD` 注入 mcp-server。
 - 另一现场（10.10 网段）：`public@10.10.3.100`（端口 22），项目目录同为 `/home/public/videoai`，端口绑定与 `.env` 均使用 `10.10.3.100`，backend-media 绑定 `10.10.3.100:8083`。**仓库 `docker-compose.yml` 的绑定地址是 `192.168.11.194`，推送到 10.10 现场后必须立即执行 `sed -i "s/192\.168\.11\.194/10.10.3.100/g" docker-compose.yml`** 再重建容器，否则容器绑定不存在的地址无法启动。
 - 项目目录：`/home/public/videoai`
 - 内网访问地址：`192.168.11.194`
@@ -82,6 +83,7 @@
 
 - 前端录像回放页 → backend-lite `POST /api/recordings/search|stream|download`（body 均为 `{cameraId, startTime, endTime}`，北京时间）→ MCP `search_recordings-http` / `download_recording-http`（均支持 `cameraId`）；`/api/recordings/stream` 只调 `search_recordings-http`（autoProxy=true）取 `/recording-live` 动态链接并追加 `&speed=` 倍速参数，MCP 侧 `get_recording_stream` 接口已移除。
 - 多 NVR 能力：MCP 按摄像头的 `nvrId`/`nvrTrackId`/`nvrChannel` 定位设备，凭据从摄像头 `sourceUrl`（`rtsp://user:pass@host:554/...`）解析，无需额外配置；ISAPI 检索录像段、HCNetSDK 按时间回放/下载，设备时钟偏差自动测量补偿。
+- CVR 中心存储（DS-A80348S，如 172.21.200.21/22/23 集群）复用同一套反查机制：compose 注入 `CVR_HOSTS`/`CVR_USERNAME`/`CVR_PASSWORD`（CVR 凭据通常与 NVR 不同，`NvrChannelLookup` 按设备主机取专属凭据），直连 IPC 的摄像头回放/检索/下载时会反查 IPC→CVR 通道映射（CVR 的 `InputProxy/channels` 同样给出 IPC 地址与通道号），`CVR_HOSTS` 也并入 `known_nvr_hosts` 与下载白名单 `hcnetsdk_downloaders`。
 - 回放链路：SDK 回放 → ffmpeg `-re` 节流 + **libx264 转码**（现场 NVR 多为 smart265/HEVC，浏览器 flv.js 不支持，禁止改回 `-c:v copy`）→ ZLM FLV。等速流不支持倍速与真正的 seek，前端通过按新 startTime 重新起流实现跳转。
 - 浏览器播放 `/recording-live` 动态链接的两个硬性条件（2026-09-16 修复）：① MCP `GET /recording-live` 的 302/错误响应必须带 `Access-Control-Allow-Origin: *`（前端 5173 → 8097 跨源，302 第一跳无 CORS 头浏览器直接拦截；ZLM :82 自身会回 ACAO）；② 该链接不以 `.flv` 结尾，前端 `VideoPlayer` 只靠 URL 后缀识别 FLV 会落到原生 `<video>` 分支导致无法播放——录像回放三处调用（录像回放页、文搜在线回放、即时回放弹窗）必须显式传 `format="flv"` prop 走 mpegts.js。
 - ISAPI 检索返回的是与查询窗口相交的**整个连续录像块**（海康设备行为，不裁剪）；MCP `search_segments` 会把结果裁剪到用户查询窗口（`clip_segment_to_window`），recordingId 随裁剪后的时间重算，避免不同窗口共享缓存键。
@@ -150,23 +152,6 @@ rsync -az -e 'ssh -p 3479 -o StrictHostKeyChecking=no' \
 ssh -p 3479 public@119.3.237.220 \
   'cd /home/public/videoai && docker compose build frontend frontend-search frontend-media frontend-control frontend-review && docker compose up -d --no-deps frontend frontend-search frontend-media frontend-control frontend-review'
 ```
-
-前端也可以本地构建再部署（远程服务器不跑 npm/vite，构建快得多）：
-
-```bash
-# 本地：构建 5 个产物包并打包
-cd frontend && npm run build:modules
-tar czf ../tmp-verify/frontend-dist.tgz dist dist-search dist-media dist-control dist-review Dockerfile.prebuilt Dockerfile.prebuilt.dockerignore
-
-# 推送产物与 compose 覆盖文件（docker-compose.prebuilt.yml 已入库）后，远程：
-cd /home/public/videoai && tar xzf tmp-verify/frontend-dist.tgz -C frontend/ && rm tmp-verify/frontend-dist.tgz
-docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml build \
-  frontend frontend-search frontend-media frontend-control frontend-review && \
-docker compose up -d --no-deps \
-  frontend frontend-search frontend-media frontend-control frontend-review
-```
-
-`frontend/Dockerfile.prebuilt` 直接 COPY 本地 dist 产物进 nginx 镜像（配套 `Dockerfile.prebuilt.dockerignore` 不排除 dist）；`docker-compose.prebuilt.yml` 按服务覆盖 `dockerfile` 与 `DIST_DIR`（full→dist，子包→dist-<mode>），其余配置（端口绑定、network: host 等）仍来自主 compose。
 
 3. backend-lite（Python 后端，容器名 backend，端口 8081）/ worker 变更部署：
 

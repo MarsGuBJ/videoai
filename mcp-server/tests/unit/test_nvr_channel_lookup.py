@@ -13,6 +13,7 @@ from app.nvr_devices import (
     NvrDeviceRegistry,
     parse_input_proxy_channels,
     resolve_device_credentials,
+    track_id_from_source_url,
 )
 
 BJT = timezone(timedelta(hours=8))
@@ -57,7 +58,7 @@ def make_ipc_camera(**overrides) -> Camera:
     return Camera(**data)
 
 
-def make_lookup(hosts=("10.10.7.252",), mapping=None, failing=()):
+def make_lookup(hosts=("10.10.7.252",), mapping=None, failing=(), device_credentials=None):
     """构造不触网的 NvrChannelLookup：failing 中的主机抛异常，其余返回 mapping。"""
 
     async def fake_fetch(self, host):
@@ -65,7 +66,9 @@ def make_lookup(hosts=("10.10.7.252",), mapping=None, failing=()):
             raise ConnectionError("unreachable")
         return mapping or []
 
-    lookup = NvrChannelLookup(hosts, "admin", "nvr-pass", timeout=1, ttl_seconds=600)
+    lookup = NvrChannelLookup(
+        hosts, "admin", "nvr-pass", timeout=1, ttl_seconds=600, device_credentials=device_credentials
+    )
     lookup._fetch_channels = fake_fetch.__get__(lookup)
     return lookup
 
@@ -173,6 +176,71 @@ def test_resolve_credentials_unbound_camera_still_raises():
 
     with pytest.raises(ValueError, match="nvrTrackId/nvrChannel"):
         asyncio.run(resolve_device_credentials(camera, lookup, {"10.10.7.252"}))
+
+
+def test_credentials_for_prefers_device_specific_credentials():
+    """CVR 等凭据不同的设备按主机取专属凭据，未配置的主机回退默认凭据。"""
+    lookup = make_lookup(device_credentials={"172.21.200.21": ("admin", "cvr-pass")})
+
+    assert lookup.credentials_for("172.21.200.21") == ("admin", "cvr-pass")
+    assert lookup.credentials_for("10.10.7.252") == ("admin", "nvr-pass")
+
+
+def test_track_id_from_source_url():
+    assert track_id_from_source_url("rtsp://admin:pass@172.21.200.21:554/Streaming/Channels/12801") == "12801"
+    assert track_id_from_source_url("rtsp://admin:pass@10.10.7.252:554/Streaming/tracks/201") == "201"
+    assert track_id_from_source_url("rtsp://admin:pass@10.10.0.93:554/h264/ch1/main/av_stream") == ""
+
+
+def test_resolve_credentials_for_cvr_camera_derives_track_from_url():
+    """sourceUrl 指向 CVR 且平台未填 trackId 时，从 URL 通道路径兜底（12801 → 通道 128）。"""
+    camera = make_ipc_camera(
+        sourceUrl="rtsp://admin:cvr-pass@172.21.200.21:554/Streaming/Channels/12801",
+        nvrTrackId=None,
+    )
+
+    async def fail_lookup(ipc_host):
+        raise AssertionError("CVR camera must not trigger a channel lookup")
+
+    lookup = SimpleNamespace(lookup=fail_lookup)
+    credentials = asyncio.run(resolve_device_credentials(camera, lookup, {"172.21.200.21"}))
+
+    assert credentials.host == "172.21.200.21"
+    assert credentials.channel == 128
+    assert credentials.track_id == "12801"
+
+
+def test_resolve_credentials_lookup_miss_error_notes_reverse_lookup():
+    """反查未命中且未绑定 NVR 时，错误消息注明反查未命中便于定位。"""
+    camera = make_ipc_camera(nvrTrackId=None)
+    lookup = make_lookup(mapping=[])
+
+    with pytest.raises(ValueError, match="reverse lookup missed"):
+        asyncio.run(resolve_device_credentials(camera, lookup, {"10.10.7.252"}))
+
+
+def test_resolve_credentials_uses_cvr_credentials_on_cvr_hit():
+    """反查命中 CVR 时用 CVR 专属凭据而非 NVR 默认凭据。"""
+    camera = make_ipc_camera(sourceUrl="rtsp://admin:ipc-pass@172.21.114.8:554/Streaming/Channels/103")
+    lookup = make_lookup(
+        hosts=("10.10.7.252", "172.21.200.21"),
+        mapping=[(128, "172.21.114.8")],
+        device_credentials={"172.21.200.21": ("admin", "cvr-pass")},
+    )
+
+    async def fake_fetch(self, host):
+        return [(128, "172.21.114.8")] if host == "172.21.200.21" else []
+
+    lookup._fetch_channels = fake_fetch.__get__(lookup)
+    credentials = asyncio.run(
+        resolve_device_credentials(camera, lookup, {"10.10.7.252", "172.21.200.21"})
+    )
+
+    assert credentials.host == "172.21.200.21"
+    assert credentials.username == "admin"
+    assert credentials.password == "cvr-pass"
+    assert credentials.channel == 128
+    assert credentials.track_id == "12801"
 
 
 def test_proxy_for_credentials_recreates_on_credential_change():
