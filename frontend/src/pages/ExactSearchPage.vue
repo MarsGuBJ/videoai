@@ -5,15 +5,14 @@
       <div class="exact-source-modebar"><div class="exact-mode-tabs" role="tablist"><button class="exact-mode-tab" :class="{ active: sourceMode === 'online' }" role="tab" :aria-selected="sourceMode === 'online'" @click="setSourceMode('online')">在线监控点</button><button class="exact-mode-tab" :class="{ active: sourceMode === 'upload' }" role="tab" :aria-selected="sourceMode === 'upload'" @click="setSourceMode('upload')">上传本地视频</button></div></div>
       <div v-if="sourceMode === 'online'" class="exact-online-pane">
         <div class="exact-source-form" @click.stop>
-          <div class="deploy-field"><label>区域 / 监控点</label><div class="exact-tree-select"><button class="exact-tree-trigger" :class="{ open: pointDropdownOpen }" @click="togglePointDropdown"><span>{{ selectedPointLabel }}</span><span>{{ pointDropdownOpen ? '收起' : '展开' }}⌄</span></button><div v-if="pointDropdownOpen" class="exact-tree-dropdown"><div v-for="area in areas" :key="area.name"><button class="exact-tree-area-row" :class="{ active: selectedArea && selectedArea.name === area.name }" @click="toggleArea(area)"><span>{{ expandedAreas[area.name] ? '⌄' : '›' }} {{ area.name }}</span><span>{{ area.count }} 台设备</span></button><div v-if="expandedAreas[area.name]" class="exact-tree-children"><button v-for="camera in area.cameras" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, area)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div></div></div></div>
+          <div class="deploy-field"><label>区域 / 监控点</label><div class="exact-tree-select"><button class="exact-tree-trigger" :class="{ open: pointDropdownOpen }" @click="togglePointDropdown"><span>{{ selectedPointLabel }}</span><span>{{ pointDropdownOpen ? '收起' : '展开' }}⌄</span></button><div v-if="pointDropdownOpen" class="exact-tree-dropdown"><div class="exact-tree-search"><input v-model="pointSearchQuery" type="text" placeholder="输入关键字搜索监控点" @click.stop /></div><div v-for="entry in pointAreaEntries" :key="entry.area.name"><button class="exact-tree-area-row" :class="{ active: selectedArea && selectedArea.name === entry.area.name }" @click="toggleArea(entry.area)"><span>{{ expandedAreas[entry.area.name] || pointSearchActive ? '⌄' : '›' }} {{ entry.area.name }}</span><span>{{ entry.cameras.length }} 台设备</span></button><div v-if="expandedAreas[entry.area.name] || pointSearchActive" class="exact-tree-children"><button v-for="camera in entry.cameras" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, entry.area)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!pointAreaEntries.length" class="exact-tree-empty">未找到匹配的监控点</div></div></div></div>
           <div class="deploy-field"><date-time-range-picker v-model:start="onlineStart" v-model:end="onlineEnd" @change="markPendingSourceChange" /></div>
           <button class="btn primary" :disabled="searching" @click="searchOnlineSources">⌕ 搜索回放</button>
         </div>
       </div>
       <div v-else class="exact-last-video-panel">
         <input ref="exactVideoInput" class="hidden-file-input" type="file" accept="video/*,.mkv" @change="onFileChange" />
-        <div class="exact-upload-actions" @click.stop><button class="btn" @click="clearLocalVideo">清空已上传视频</button><button class="btn" @click="triggerUpload">重新上传视频</button><button class="btn primary" :disabled="!localVideoUrl" @click="useLastLocalVideo">使用已上传视频</button></div>
-        <div v-if="localFileName" class="exact-last-video-card"><img :src="localVideoPoster || store.img.analyst" alt="已上传本地视频" /><div><strong>{{ localFileName }}</strong><p>{{ localFileSize }} · 已载入本地预览</p><div class="tags"><span class="tag blue">已上传</span><span class="tag">支持时间定位</span></div></div></div>
+        <div v-if="localFileName" class="exact-last-video-card"><img :src="localVideoPoster || store.img.analyst" alt="已上传本地视频" /><div><div class="exact-last-video-title"><strong>{{ localFileName }}</strong><div class="exact-last-video-meta"><span class="tag blue">已上传</span><span v-if="localFileDuration" class="exact-last-video-duration">时长 {{ localFileDuration }}</span></div></div></div><button class="exact-video-delete-btn" type="button" aria-label="删除已上传视频" title="删除已上传视频" @click.stop="clearLocalVideo"><span aria-hidden="true"></span></button></div>
         <div v-else class="exact-upload-drop" @click="triggerUpload" @dragover.prevent @drop.prevent="handleDrop"><div><span class="upload-mark">＋</span><strong>点击上传或拖拽视频到此处</strong><span class="hint-text">支持本地视频预览与时间定位</span></div></div>
       </div>
     </div>
@@ -70,8 +69,6 @@
             <div class="exact-conclusion">
               <div class="exact-summary-heading"><div class="exact-summary-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg><strong>事件摘要</strong></div><details class="exact-export-menu"><summary class="btn">导出摘要</summary><div class="exact-export-options" role="menu"><button role="menuitem" @click="exportFromMenu('pdf', $event)">导出PDF</button><button role="menuitem" @click="exportFromMenu('word', $event)">导出Word</button><button role="menuitem" @click="exportFromMenu('md', $event)">导出MD</button></div></details></div>
               <div v-if="summary.overview" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>事件概况</div><div class="exact-markdown" v-html="renderMarkdown(summary.overview)"></div></div>
-              <div v-if="summary.eventName" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41L11 3.83A2 2 0 0 0 9.59 3.24H4a2 2 0 0 0-2 2v5.59a2 2 0 0 0 .59 1.41l9.58 9.59a2 2 0 0 0 2.83 0l5.59-5.59a2 2 0 0 0 0-2.83z"/><circle cx="7.5" cy="7.5" r="0.5"/></svg>事件名称</div><p class="exact-summary-event-name">{{ summary.eventName }}</p></div>
-              <div v-if="summary.description" class="exact-summary-section"><div class="exact-summary-section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>事件描述</div><div class="exact-markdown" v-html="renderMarkdown(summary.description)"></div></div>
             </div>
             <div class="exact-section-title" style="margin-top:16px;"><div><h3>分析结果</h3><p>共识别 {{ events.length }} 个关键事件，点击卡片定位上方视频。</p></div></div>
             <div class="exact-event-list">
@@ -306,10 +303,7 @@ function analysisUrlFor(camera: any): string {
   return "";
 }
 
-const ANALYSIS_TEXT_KEYS = ["result", "text", "analysis", "summary", "answer", "content", "description"];
 const EVENT_TIME_KEYS = ["start_time", "start", "time", "timestamp", "begin_time", "begin"];
-const EVENT_DESC_KEYS = ["description", "content", "summary", "text", "result", "detail"];
-const EVENT_NAME_KEYS = ["event_name", "title", "name", "event", "label", "type"];
 
 // 视频理解结果缓存：同一视频 + 同一提问（含全量请求参数）直接命中，秒出结果
 // 模块级 Map：组件切走再回来仍然有效；LRU 淘汰，最多保留 20 条
@@ -341,25 +335,24 @@ function setCachedAnalysis(params: Record<string, any>, response: any) {
   }
 }
 
-// 视频理解结构化结果：summary / event_name / description（优先 data 层与 focus_event，兼容首分段 result）
-function findVideoUnderstanding(response: any): { overview: string; eventName: string; description: string } {
-  const nodes: any[] = [];
-  [response, response && response.data].forEach(node => {
-    if (!node || typeof node !== "object") return;
-    nodes.push(node);
-    const firstSegment = Array.isArray(node.segments) && node.segments.length ? node.segments[0] : null;
-    if (firstSegment && typeof firstSegment.result === "object" && firstSegment.result) nodes.push(firstSegment.result);
-  });
-  for (const node of nodes) {
-    const overview = typeof node.summary === "string" ? node.summary.trim() : "";
-    const focus = node.focus_event && typeof node.focus_event === "object" ? node.focus_event : null;
-    const firstEvent = Array.isArray(node.events) && node.events.length && typeof node.events[0] === "object" ? node.events[0] : null;
-    const source = focus || firstEvent || node;
-    const eventName = typeof source.event_name === "string" ? source.event_name.trim() : "";
-    const description = typeof source.description === "string" ? source.description.trim() : "";
-    if (overview || eventName || description) return { overview, eventName, description };
-  }
-  return { overview: "", eventName: "", description: "" };
+// 视频理解结构化接口（POST /api/v1/video-understanding/structure）的 data 层
+function understandingData(response: any): any {
+  const data = response && typeof response === "object" ? response.data : null;
+  return data && typeof data === "object" ? data : null;
+}
+
+// 事件摘要：仅取 data.summary（兜底顶层 summary）
+function findVideoUnderstanding(response: any): { overview: string } {
+  const data = understandingData(response);
+  const summary = (data && typeof data.summary === "string" ? data.summary : "")
+    || (response && typeof response.summary === "string" ? response.summary : "");
+  return { overview: summary.trim() };
+}
+
+// 结构化事件列表：data.events（event_name / time_range / description / key_frame，见接口文档）
+function findUnderstandingEvents(response: any): any[] {
+  const data = understandingData(response);
+  return data && Array.isArray(data.events) ? data.events : [];
 }
 
 function escapeHtml(value: string): string {
@@ -403,59 +396,6 @@ function markdownToHtml(text: string): string {
   return html.join("");
 }
 
-// 宽容提取响应中的文本结论：先查当前层已知字段，再递归嵌套对象，最后兜底 message
-function findAnalysisText(node: any, depth = 0): string {
-  if (node === null || node === undefined || depth > 4) return "";
-  if (typeof node === "string") return node.trim();
-  if (Array.isArray(node)) {
-    for (const item of node) {
-      const found = findAnalysisText(item, depth + 1);
-      if (found) return found;
-    }
-    return "";
-  }
-  if (typeof node === "object") {
-    for (const key of ANALYSIS_TEXT_KEYS) {
-      const value = node[key];
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
-    for (const value of Object.values(node)) {
-      if (value && typeof value === "object") {
-        const found = findAnalysisText(value, depth + 1);
-        if (found) return found;
-      }
-    }
-    if (typeof node.message === "string" && node.message.trim()) return node.message.trim();
-  }
-  return "";
-}
-
-function looksLikeEvent(item: any): boolean {
-  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
-  return EVENT_TIME_KEYS.some(key => key in item) || EVENT_DESC_KEYS.some(key => key in item);
-}
-
-// 在响应里找第一个"像事件列表"的数组（元素含时间/描述字段，或纯字符串分段）
-function findAnalysisEvents(node: any, depth = 0): any[] {
-  if (node === null || node === undefined || depth > 4) return [];
-  if (Array.isArray(node)) {
-    if (node.length && node.every(item => typeof item === "string")) return node;
-    if (node.some(looksLikeEvent)) return node;
-    for (const item of node) {
-      const found = findAnalysisEvents(item, depth + 1);
-      if (found.length) return found;
-    }
-    return [];
-  }
-  if (typeof node === "object") {
-    for (const value of Object.values(node)) {
-      const found = findAnalysisEvents(value, depth + 1);
-      if (found.length) return found;
-    }
-  }
-  return [];
-}
-
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
@@ -470,33 +410,6 @@ function parseLocalMs(value?: string): number {
 function toLocalDateTimeSeconds(ms: number): string {
   const date = new Date(ms);
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
-}
-
-// MinIO 视频分析服务实际响应：{ code, segments: [{ segment_index, segment_start_seconds, raw_text, result }] }
-// 优先按分段生成事件卡片与结论文本；无分段时返回空，交由通用解析兜底
-function mapAnalysisSegments(response: any, images: string[]) {
-  const list = response && Array.isArray(response.segments) ? response.segments : [];
-  const events: any[] = [];
-  const texts: string[] = [];
-  list.forEach((segment: any, index: number) => {
-    if (!segment || typeof segment !== "object") return;
-    const start = clockToSeconds(segment.segment_start_seconds ?? index * 60);
-    const raw = typeof segment.raw_text === "string" ? segment.raw_text.trim() : "";
-    const text = raw || findAnalysisText(segment.result);
-    if (text) texts.push(text);
-    const resultObj = segment.result && typeof segment.result === "object" ? segment.result : null;
-    const segName = resultObj && typeof resultObj.event_name === "string" && resultObj.event_name.trim()
-      ? resultObj.event_name.trim()
-      : `分段 ${index + 1}`;
-    events.push({
-      name: segName,
-      time: formatHms(start),
-      start,
-      image: images[index % images.length],
-      detail: text || "该分段无详细描述"
-    });
-  });
-  return { events, texts };
 }
 
 // 上游分析服务以 HTTP 200 包裹业务错误（code>=400 + error/message），需识别为失败
@@ -536,9 +449,9 @@ function mapAnalysisEvent(item: any, index: number, images: string[], segmentSec
   }
   const start = clockToSeconds(rawTime);
   const time = typeof rawTime === "string" && rawTime.trim() ? rawTime.trim() : formatHms(start);
-  const desc = EVENT_DESC_KEYS.map(key => item[key]).find(value => typeof value === "string" && value.trim());
-  const title = EVENT_NAME_KEYS.map(key => item[key]).find(value => typeof value === "string" && value.trim());
-  return { name: title || `事件 ${index + 1}`, time, start, image, detail: desc || title || "该分段无详细描述" };
+  const desc = typeof item.description === "string" ? item.description.trim() : "";
+  const title = typeof item.event_name === "string" ? item.event_name.trim() : "";
+  return { name: title || `事件 ${index + 1}`, time, start, image, detail: desc || "该分段无详细描述" };
 }
 
 const RESULT_TAB_TITLES: Record<string, string> = {
@@ -632,6 +545,7 @@ export default defineComponent({
       selectedArea: null,
       selectedCamera: null,
       pointDropdownOpen: false,
+      pointSearchQuery: "",
       expandedAreas: {},
       onlineSearched: false,
       onlineSources: [],
@@ -644,6 +558,7 @@ export default defineComponent({
       onlineEnd: "",
       localFileName: lastLocalVideo.name || "",
       localFileSize: lastLocalVideo.size || "",
+      localFileDuration: lastLocalVideo.duration || "",
       localVideoUrl: lastLocalVideo.url || "",
       localVideoPoster: lastLocalVideo.poster || "",
       localVideoFile: null as File | null,
@@ -704,8 +619,6 @@ export default defineComponent({
       results: [],
       summary: {
         overview: "",
-        eventName: "",
-        description: "",
         persons: [],
         vehicles: []
       }
@@ -722,6 +635,20 @@ export default defineComponent({
       if (this.selectedArea && this.selectedCamera) return `${(this.selectedArea as any).name} / ${(this.selectedCamera as any).name}`;
       if (this.selectedArea) return `${(this.selectedArea as any).name} / 请选择监控点`;
       return "请选择区域 / 监控点";
+    },
+    pointSearchActive(): boolean {
+      return this.pointSearchQuery.trim().length > 0;
+    },
+    // 监控点模糊查询：命中区域名显示该区域全部设备，否则按设备名称/编号过滤；保持原 area 引用供选中逻辑使用
+    pointAreaEntries(): Array<{ area: any; cameras: any[] }> {
+      const query = this.pointSearchQuery.trim().toLowerCase();
+      const entries = (this.areas as any[]).map(area => {
+        if (!query || area.name.toLowerCase().includes(query)) return { area, cameras: area.cameras };
+        const cameras = area.cameras.filter((camera: any) =>
+          String(camera.name || "").toLowerCase().includes(query) || String(camera.code || "").toLowerCase().includes(query));
+        return { area, cameras };
+      });
+      return query ? entries.filter(entry => entry.cameras.length) : entries;
     },
     activeResultTabObj(): any {
       return this.resultTabs.find(item => item.id === this.activeResultTab) || null;
@@ -808,6 +735,7 @@ export default defineComponent({
     },
     togglePointDropdown() {
       this.pointDropdownOpen = !this.pointDropdownOpen;
+      if (this.pointDropdownOpen) this.pointSearchQuery = "";
     },
     toggleArea(area) {
       const nextExpanded = !this.expandedAreas[area.name];
@@ -1099,9 +1027,11 @@ export default defineComponent({
       this.localVideoFile = file;
       this.localFileName = file.name;
       this.localFileSize = `${(file.size / 1024 / 1024).toFixed(1)} MB`;
+      this.localFileDuration = "";
       this.localVideoPoster = "";
-      this.store.lastLocalVideo = { name: this.localFileName, size: this.localFileSize, url: this.localVideoUrl, poster: "" };
+      this.store.lastLocalVideo = { name: this.localFileName, size: this.localFileSize, url: this.localVideoUrl, poster: "", duration: "" };
       this.captureLocalVideoPoster(this.localVideoUrl);
+      this.probeLocalVideoDuration(this.localVideoUrl);
       // 上传后立即确认视频源：播放器载入该视频，右侧展示视频问答信息栏
       this.confirmLocalSource();
     },
@@ -1137,12 +1067,19 @@ export default defineComponent({
       video.addEventListener("error", cleanup);
       video.src = url;
     },
-    useLastLocalVideo() {
-      if (!this.localVideoUrl) {
-        this.showToast("还没有可用的本地视频");
-        return;
-      }
-      this.confirmLocalSource();
+    // 探测上传视频时长，用于已上传卡片展示「时长 xx:xx」
+    probeLocalVideoDuration(url) {
+      const probe = document.createElement("video");
+      probe.preload = "metadata";
+      probe.onloadedmetadata = () => {
+        const seconds = Math.round(probe.duration);
+        if (Number.isFinite(seconds) && seconds > 0) {
+          this.localFileDuration = this.formatTime(seconds);
+          if (this.store.lastLocalVideo) this.store.lastLocalVideo.duration = this.localFileDuration;
+        }
+        if (probe.removeAttribute) probe.removeAttribute("src");
+      };
+      probe.src = url;
     },
     confirmLocalSource() {
       if (!this.localVideoUrl) {
@@ -1176,6 +1113,7 @@ export default defineComponent({
       this.localVideoFile = null;
       this.localFileName = "";
       this.localFileSize = "";
+      this.localFileDuration = "";
       this.localVideoPoster = "";
       this.store.lastLocalVideo = null;
       if (this.$refs.exactVideoInput) (this.$refs.exactVideoInput as HTMLInputElement).value = "";
@@ -1344,6 +1282,7 @@ export default defineComponent({
         const requestParams = {
           videoUrl: selectedSource.analysisUrl,
           prompt: question,
+          question,
           fps: 1,
           segmentSeconds: 60,
           maxSegments: selectedSource.sourceType === "本地上传"
@@ -1358,24 +1297,19 @@ export default defineComponent({
         }
         const img = (this as any).store.img;
         const images = [img.portrait, img.car, img.target];
-        const segments = mapAnalysisSegments(response, images);
-        const overview = segments.texts.length ? segments.texts.join("\n\n") : findAnalysisText(response);
+        const understanding = findVideoUnderstanding(response);
+        const overview = understanding.overview;
         const upstreamError = findAnalysisError(response);
-        if (upstreamError || (!overview && !segments.events.length && !findAnalysisEvents(response).length)) {
+        if (upstreamError || (!overview && !findUnderstandingEvents(response).length)) {
           const message = upstreamError || "接口未返回有效分析结果，请检查视频分析服务后重试";
           this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(`分析失败：${message}`);
           return;
         }
-        this.events = (segments.events.length
-          ? segments.events
-          : findAnalysisEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60))) as any;
+        this.events = findUnderstandingEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60)) as any;
         this.applyEventFrameImages(this.events, selectedSource.analysisUrl);
-        const understanding = findVideoUnderstanding(response);
         this.summary = {
-          overview: understanding.overview || overview,
-          eventName: understanding.eventName,
-          description: understanding.description,
+          overview: understanding.overview,
           persons: [],
           vehicles: []
         };
@@ -1544,10 +1478,11 @@ export default defineComponent({
       this.resetPhaseTimers();
       this.startAnalyzePhase();
       try {
-        // 追问同样走视频分析接口：以问题为 prompt 重新分析当前视频源
+        // 追问同样走视频理解结构化接口：以问题为 prompt/question 重新分析当前视频源
         const requestParams = {
           videoUrl: selectedSource.analysisUrl,
           prompt: question,
+          question,
           fps: 1,
           segmentSeconds: 60,
           maxSegments: selectedSource.sourceType === "本地上传"
@@ -1562,18 +1497,16 @@ export default defineComponent({
         }
         const img = (this as any).store.img;
         const images = [img.portrait, img.car, img.target];
-        const segments = mapAnalysisSegments(response, images);
-        const answer = segments.texts.length ? segments.texts.join("\n\n") : findAnalysisText(response);
+        const understanding = findVideoUnderstanding(response);
+        const answer = understanding.overview;
         const upstreamError = findAnalysisError(response);
-        if (upstreamError || (!answer && !segments.events.length && !findAnalysisEvents(response).length)) {
+        if (upstreamError || (!answer && !findUnderstandingEvents(response).length)) {
           const message = upstreamError || "接口未返回有效分析结果，请检查视频分析服务后重试";
           this.questionMessages.push({ role: "assistant", text: `分析失败：${message}`, thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(`分析失败：${message}`);
           return;
         }
-        const parsedEvents = segments.events.length
-          ? segments.events
-          : findAnalysisEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60));
+        const parsedEvents = findUnderstandingEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60));
         if (parsedEvents.length) {
           this.applyEventFrameImages(parsedEvents, selectedSource.analysisUrl);
           this.events = parsedEvents as any;
@@ -1581,11 +1514,8 @@ export default defineComponent({
           this.currentTime = (this.events[0] as any).start;
           this.seekVideo(this.currentTime);
         }
-        const understanding = findVideoUnderstanding(response);
         this.summary = {
-          overview: understanding.overview || answer,
-          eventName: understanding.eventName,
-          description: understanding.description,
+          overview: understanding.overview,
           persons: [],
           vehicles: []
         };
@@ -2085,7 +2015,7 @@ export default defineComponent({
       this.exportReport(type);
     },
     reportContent() {
-      return `文搜视频分析报告\n\n视频源：${this.selectedSource ? (this.selectedSource as any).name : "-"}\n来源：${this.selectedSource ? this.sourceTypeLabel : "-"}\n检索内容：${this.lastQuery || this.query || "-"}\n\n事件概况：\n${this.summary.overview}\n事件名称：${this.summary.eventName || "-"}\n事件描述：${this.summary.description || "-"}\n\n分析事件：\n${this.events.map(item => `${item.time} ${item.name}：${item.detail}`).join("\n")}\n\n分析结果：\n${this.results.map(item => `${item.title}：${item.value}。${item.detail}`).join("\n")}`;
+      return `文搜视频分析报告\n\n视频源：${this.selectedSource ? (this.selectedSource as any).name : "-"}\n来源：${this.selectedSource ? this.sourceTypeLabel : "-"}\n检索内容：${this.lastQuery || this.query || "-"}\n\n事件摘要：\n${this.summary.overview || "-"}\n\n分析事件：\n${this.events.map(item => `${item.time} ${item.name}：${item.detail}`).join("\n")}\n\n分析结果：\n${this.results.map(item => `${item.title}：${item.value}。${item.detail}`).join("\n")}`;
     },
     exportReport(type) {
       if (!this.analyzed) {

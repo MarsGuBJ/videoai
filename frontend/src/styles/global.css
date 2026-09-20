@@ -4532,6 +4532,35 @@
       transform: rotate(45deg);
     }
 
+    .exact-tree-search {
+      position: sticky;
+      top: -6px;
+      z-index: 1;
+      padding: 0 0 6px;
+      background: #fff;
+    }
+
+    .exact-tree-search input {
+      width: 100%;
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid #d9e4f2;
+      border-radius: 5px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .exact-tree-search input:focus {
+      border-color: #2f6bff;
+    }
+
+    .exact-tree-empty {
+      padding: 12px;
+      color: #98a2b3;
+      font-size: 13px;
+      text-align: center;
+    }
+
     .exact-tree-area-row {
       display: flex;
       align-items: center;
@@ -4673,10 +4702,27 @@
       white-space: nowrap;
     }
 
-    .exact-last-video-card p {
-      margin: 7px 0 0;
-      color: #667085;
+    .exact-last-video-title {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .exact-last-video-title strong {
+      width: 100%;
+    }
+
+    .exact-last-video-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .exact-last-video-duration {
       font-size: 12px;
+      color: #667085;
     }
 
     .exact-upload-link {
@@ -4969,18 +5015,27 @@
       font-size: 32px;
     }
 
-    .exact-upload-actions {
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 6px;
-      margin-bottom: 10px;
-      white-space: nowrap;
+    .exact-video-delete-btn {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: #f2f4f7;
+      color: #667085;
     }
 
-    .exact-upload-actions .btn {
-      min-width: 0;
-      padding: 0 8px;
+    .exact-video-delete-btn:hover {
+      background: #fff1f0;
+      color: var(--red);
+    }
+
+    .exact-video-delete-btn span::before {
+      content: "\f014";
+      font-family: "FontAwesome";
+      font-size: 13px;
     }
 
     .exact-source-results {
@@ -9472,13 +9527,13 @@
       margin-top: 10px;
     }
 
-    /* 实时预览页：监控资源树占满左侧面板剩余高度，避免窗口下方留白；
-       面板高度不超过窗口显示区（与 media-console-grid 的 min-height 口径一致），
-       资源树超出时在列表内部出现垂直滚动条 */
+    /* 实时预览页：监控资源树占满左侧面板剩余高度；
+       contain:size 使面板内容不参与网格行高计算——栏高始终跟随中间播放器栏（底部对齐），
+       资源树超出面板下边框时列表内部出现垂直滚动条 */
     .media-preview-page .media-resource-panel {
       display: flex;
       flex-direction: column;
-      max-height: calc(100vh - 132px);
+      contain: size;
     }
 
     /* 页签行（监控点/收藏/场景）与搜索框保持固有高度，不被列表挤压；
@@ -10380,6 +10435,11 @@
       .media-wall-sidebar,
       .media-alarm-sidebar {
         min-height: 0;
+      }
+
+      /* 单列布局下每栏独占一行、行高由自身内容决定，需取消尺寸隔离否则面板塌缩 */
+      .media-preview-page .media-resource-panel {
+        contain: none;
       }
 
       .media-summary-row {

@@ -5,9 +5,9 @@
       <aside class="panel media-resource-panel">
         <div class="media-resource-tabs"><button :class="{ active: activeResourceTab === 'monitor' }" @click="activeResourceTab = 'monitor'">监控点</button><button :class="{ active: activeResourceTab === 'favorite' }" @click="activeResourceTab = 'favorite'">收藏</button><button :class="{ active: activeResourceTab === 'history' }" @click="activeResourceTab = 'history'">场景</button></div>
         <input class="input" placeholder="搜索监控点名称/IP" aria-label="搜索监控点名称或IP" v-model="searchKeyword" />
-        <div v-if="activeResourceTab === 'monitor'" class="media-playback-tree"><div class="media-panel-head"><b>监控资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in displayRegions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ expandedRegions[region.fullPath] ? '⌄' : '›' }} {{ region.name }}</span><span>{{ camerasForRegion(region).length }} 台设备</span></button><div v-if="expandedRegions[region.fullPath]" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" draggable="true" title="点击放入当前窗口，或拖拽到目标窗口" @dragstart="onCameraDragStart($event, camera)" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span class="media-tree-status" :class="deviceStatusClass(camera.camera)">{{ camera.status }}</span><span class="link-blue" :title="isFavorite(camera.code) ? '取消收藏' : '收藏'" @click.stop="toggleFavorite(camera.code)">{{ isFavorite(camera.code) ? '★' : '☆' }}</span></button></div></div><div v-if="!displayRegions.length" style="padding:12px;color:#888;">{{ searchKeyword ? '无匹配监控点' : '暂无监控点，请先在设备管理中添加设备' }}</div></div></div>
+        <div v-if="activeResourceTab === 'monitor'" class="media-playback-tree"><div class="media-panel-head"><b>监控资源</b><span class="hint-text">区域 / 监控点</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in displayRegions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ isRegionExpanded(region) ? '⌄' : '›' }} {{ region.name }}</span><span>{{ camerasForRegion(region).length }} 台设备</span></button><div v-if="isRegionExpanded(region)" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" draggable="true" title="点击放入当前窗口，或拖拽到目标窗口" @dragstart="onCameraDragStart($event, camera)" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span class="media-tree-status" :class="deviceStatusClass(camera.camera)">{{ camera.status }}</span><span class="link-blue" :title="isFavorite(camera.code) ? '取消收藏' : '收藏'" @click.stop="toggleFavorite(camera.code)">{{ isFavorite(camera.code) ? '★' : '☆' }}</span></button></div></div><div v-if="!displayRegions.length" style="padding:12px;color:#888;">{{ searchKeyword ? '无匹配监控点' : '暂无监控点，请先在设备管理中添加设备' }}</div></div></div>
         <ul v-else-if="activeResourceTab === 'favorite'" class="media-resource-list"><li class="group">我的收藏</li><li v-for="camera in favoriteCameras" :key="camera.code" style="cursor:pointer;" @click="selectCameraById(camera.code)"><span class="online-dot">★</span>{{ camera.name }}<span class="link-red" style="margin-left:auto;" @click.stop="toggleFavorite(camera.code)">取消</span></li><li v-if="!favoriteCameras.length" style="color:#888;">暂无收藏，在监控点列表点击 ☆ 收藏</li></ul>
-        <ul v-else class="media-plan-list"><li v-for="scene in sceneRecords" :key="scene.id" style="cursor:pointer;" title="点击还原该场景的全部视频流" @click="restoreScene(scene)"><template v-if="renamingSceneId === scene.id"><input class="input" v-model="renamingSceneName" style="width:100%;" @click.stop @keyup.enter="confirmRenameScene" @keyup.esc="cancelRenameScene" /><div style="display:flex;gap:10px;"><span class="link-blue" @click.stop="confirmRenameScene">确定</span><span class="link-red" @click.stop="cancelRenameScene">取消</span></div></template><template v-else><b>▦ {{ scene.name }}</b><span>{{ scene.time }}</span><div style="display:flex;gap:10px;"><span class="link-blue" @click.stop="startRenameScene(scene)">改名</span><span class="link-red" @click.stop="removeScene(scene)">删除</span></div></template></li><li v-if="!sceneRecords.length" style="color:#888;">暂无保存的场景，点击「保存场景」记录当前分屏与视频流</li></ul>
+        <ul v-else class="media-plan-list"><li v-for="scene in sceneRecords" :key="scene.id" style="cursor:pointer;" title="点击还原该场景的全部视频流" @click="restoreScene(scene)"><template v-if="renamingSceneId === scene.id"><input class="input" v-model="renamingSceneName" style="width:100%;" @click.stop @keyup.enter="confirmRenameScene" @keyup.esc="cancelRenameScene" /><div style="display:flex;gap:10px;"><span class="link-blue" @click.stop="confirmRenameScene">确定</span><span class="link-red" @click.stop="cancelRenameScene">取消</span></div></template><template v-else><b>▦ {{ scene.name }}</b><span>{{ scene.time }}</span><div style="display:flex;gap:10px;"><span class="link-blue" @click.stop="startRenameScene(scene)">改名</span><span class="link-red" @click.stop="askRemoveScene(scene)">删除</span></div></template></li><li v-if="!sceneRecords.length" style="color:#888;">暂无保存的场景，点击「保存场景」记录当前分屏与视频流</li></ul>
       </aside>
       <section class="panel media-stage-panel">
         <div class="media-stage-toolbar"><div class="media-layout-buttons"><span>分屏</span><button v-for="count in [1, 4, 9, 16]" :key="count" :class="{ active: previewLayout === count }" @click="changeLayout(count)">{{ count }}</button></div><div class="media-control-buttons"><button class="btn" @click="saveScene">保存场景</button><select class="select" style="width:96px;" v-model="streamType" aria-label="码流类型" @change="onStreamTypeChange"><option value="main">主码流</option><option value="sub">子码流</option></select><button class="btn" @click="openModal('videoConfig')">视频参数</button><select class="select" style="width:96px;" v-model="videoFit" aria-label="画面比例" @change="onVideoFitChange"><option value="contain">原始比例</option><option value="cover">满屏窗口</option></select></div></div>
@@ -19,6 +19,14 @@
         <div class="media-ptz-section"><div class="media-range-list"><label>变倍<input type="range" min="0" max="10" v-model.number="zoomLevel" :disabled="ptzDisabled" @change="onZoomChange" /></label><label>变焦<input type="range" min="0" max="10" v-model.number="focusLevel" :disabled="ptzDisabled" /></label><label>光圈<input type="range" min="0" max="10" v-model.number="irisLevel" :disabled="ptzDisabled" /></label></div></div>
         <div class="media-ptz-section"><div class="media-panel-head"><b>预置点</b><button class="link-blue" :disabled="!ptzSupported" @click="addPreset">＋</button></div><ul class="media-preset-list"><li v-for="preset in currentPresets" :key="preset.id"><span>{{ preset.id }} {{ preset.name }}</span><button class="link-blue" :disabled="ptzDisabled" @click="callPreset(preset)">调用</button><button class="link-red" @click="removePreset(preset)">删除</button></li><li v-if="!currentPresets.length" style="color:#888;">{{ !ptzCamera ? '请先选择一路真实摄像头' : !ptzSupported ? '当前设备不支持云台控制' : '暂无预置点，点 ＋ 保存当前云台参数' }}</li></ul></div>
       </aside>
+    </div>
+    <!-- 删除场景确认弹窗：复用全局 modal 样式，与设备管理页删除设备弹窗一致 -->
+    <div v-if="deletingScene" class="modal-mask open" @click.self="cancelRemoveScene">
+      <section class="modal-dialog narrow" aria-label="删除场景">
+        <div class="modal-head"><h3>删除场景</h3><button class="modal-close" aria-label="关闭" @click="cancelRemoveScene">×</button></div>
+        <div class="modal-body"><p class="modal-hint">确认删除场景「{{ deletingScene.name }}」？删除后无法恢复。</p></div>
+        <div class="modal-footer"><button class="btn" @click="cancelRemoveScene">取消</button><button class="btn primary danger" @click="confirmRemoveScene">确认删除</button></div>
+      </section>
     </div>
   </section>
 </template>
@@ -152,6 +160,7 @@ export default defineComponent({
       sceneRecords: loadJson(SCENES_KEY, []) as any[],
       renamingSceneId: "",
       renamingSceneName: "",
+      deletingScene: null as any,
       presetsByCamera: loadJson(PRESETS_KEY, {}) as Record<string, CameraPreset[]>,
       dropHoverIndex: -1,
       now: formatTime(new Date()),
@@ -512,6 +521,10 @@ export default defineComponent({
       this.ensureStarted();
       this.syncStreamTypeSelector();
     },
+    // 搜索设备时资源树节点全部展开，便于直接看到命中的监控点
+    isRegionExpanded(region: RegionNode): boolean {
+      return !!this.expandedRegions[region.fullPath] || !!this.searchKeyword.trim();
+    },
     toggleRegion(region: RegionNode) {
       if (!this.selectedRegion || this.selectedRegion.fullPath !== region.fullPath) {
         this.selectedRegion = region;
@@ -643,8 +656,17 @@ export default defineComponent({
       this.renamingSceneId = "";
       this.renamingSceneName = "";
     },
-    removeScene(record: any) {
-      if (!window.confirm(`确认删除场景「${record.name}」？`)) return;
+    // 删除前弹出与设备管理页一致的确认弹窗，确认后才执行删除
+    askRemoveScene(record: any) {
+      this.deletingScene = record;
+    },
+    cancelRemoveScene() {
+      this.deletingScene = null;
+    },
+    confirmRemoveScene() {
+      const record = this.deletingScene;
+      if (!record) return;
+      this.deletingScene = null;
       this.sceneRecords = this.sceneRecords.filter((item: any) => item.id !== record.id);
       saveJson(SCENES_KEY, this.sceneRecords);
       if (this.renamingSceneId === record.id) this.cancelRenameScene();
