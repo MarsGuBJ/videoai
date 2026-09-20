@@ -1,4 +1,4 @@
-import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, WindowsCameraStatus, WorkerNode } from '../types';
+import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, WindowsCameraStatus, WorkerNode } from '../types';
 
 export type {
   AccessCertificate,
@@ -225,7 +225,9 @@ export type TextSearchQueryResponse = {
   };
 };
 
-// MinIO 视频智能分析响应格式未在接口文档中给出，按宽容结构解析。
+// 视频理解结构化接口（《视频理解接口0910》POST /api/v1/video-understanding/structure）：
+// { code, message, data: { summary, answer_status, focus_event, events[], raw_understanding_result } }，
+// events[] 含 event_name / time_range / description / key_frame；页面按宽容结构解析。
 export type VideoAnalysisResponse = {
   code?: number;
   message?: string;
@@ -290,8 +292,10 @@ function extractErrorMessage(text: string, response: Response): string {
     if (detail && detail.error && typeof detail.error.message === 'string') return detail.error.message;
     if (body && typeof body.message === 'string') return body.message;
   } catch {
-    // 非 JSON 错误体，原样返回
+    // 非 JSON 错误体：HTML 错误页（如 nginx 413）转可读提示，纯文本则原样返回
   }
+  if (response.status === 413) return '文件过大，服务器拒绝接收（413）';
+  if (/^\s*</.test(text)) return `请求失败（${response.status} ${response.statusText}）`;
   return text;
 }
 
@@ -428,6 +432,11 @@ export const api = {
     return request<DeploymentEventPage>(`/api/deployment-events?${search.toString()}`);
   },
   deploymentEventSummary: () => request<DeploymentEventSummary>('/api/deployment-events/summary'),
+  handleDeploymentEvent: (id: string, payload: { action: 'handle' | 'close'; note?: string }) =>
+    request<DeploymentEvent>(`/api/deployment-events/${encodeURIComponent(id)}/handle`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
   deploymentEventStats: (params: DeploymentEventStatsQuery = {}) => {
     const search = new URLSearchParams();
     if (params.startTime) search.set('startTime', params.startTime);
@@ -516,6 +525,8 @@ export const api = {
   analyzeMinioVideo: (payload: {
     videoUrl: string;
     prompt: string;
+    // 用户问题（视频理解结构化接口必填字段 question）
+    question?: string;
     fps?: number;
     segmentSeconds?: number;
     maxSegments?: number;

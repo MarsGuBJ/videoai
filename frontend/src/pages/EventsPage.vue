@@ -59,6 +59,9 @@ function mapEventToRow(event: DeploymentEvent) {
     desc: result,
     time: formatEventTime(event.occurredAt || event.createdAt),
     image: assetUrl(event.snapshotUrl || event.faceProfilePhotoUrl),
+    status: event.handleStatus || "未处置",
+    handledAt: event.handledAt,
+    handleNote: event.handleNote,
     // 以下字段保持 EventDetailPage 归一化兼容
     snapshotUrl: event.snapshotUrl,
     cameraName: event.cameraName,

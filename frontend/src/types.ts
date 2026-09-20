@@ -339,6 +339,9 @@ export type DeploymentEvent = {
   similarity?: number | null;
   algorithmCode?: string | null;
   reviewStatus?: string | null;
+  handleStatus?: string | null;
+  handledAt?: string | null;
+  handleNote?: string | null;
   occurredAt: string;
   createdAt: string;
 };
