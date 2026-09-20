@@ -115,7 +115,7 @@ async def save_review_image(image: UploadFile) -> str:
     """
     settings = get_settings()
     if not image.content_type or not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Only image files are supported")
+        raise HTTPException(status_code=400, detail="仅支持图片文件")
     suffix = Path(image.filename or "").suffix.lower()
     if suffix not in ALLOWED_IMAGE_SUFFIXES:
         suffix = ".jpg"
@@ -130,11 +130,11 @@ async def save_review_image(image: UploadFile) -> str:
             total_bytes += len(chunk)
             if total_bytes > MAX_QUERY_IMAGE_BYTES:
                 path.unlink(missing_ok=True)
-                raise HTTPException(status_code=400, detail="Image file must be 20 MB or smaller")
+                raise HTTPException(status_code=400, detail="图片大小不能超过 20MB")
             output.write(chunk)
     if total_bytes == 0:
         path.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail="Image file is empty")
+        raise HTTPException(status_code=400, detail="图片内容为空")
     return f"/api/assets/review-images/{filename}"
 
 
