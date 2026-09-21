@@ -16,10 +16,14 @@ storage/faces/*
 storage/cameras/*
 storage/snapshots/*
 storage/algorithms/*
+storage/query-images/*
+storage/review-images/*
 !storage/faces/.gitkeep
 !storage/cameras/.gitkeep
 !storage/snapshots/.gitkeep
 !storage/algorithms/.gitkeep
+!storage/query-images/.gitkeep
+!storage/review-images/.gitkeep
 infra/model_repository/**/1/*
 !infra/model_repository/**/1/.gitkeep
 frontend/dist-*/
