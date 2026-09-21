@@ -64,6 +64,14 @@ def update_algorithm(algorithm_id: UUID, request: AlgorithmUpdateRequest) -> Alg
     return algorithm_service.algorithm_response(updated)
 
 
+@router.delete("/api/algorithms/{algorithm_id}")
+def delete_algorithm(algorithm_id: UUID) -> dict[str, str]:
+    """删除算法：被布控任务引用时 409 拒绝，否则删除记录并清理安装目录。"""
+    record = algorithm_service.require_algorithm(algorithm_id)
+    algorithm_service.delete_algorithm(record)
+    return {"deleted": str(algorithm_id)}
+
+
 @router.get("/api/algorithms/{algorithm_id}/versions", response_model=list[AlgorithmVersionResponse])
 def list_algorithm_versions(algorithm_id: UUID) -> list[AlgorithmVersionResponse]:
     """按创建时间倒序返回算法的版本列表（active 标记当前版本）。"""

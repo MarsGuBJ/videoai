@@ -96,6 +96,16 @@ export default defineComponent({
       } catch (error) {
         this.showToast(error instanceof Error ? error.message : "算法状态切换失败");
       }
+    },
+    async removeRow(row: Algorithm) {
+      if (!window.confirm(`确认删除算法「${row.name}」？`)) return;
+      try {
+        await api.deleteAlgorithm(row.id);
+        this.showToast(`算法「${row.name}」已删除`);
+        await this.loadAlgorithms();
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "算法删除失败");
+      }
     }
   }
 });
@@ -120,7 +130,7 @@ export default defineComponent({
               <span v-if="row.currentVersionStatus === 'MISSING_FILES'" class="status-pill waiting" :title="'缺失文件：' + (row.missingFiles || []).join('、')">缺模型文件</span>
             </td>
             <td>{{ row.owner || "—" }}</td><td>{{ formatTime(row.updatedAt) }}</td>
-            <td><button class="link-blue" @click="openVersionManager(row)">版本号</button><button class="link-blue" @click="openModal('algorithm', row)">编辑</button><button class="link-red" @click="toggleStatus(row)">{{ row.status === "RUNNING" ? "停用" : "启用" }}</button></td>
+            <td><button class="link-blue" @click="openVersionManager(row)">版本号</button><button class="link-blue" @click="openModal('algorithm', row)">编辑</button><button class="link-red" @click="toggleStatus(row)">{{ row.status === "RUNNING" ? "停用" : "启用" }}</button><button class="link-red" @click="removeRow(row)">删除</button></td>
           </tr>
           <tr v-if="!loading && !filteredRows.length"><td colspan="9" class="empty-cell">暂无算法</td></tr>
           <tr v-if="loading"><td colspan="9" class="empty-cell">加载中...</td></tr>

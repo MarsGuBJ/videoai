@@ -36,7 +36,7 @@ def test_analyze_proxy_maps_payload_and_forwards_response(client: TestClient, mo
 
     assert response.status_code == 200
     assert response.json() == {"code": 0, "data": {"summary": "有人出现"}}
-    assert captured["url"] == "http://192.168.11.192:8775/api/v1/video-understanding/structure"
+    assert captured["url"] == "http://10.10.3.100:8780/api/v1/video-understanding/structure"
     assert captured["json"] == {
         "video_url": "http://192.168.11.194:9000/public/a.mp4",
         "question": "是否有人出现",

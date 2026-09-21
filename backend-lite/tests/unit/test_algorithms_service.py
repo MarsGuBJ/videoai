@@ -2,6 +2,7 @@
 
 import io
 import zipfile
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -222,3 +223,46 @@ def test_activate_version_creates_backup_and_switches_pointer(algo_storage):
     algo_service.activate_version(record, v1_id)
     assert len(list((algo_storage / "smoke-03" / ".backup").iterdir())) == len(backups_after)
     assert added.id != v1_id
+
+
+def _create_smoke_algorithm(code: str):
+    """创建一个 smoke 算法（含 v1.0.0 安装目录），供删除用例使用。"""
+    return algo_service.create_algorithm(
+        name="抽烟识别",
+        code=code,
+        engine_type="smoke",
+        version="v1.0.0",
+        scene=None,
+        owner=None,
+        description=None,
+        version_name=None,
+        notes=None,
+        upload=make_upload({"smoke_engine.py": b"v1"}),
+    )
+
+
+def test_delete_algorithm_removes_record_and_install_dir(algo_storage, monkeypatch):
+    monkeypatch.setattr(algo_service, "delete_algorithm_from_db", lambda algorithm_id: None)
+    record = _create_smoke_algorithm("smoke-del-01")
+    assert (algo_storage / "smoke-del-01" / "v1.0.0").is_dir()
+
+    algo_service.delete_algorithm(record)
+
+    assert record.id not in state.algorithms_store
+    assert not (algo_storage / "smoke-del-01").exists()
+
+
+def test_delete_algorithm_referenced_by_deployment_task_returns_409(algo_storage, monkeypatch):
+    monkeypatch.setattr(algo_service, "delete_algorithm_from_db", lambda algorithm_id: None)
+    record = _create_smoke_algorithm("smoke-del-02")
+    state.deployment_tasks_store[uuid4()] = SimpleNamespace(algorithmId=record.id, name="园区周界布控")
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            algo_service.delete_algorithm(record)
+        assert exc_info.value.status_code == 409
+        assert "园区周界布控" in str(exc_info.value.detail)
+        # 引用校验失败时记录与安装目录保留
+        assert record.id in state.algorithms_store
+        assert (algo_storage / "smoke-del-02" / "v1.0.0").is_dir()
+    finally:
+        state.deployment_tasks_store.clear()

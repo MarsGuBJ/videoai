@@ -162,6 +162,7 @@ export type SimilarPersonResult = {
   camera_id?: string;
   camera_locate?: string;
   image_url?: string;
+  video_url?: string;
   age?: string;
   accessory?: string;
   top_color?: string | string[];
@@ -193,6 +194,7 @@ export type PersonSearchResultResponse = {
 
 export type TextSearchItemPayload = {
   image_url?: string;
+  video_url?: string;
   camera_locate?: string;
   camera_id?: string;
   create_time?: number | string;
@@ -479,6 +481,8 @@ export const api = {
   createAlgorithm: (form: FormData) => request<Algorithm>('/api/algorithms', { method: 'POST', body: form }),
   updateAlgorithm: (id: string, payload: { name?: string; scene?: string; owner?: string; description?: string; status?: 'RUNNING' | 'DISABLED' }) =>
     request<Algorithm>(`/api/algorithms/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteAlgorithm: (id: string) =>
+    request<{ deleted: string }>(`/api/algorithms/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   algorithmVersions: (id: string) => request<AlgorithmVersion[]>(`/api/algorithms/${encodeURIComponent(id)}/versions`),
   createAlgorithmVersion: (id: string, form: FormData) =>
     request<AlgorithmVersion>(`/api/algorithms/${encodeURIComponent(id)}/versions`, { method: 'POST', body: form }),

@@ -508,6 +508,64 @@ def list_versions(record: AlgorithmRecord) -> list[AlgorithmVersionResponse]:
     return [item.model_copy(update={"active": item.version == record.currentVersion}) for item in versions]
 
 
+def assert_algorithm_not_referenced(record: AlgorithmRecord) -> None:
+    """删除前校验算法未被布控任务引用。
+
+    Args:
+        record: 待删除的算法内存记录。
+
+    Raises:
+        HTTPException: 被引用时 409，detail 说明引用来源。
+    """
+    used_by_tasks = [
+        task.name
+        for task in state.deployment_tasks_store.values()
+        if task.algorithmId == record.id
+    ]
+    if used_by_tasks:
+        raise HTTPException(
+            status_code=409,
+            detail=f"算法已被布控任务「{used_by_tasks[0]}」引用，无法删除",
+        )
+
+
+def delete_algorithm(record: AlgorithmRecord) -> None:
+    """删除算法：引用校验后移出内存存储、尽力删库并清理安装目录。
+
+    Args:
+        record: 待删除的算法内存记录。
+
+    Raises:
+        HTTPException: 被布控任务引用时 409。
+    """
+    assert_algorithm_not_referenced(record)
+    state.algorithms_store.pop(record.id, None)
+    delete_algorithm_from_db(record.id)
+    install_root = get_settings().storage_algorithm_dir / record.code
+    try:
+        if install_root.is_dir():
+            shutil.rmtree(install_root)
+    except OSError as exc:
+        logger.error("algorithm install dir cleanup failed: %s", exc)
+
+
+def delete_algorithm_from_db(algorithm_id: UUID) -> None:
+    """从数据库删除算法及其全部版本；失败仅记录日志，不影响内存态。
+
+    Args:
+        algorithm_id: 算法 ID。
+    """
+    try:
+        with SessionLocal() as pgdb:
+            pgdb.query(AlgorithmVersionORM).filter(AlgorithmVersionORM.algorithm_id == algorithm_id).delete()
+            row = pgdb.get(AlgorithmORM, algorithm_id)
+            if row is not None:
+                pgdb.delete(row)
+            pgdb.commit()
+    except SQLAlchemyError as exc:
+        logger.error("algorithm delete failed: %s", exc)
+
+
 def persist_algorithm(record: AlgorithmRecord) -> None:
     """把算法及其全部版本 upsert 到数据库；失败仅记录日志，不影响内存态。
 

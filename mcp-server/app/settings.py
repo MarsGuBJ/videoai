@@ -84,10 +84,10 @@ def load_settings() -> Settings:
         videoai_media_base_url=(
             _env("VIDEOAI_MEDIA_BACKEND_URL", "") or _env("VIDEOAI_BACKEND_URL", "http://localhost:8081")
         ).rstrip("/"),
-        person_api_base_url=_env("PERSON_API_BASE_URL", "http://192.168.11.192:18890").rstrip("/"),
-        retrieve_api_base_url=_env("RETRIEVE_API_BASE_URL", "http://192.168.11.194:15011").rstrip("/"),
+        person_api_base_url=_env("PERSON_API_BASE_URL", "http://10.10.3.100:15501").rstrip("/"),
+        retrieve_api_base_url=_env("RETRIEVE_API_BASE_URL", "http://10.10.3.100:15000").rstrip("/"),
         retrieve_api_timeout_seconds=float(_env("RETRIEVE_API_TIMEOUT_SECONDS", "120")),
-        video_understanding_api_base_url=_env("VIDEO_UNDERSTANDING_API_BASE_URL", "http://192.168.11.192:8775").rstrip("/"),
+        video_understanding_api_base_url=_env("VIDEO_UNDERSTANDING_API_BASE_URL", "http://10.10.3.100:8780").rstrip("/"),
         video_understanding_timeout_seconds=float(_env("VIDEO_UNDERSTANDING_TIMEOUT_SECONDS", "600")),
         zlm_http_url=_env("VIDEOAI_ZLM_HTTP_URL", "http://127.0.0.1:8082").rstrip("/"),
         zlm_public_http_url=_env("VIDEOAI_ZLM_PUBLIC_HTTP_URL", "http://192.168.11.194:9100").rstrip("/"),

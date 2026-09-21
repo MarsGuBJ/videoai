@@ -104,6 +104,8 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
   return {
     title: `相似人员 ${index + 1}`,
     image: assetUrl(result.image_url),
+    // 卡片左上角 ⇄ 切换按钮播放的视频（后端 video_url 字段，无则不显示切换按钮）
+    video: assetUrl(result.video_url),
     location: result.camera_locate || result.camera_id || "未知摄像头",
     date: formatCreateTime(result.create_time),
     score,

@@ -67,7 +67,7 @@ MCP Server 依赖以下服务：
 - VideoAI Backend（backend-media）：读取摄像头列表、获取摄像头详情、启动直播。
 - Person API：封装 `192.168.11.192:18890` 的图搜人和步态识别接口。
 - 文搜图检索服务：`192.168.11.194:15011` 的自然语言图片检索接口（`text_search_images`）。
-- 视频理解结构化展示服务：`192.168.11.192:8775` 的视频理解结构化接口（`video_understanding`，上游为 `POST /api/v1/video-understanding/structure`）。
+- 视频理解结构化展示服务：`10.10.3.100:8780` 的视频理解结构化接口（`video_understanding`，上游为 `POST /api/v1/video-understanding/structure`）。
 - ZLMediaKit：把海康回放码流转为 FLV/HLS 播放地址。
 - 海康 NVR / HCNetSDK 设备：`search_recordings` 的 SDK 回放、`download_recording` 的 SDK 下载、`export_recording` 的 SDK 按时间下载（RTSP 回放抓流兜底）。
 - MinIO：保存 `download_recording` / `export_recording` 生成的 MP4 文件。
@@ -81,7 +81,7 @@ MCP Server 依赖以下服务：
 | `PERSON_API_BASE_URL` | `http://192.168.11.192:18890` | 图搜人和步态识别上游服务地址。 |
 | `RETRIEVE_API_BASE_URL` | `http://192.168.11.194:15011` | 文搜图（自然语言图片检索）上游服务地址。 |
 | `RETRIEVE_API_TIMEOUT_SECONDS` | `120` | 文搜图检索请求超时时间，单位秒。 |
-| `VIDEO_UNDERSTANDING_API_BASE_URL` | `http://192.168.11.192:8775` | 视频理解结构化展示服务地址（`video_understanding`，上游 `POST /api/v1/video-understanding/structure`）。 |
+| `VIDEO_UNDERSTANDING_API_BASE_URL` | `http://10.10.3.100:8780` | 视频理解结构化展示服务地址（`video_understanding`，上游 `POST /api/v1/video-understanding/structure`）。 |
 | `VIDEO_UNDERSTANDING_TIMEOUT_SECONDS` | `600` | 视频理解结构化请求超时时间，单位秒。 |
 | `VIDEOAI_ZLM_HTTP_URL` | `http://127.0.0.1:8082` | ZLMediaKit 内部 API 地址。 |
 | `VIDEOAI_ZLM_PUBLIC_HTTP_URL` | `http://192.168.11.194:9100` | 返回给客户端的播放地址前缀，应配置为客户端所在网络可访问的 ZLMediaKit HTTP 地址。 |
@@ -458,7 +458,7 @@ MCP Server 依赖以下服务：
 
 ### 6.6 `video_understanding`
 
-代理调用视频理解结果结构化展示服务（`VIDEO_UNDERSTANDING_API_BASE_URL`，默认 `http://192.168.11.192:8775` 的 `POST /api/v1/video-understanding/structure`）：上游先对 MP4 视频做理解分析，再用 DeepSeek 将结果整理为结构化事件（事件名称、时间范围、简要描述、与用户问题的相关性评分），按事件时间范围截取关键帧，并选出与问题最相关的重点事件。响应原样透传（`code`/`message`/`data`，`data` 含 `summary`、`answer_status`、`focus_event`、`events`、`raw_understanding_result` 等字段）。理解 + 结构化 + 截帧耗时较长，默认超时 600 秒（`VIDEO_UNDERSTANDING_TIMEOUT_SECONDS`）。
+代理调用视频理解结果结构化展示服务（`VIDEO_UNDERSTANDING_API_BASE_URL`，默认 `http://10.10.3.100:8780` 的 `POST /api/v1/video-understanding/structure`）：上游先对 MP4 视频做理解分析，再用 DeepSeek 将结果整理为结构化事件（事件名称、时间范围、简要描述、与用户问题的相关性评分），按事件时间范围截取关键帧，并选出与问题最相关的重点事件。响应原样透传（`code`/`message`/`data`，`data` 含 `summary`、`answer_status`、`focus_event`、`events`、`raw_understanding_result` 等字段）。理解 + 结构化 + 截帧耗时较长，默认超时 600 秒（`VIDEO_UNDERSTANDING_TIMEOUT_SECONDS`）。
 
 #### 输入参数
 
@@ -709,7 +709,7 @@ VIDEOAI_MCP_PLAYBACK_TTL_SECONDS=1800
 PERSON_API_BASE_URL=http://192.168.11.192:18890
 RETRIEVE_API_BASE_URL=http://192.168.11.194:15011
 RETRIEVE_API_TIMEOUT_SECONDS=120
-VIDEO_UNDERSTANDING_API_BASE_URL=http://192.168.11.192:8775
+VIDEO_UNDERSTANDING_API_BASE_URL=http://10.10.3.100:8780
 VIDEO_UNDERSTANDING_TIMEOUT_SECONDS=600
 HIKVISION_NVR_BASE_URL=http://192.168.1.64
 HIKVISION_NVR_USERNAME=admin

@@ -10,6 +10,7 @@ export type RegionNode = {
   name: string;
   fullPath: string;
   child: boolean;
+  depth: number;
   count: number;
 };
 

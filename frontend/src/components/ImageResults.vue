@@ -59,8 +59,9 @@ export default {
       <label v-if="selectable" class="result-select" @click.stop>
         <input type="checkbox" :checked="isSelected(index)" :aria-label="'选择' + item.title" @change.stop="$emit('toggle-selection', globalIndex(index))" />
       </label>
-      <button v-if="mediaSwitchable" class="result-media-switch" type="button" aria-label="切换媒体视图" @click.stop="toggleMedia(index)">⇄</button>
-      <div v-if="mediaSwitchable && isVideoView(index)" class="thumb thumb-video"><img :src="item.image" :alt="item.title" /><span class="play-dot">▶</span></div>
+      <button v-if="mediaSwitchable && item.video" class="result-media-switch" type="button" :aria-label="isVideoView(index) ? '切换为图片' : '切换为视频'" :title="isVideoView(index) ? '切换为图片' : '切换为视频'" @click.stop="toggleMedia(index)">⇄</button>
+      <!-- 视频视图：播放后端 video_url；@click.stop 避免播放器控制条冒泡触发卡片点击 -->
+      <video v-if="mediaSwitchable && item.video && isVideoView(index)" class="thumb thumb-video" :src="item.video" controls autoplay muted loop playsinline @click.stop></video>
       <img v-else class="thumb" :src="item.image" :alt="item.title" />
       <div class="body">
         <div class="result-card-location"><strong>{{ item.location }}</strong><span>{{ showFullDate ? item.date : item.date.slice(11, 19) }}</span></div>

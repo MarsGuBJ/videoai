@@ -779,25 +779,23 @@ class PlaybackSession:
             args += ["-re"]
         args += ["-i", "pipe:0", "-an"]
         if self.speed != 1.0:
-            # 压缩/拉伸时间戳让播放器按倍速渲染；fps=25 固定输出帧率。
-            # 滤镜需要解码+重编码，倍速档必须转码 H.264（浏览器 MSE 不支持 HEVC）
+            # 压缩/拉伸时间戳让播放器按倍速渲染；fps=25 固定输出帧率
             args += ["-vf", f"setpts=PTS/{self.speed:g},fps=25"]
-            args += [
-                "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-tune",
-                "zerolatency",
-                "-pix_fmt",
-                "yuv420p",
-                "-g",
-                "50",
-            ]
-        else:
-            # 1x 等速回放不重编码，源是什么编码就直推什么编码（H.264 直接使用），
-            # 与 media_proxy 的直播/录像转发行为一致
-            args += ["-c:v", "copy"]
+        # 现场 NVR 多为 smart265/HEVC，FLV 直推 HEVC 时不支持 H.265 的播放器
+        # （无 HEVC 扩展的浏览器 MSE、flv.js 等）无法播放，任何倍速都必须转码
+        # H.264；禁止改回 -c:v copy
+        args += [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "50",
+        ]
         args += [
             "-f",
             "flv",

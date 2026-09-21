@@ -4,7 +4,7 @@
     <div class="media-console-grid playback">
       <aside v-show="showSider" class="panel media-resource-panel">
         <input class="input" placeholder="搜索监控点名称/IP" aria-label="搜索监控点名称或IP" v-model="searchKeyword" />
-        <div class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点 · 共 {{ totalCameraCount }} 台设备</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in displayRegions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="region.child ? 'padding-left:24px;' : ''" @click="toggleRegion(region)"><span>{{ isRegionExpanded(region) ? '⌄' : '›' }} {{ region.name }}</span><span>{{ regionCount(region) }} 台设备</span></button><div v-if="isRegionExpanded(region)" class="exact-tree-children"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!displayRegions.length" style="padding:12px;color:#888;">{{ searchKeyword ? '无匹配监控点' : '暂无录像资源，请先在设备管理中添加设备' }}</div></div></div>
+        <div class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点 · 共 {{ totalCameraCount }} 台设备</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in displayRegions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="{ paddingLeft: (8 + region.depth * 16) + 'px' }" @click="toggleRegion(region)"><span>{{ isRegionExpanded(region) ? '⌄' : '›' }} {{ region.name }}</span><span>{{ regionCount(region) }} 台设备</span></button><div v-if="isRegionExpanded(region)" class="exact-tree-children" :style="{ marginLeft: (18 + region.depth * 16) + 'px' }"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!displayRegions.length" style="padding:12px;color:#888;">{{ searchKeyword ? '无匹配监控点' : '暂无录像资源，请先在设备管理中添加设备' }}</div></div></div>
         <div class="media-record-query"><div class="media-resource-tabs" style="margin-bottom:0;"></div><label>开始时间<input class="input" type="datetime-local" v-model="queryStart" /></label><label>结束时间<input class="input" type="datetime-local" v-model="queryEnd" /></label><button class="btn primary" :disabled="searching" @click="searchRecordings">{{ searching ? '查询中…' : '录像查询' }}</button><ul v-if="segments.length" class="media-plan-list"><li :class="{ active: !!activeSegment }" style="cursor:pointer;" @click="playMergedResult"><b>{{ formatSegmentTime(segments[0].startTime) }} ~ {{ formatSegmentTime(segments[segments.length - 1].endTime, true) }}</b><span>{{ segments[0].cameraName || (selectedCamera && selectedCamera.name) || '' }}</span></li></ul><p v-else-if="searchError" class="hint-text">{{ searchError }}</p><p v-else-if="searched && !searching" class="hint-text">该时段无录像</p></div>
       </aside>
       <section class="panel media-stage-panel">
@@ -57,6 +57,7 @@ function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<st
     name: item.name,
     fullPath: item.fullPath,
     child: item.depth > 0,
+    depth: item.depth,
     count: subtreeCount(item.fullPath)
   }));
   const seen = new Set(regions.map((region) => region.fullPath));
@@ -76,6 +77,7 @@ function regionsFromTree(tree: RegionTreeNode[] | null, regionCameras: Record<st
       name: segments[segments.length - 1],
       fullPath,
       child: segments.length > 1,
+      depth: segments.length - 1,
       count: subtreeCount(fullPath)
     });
   });
@@ -155,10 +157,21 @@ export default defineComponent({
     };
   },
   computed: {
-    // 搜索时仅显示子树内有命中设备的区域节点
+    // 搜索时仅显示子树内有命中设备的区域节点；非搜索时收起节点的子孙区域不显示
     displayRegions(): RegionNode[] {
-      if (!this.searchKeyword.trim()) return this.regions;
-      return this.regions.filter((region) => this.regionCount(region) > 0);
+      if (this.searchKeyword.trim()) {
+        return this.regions.filter((region) => this.regionCount(region) > 0);
+      }
+      const known = new Set(this.regions.map((region) => region.fullPath));
+      return this.regions.filter((region) => {
+        const segments = region.fullPath.split(" / ");
+        let prefix = "";
+        for (let i = 0; i < segments.length - 1; i++) {
+          prefix = prefix ? `${prefix} / ${segments[i]}` : segments[i];
+          if (known.has(prefix) && !this.expandedRegions[prefix]) return false;
+        }
+        return true;
+      });
     },
     // 全部设备总数（面板头部右侧展示）
     totalCameraCount(): number {

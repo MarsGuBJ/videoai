@@ -199,8 +199,8 @@ def test_ffmpeg_args_default_speed_is_realtime():
     assert "-readrate" not in args
     assert "-vf" not in args
     assert "-skip_frame" not in args
-    assert args[args.index("-c:v") + 1] == "copy"
-    assert "libx264" not in args
+    # 现场 NVR 多为 HEVC，1x 也必须转码 H.264，禁止 -c:v copy
+    assert args[args.index("-c:v") + 1] == "libx264"
 
 
 def test_ffmpeg_args_fast_speed_limits_readrate_and_retimestamps():

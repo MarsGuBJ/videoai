@@ -1006,6 +1006,12 @@
     .prototype-search-panel,
     .i2i-search-panel {
       padding: 18px;
+      /* 搜索栏下拉（区域/监控点、时间段）要盖过下方搜索结果列表：
+         .panel 的 backdrop-filter 使面板自身成为堆叠上下文，下拉的 z-index 只在
+         面板内部生效，会被 DOM 序靠后的结果卡片（position:relative）压住；
+         给面板整体提层后，面板内所有下拉随面板一起叠到结果列表之上 */
+      position: relative;
+      z-index: 2;
     }
 
     .search-type-tabs {
@@ -1128,13 +1134,6 @@
     .thumb-video {
       position: relative;
       background: #101828;
-    }
-
-    .thumb-video img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      opacity: .75;
     }
 
     /* 文搜图卡片属性行：年龄/配饰/衣服颜色/行为 */
@@ -4770,6 +4769,8 @@
     .exact-tree-list {
       display: grid;
       gap: 4px;
+      /* 列表被页面 flex 规则撑高时，行保持固有高度向上对齐，不随容器拉伸 */
+      align-content: start;
     }
 
     .exact-tree-item {

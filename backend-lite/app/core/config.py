@@ -62,9 +62,9 @@ class Settings(BaseSettings):
     )
 
     # 外部检索服务（内网默认值为历史约定，见 .env.example）
-    person_api_base_url: str = "http://192.168.11.192:18890"
-    retrieve_api_base_url: str = "http://192.168.11.194:15011"
-    video_analysis_api_base_url: str = "http://192.168.11.192:8775"
+    person_api_base_url: str = "http://10.10.3.100:15501"
+    retrieve_api_base_url: str = "http://10.10.3.100:15000"
+    video_analysis_api_base_url: str = "http://10.10.3.100:8780"
     mcp_server_base_url: str = "http://192.168.11.194:8097"
     # MinIO（文搜视频：本地视频上传后供分析服务拉取；默认值与 mcp-server 侧一致）
     minio_endpoint: str = Field(default="192.168.11.194", validation_alias="MINIO_ENDPOINT")

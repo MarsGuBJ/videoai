@@ -88,6 +88,8 @@ function mapTextSearchItem(item: TextSearchItem, index: number) {
   return {
     title: titleParts.join("·") || `检索结果 ${index + 1}`,
     image: assetUrl(payload.image_url),
+    // 卡片左上角 ⇄ 切换按钮播放的视频（后端 video_url 字段，无则不显示切换按钮）
+    video: assetUrl(payload.video_url),
     location: payload.camera_locate || payload.camera_id || "未知摄像头",
     date: formatCreateTime(payload.create_time),
     score: null,
