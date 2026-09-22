@@ -85,6 +85,61 @@ PLAYBACK_QUEUE_MAXSIZE = 256
 PLAYBACK_QUEUE_HIGH_WATERMARK = 192
 PLAYBACK_QUEUE_LOW_WATERMARK = 64
 
+# 起播 primer 缓冲上限：SDK 按请求时刻起播，起点可能落在 GOP 中间，首个 IDR 之前的
+# 数据先缓冲不喂 ffmpeg（解码器对无参考的 P 帧只能输出掩盖花屏）。正常关键帧间隔
+# 下首个 IDR 在数百 KB 内；超过上限仍找不到时兜底全量喂入，避免异常流阻塞起播。
+PLAYBACK_PRIME_MAX_BYTES = 16 * 1024 * 1024
+
+
+def find_first_video_idr(buffer: bytes | bytearray) -> int | None:
+    """在 PS 流中定位首个含 IDR/CRA 的视频 PES 包，返回其起始码偏移；找不到返回 None。
+
+    供起播前丢弃 GOP 中间数据：从首个 IDR 开始喂 ffmpeg，首帧即为干净画面。
+    同时识别 H.264（NAL type 5）与 H.265（NAL type 19/20/21）；字节流格式下
+    00 00 01 只作起始码出现（载荷有竞争字节转义），跨编码误判可忽略。
+    """
+    n = len(buffer)
+    i = 0
+    while i + 9 <= n:
+        if buffer[i] == 0 and buffer[i + 1] == 0 and buffer[i + 2] == 1:
+            code = buffer[i + 3]
+            if 0xE0 <= code <= 0xEF and _pes_contains_idr(buffer, i, n):
+                return i
+            i += 4
+            continue
+        i += 1
+    return None
+
+
+def _pes_contains_idr(buffer: bytes | bytearray, start: int, limit: int) -> bool:
+    """判断 start 处的视频 PES 包载荷内是否含 IDR/CRA NAL。"""
+    header_len = buffer[start + 8]
+    payload = start + 9 + header_len
+    end = limit
+    pkt_len = (buffer[start + 4] << 8) | buffer[start + 5]
+    if pkt_len:
+        end = min(limit, start + 6 + pkt_len)
+    else:
+        # 视频 PES 长度字段常为 0（载荷延伸到所在 pack 末尾）：以下一个 pack 起始码为界，
+        # 否则会把后续 PES 里的 IDR 也算到本包，导致从更早的 PES 起喂、花屏依旧
+        nxt = buffer.find(b"\x00\x00\x01\xba", payload)
+        if nxt != -1:
+            end = min(limit, nxt)
+    j = payload
+    while j + 4 <= end:
+        if buffer[j] == 0 and buffer[j + 1] == 0 and buffer[j + 2] == 1:
+            b0 = buffer[j + 3]
+            # H.264：type = b0 & 0x1F，IDR = 5
+            if (b0 & 0x1F) == 5:
+                return True
+            # H.265：type = (b0 & 0x7E) >> 1，IDR_W_RADL=19 / IDR_N_LP=20 / CRA=21
+            if ((b0 & 0x7E) >> 1) in (19, 20, 21):
+                return True
+            j += 4
+            continue
+        j += 1
+    return False
+
 
 class HcNetSdkError(RuntimeError):
     """Raised when an HCNetSDK call reports a failure."""
@@ -995,6 +1050,11 @@ class PlaybackSession:
         if stdin is None:
             self.failed = "ffmpeg stdin is not available"
             return
+        # 起播 primer：SDK 按请求时刻起播，起点可能落在 GOP 中间，首个 IDR 之前的数据
+        # 先缓冲不喂 ffmpeg——解码器对无参考的 P 帧只能输出掩盖花屏（现场实测花屏
+        # 持续到首个源关键帧，smart265 长 GOP 下可达 10s）
+        prime = bytearray()
+        primed = False
         while not self._stopped:
             try:
                 item = self.queue.get(timeout=1)
@@ -1005,6 +1065,30 @@ class PlaybackSession:
                 continue
             if item is None:
                 break
+            if not primed:
+                prime.extend(item)
+                offset = find_first_video_idr(prime)
+                if offset is not None:
+                    try:
+                        stdin.write(bytes(prime[offset:]))
+                        stdin.flush()
+                    except (BrokenPipeError, OSError, ValueError) as exc:
+                        self.failed = self.ffmpeg_error() if isinstance(exc, BrokenPipeError) else str(exc)
+                        break
+                    primed = True
+                    prime.clear()
+                elif len(prime) > PLAYBACK_PRIME_MAX_BYTES:
+                    # 兜底：异常流长时间无关键帧时不阻塞起播，退回原行为
+                    logger.warning("playback prime found no IDR in %d bytes, flushing as-is", len(prime))
+                    try:
+                        stdin.write(bytes(prime))
+                        stdin.flush()
+                    except (BrokenPipeError, OSError, ValueError) as exc:
+                        self.failed = self.ffmpeg_error() if isinstance(exc, BrokenPipeError) else str(exc)
+                        break
+                    primed = True
+                    prime.clear()
+                continue
             if self._paused and self.queue.qsize() <= PLAYBACK_QUEUE_LOW_WATERMARK:
                 self._set_flow_paused(False)
             try:
@@ -1016,6 +1100,11 @@ class PlaybackSession:
             except (OSError, ValueError) as exc:
                 self.failed = str(exc)
                 break
+        if not primed and prime and not self._stopped:
+            # 流结束（或异常中止）前仍未找到关键帧：尽力把缓冲喂完，保持原行为
+            with suppress(BrokenPipeError, OSError, ValueError):
+                stdin.write(bytes(prime))
+                stdin.flush()
         with suppress(BrokenPipeError, OSError, ValueError):
             stdin.close()
 
