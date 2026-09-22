@@ -473,6 +473,12 @@ class HcNetSdkPlaybackProxy:
         except Exception:
             session.stop()
             raise
+        session._mark("registered")
+        logger.info(
+            "playback session %s timing: %s",
+            stream_name,
+            " ".join(f"{k}={v:.2f}s" for k, v in session.timing.items()),
+        )
         return session
 
     def _stop_session(self, session: PlaybackSession) -> None:
@@ -797,6 +803,12 @@ class PlaybackSession:
         self._paused = False
         self._flow_lock = threading.Lock()
         self._stopped = False
+        # 起流分段计时（诊断首帧慢）：spawn → login → playstart → 首块数据 → 流注册
+        self.spawned_at = time.monotonic()
+        self.timing: dict[str, float] = {}
+
+    def _mark(self, key: str) -> None:
+        self.timing[key] = time.monotonic() - self.spawned_at
 
     def _ffmpeg_args(self) -> list[str]:
         # ffmpeg 可执行文件由部署环境 PATH 提供，参数均为内部构造
@@ -807,6 +819,14 @@ class PlaybackSession:
             "error",
             "-fflags",
             "nobuffer",
+            # SDK 点播回调固定为 MPEG-PS 流：强制格式并限制探测，避免 -re 限速下
+            # find_stream_info 按实时速率分析输入（现场实测拖慢首帧约 1.2s）
+            "-f",
+            "mpeg",
+            "-probesize",
+            "1000000",
+            "-analyzeduration",
+            "1000000",
         ]
         if self.speed != 1.0:
             # 高倍速只解码关键帧，避免解码/编码负载随倍速线性增长
@@ -856,12 +876,14 @@ class PlaybackSession:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
+        self._mark("ffmpeg_spawned")
         self.writer = threading.Thread(target=self._write_ffmpeg_stdin, name="hcnetsdk-ffmpeg-writer", daemon=True)
         self.writer.start()
 
         self.sdk.sdk.NET_DVR_SetConnectTime(int(self.timeout * 1000), 1)
         self.sdk.sdk.NET_DVR_SetReconnect(10000, True)
         self.user_id = self.sdk.login(self.host, self.port, self.username, self.password)
+        self._mark("sdk_login")
         vod = self._vod_para()
         self.playback_handle = int(self.sdk.sdk.NET_DVR_PlayBackByTime_V40(self.user_id, byref(vod)))
         if self.playback_handle < 0:
@@ -879,6 +901,7 @@ class PlaybackSession:
             byref(output_size),
         ):
             raise HcNetSdkError(f"NET_DVR_PlayBackControl_V40 failed: {self.sdk.last_error()}")
+        self._mark("playstart")
 
     def stop(self) -> None:
         """Stop SDK playback, drain the writer thread and terminate ffmpeg."""
@@ -915,6 +938,8 @@ class PlaybackSession:
     def _on_playback_data(self, handle: int, data_type: int, buffer: Any, size: int, user: Any) -> None:
         if size <= 0 or not buffer:
             return
+        if "first_data" not in self.timing:
+            self._mark("first_data")
         self.queue_put(string_at(buffer, int(size)))
 
     def queue_put(self, item: bytes | None) -> None:
