@@ -5,7 +5,7 @@
       <aside v-show="showSider" class="panel media-resource-panel">
         <input class="input" placeholder="搜索监控点名称/IP" aria-label="搜索监控点名称或IP" v-model="searchKeyword" />
         <div class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点 · 共 {{ totalCameraCount }} 台设备</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in displayRegions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="{ paddingLeft: (8 + region.depth * 16) + 'px' }" @click="toggleRegion(region)"><span>{{ isRegionExpanded(region) ? '⌄' : '›' }} {{ region.name }}</span><span>{{ regionCount(region) }} 台设备</span></button><div v-if="isRegionExpanded(region)" class="exact-tree-children" :style="{ marginLeft: (18 + region.depth * 16) + 'px' }"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!displayRegions.length" style="padding:12px;color:#888;">{{ searchKeyword ? '无匹配监控点' : '暂无录像资源，请先在设备管理中添加设备' }}</div></div></div>
-        <div class="media-record-query"><div class="media-resource-tabs" style="margin-bottom:0;"></div><label>开始时间<input class="input" type="datetime-local" v-model="queryStart" /></label><label>结束时间<input class="input" type="datetime-local" v-model="queryEnd" /></label><button class="btn primary" :disabled="searching" @click="searchRecordings">{{ searching ? '查询中…' : '录像查询' }}</button><ul v-if="segments.length" class="media-plan-list"><li :class="{ active: !!activeSegment }" style="cursor:pointer;" @click="playMergedResult"><b>{{ formatSegmentTime(segments[0].startTime) }} ~ {{ formatSegmentTime(segments[segments.length - 1].endTime, true) }}</b><span>{{ segments[0].cameraName || (selectedCamera && selectedCamera.name) || '' }}</span></li></ul><p v-else-if="searchError" class="hint-text">{{ searchError }}</p><p v-else-if="searched && !searching" class="hint-text">该时段无录像</p></div>
+        <div class="media-record-query"><div class="media-resource-tabs" style="margin-bottom:0;"></div><label>开始时间<input class="input" type="datetime-local" v-model="queryStart" /></label><label>结束时间<input class="input" type="datetime-local" v-model="queryEnd" /></label><button class="btn primary" :disabled="searching" @click="searchRecordings">{{ searching ? '查询中…' : '录像查询' }}</button><p v-if="searchError" class="hint-text">{{ searchError }}</p></div>
       </aside>
       <section class="panel media-stage-panel">
         <div class="media-playback-player playback-player-fill">
@@ -148,7 +148,6 @@ export default defineComponent({
       queryStart: toLocalDateTimeValue(today),
       queryEnd: toLocalDateTimeValue(now),
       searching: false,
-      searched: false,
       searchError: "",
       searchKeyword: "",
       segments: [] as RecordingSegment[],
@@ -206,9 +205,9 @@ export default defineComponent({
     },
     playbackMaskText(): string {
       if (this.playbackStreamUrl) return "";
-      if (!this.selectedCamera) return "选择左侧摄像头并查询录像，点击录像结果开始回放";
+      if (!this.selectedCamera) return "选择左侧摄像头并查询录像，查询成功后自动回放";
       if (!this.segments.length) return "该时段无录像";
-      return "点击左侧录像结果开始回放";
+      return "点击播放按钮重新回放";
     },
     // 时间轴录像段：查询结果直接映射为 {startMs, endMs}
     timelineSegments(): TimelineSegment[] {
@@ -336,14 +335,12 @@ export default defineComponent({
       if (region) this.expandedRegions[region.fullPath] = true;
       this.resetPlayback();
       this.searching = true;
-      this.searched = false;
       this.searchError = "";
       this.segments = [];
       try {
         // 检索用秒级精度的原始时间段，避免 datetime-local 分钟精度截断漏段
         const result = await api.searchRecordings({ cameraId: target.id, startTime: toLocalIsoSeconds(pending.startMs), endTime: toLocalIsoSeconds(pending.endMs) });
         this.segments = ((result && result.data) || []).slice().sort((a, b) => parseLocalMs(a.startTime) - parseLocalMs(b.endTime));
-        this.searched = true;
         if (!this.segments.length) {
           this.openRecordEmptyModal(pending.startMs, pending.endMs);
           return;
@@ -353,7 +350,6 @@ export default defineComponent({
         const offset = Math.max(0, Math.round((pending.startMs - this.rangeStartMs) / 1000));
         this.startPlaybackAt(offset);
       } catch (error) {
-        this.searched = true;
         const message = error instanceof Error ? error.message : String(error);
         // 设备未绑定 NVR / 反查不到录像通道 / 该时段无录像：统一弹友好提示，不暴露后端原始报错；
         // 其它错误（摄像头已删除、网络异常等）仍按原样展示，便于排查
@@ -416,20 +412,19 @@ export default defineComponent({
         return;
       }
       this.searching = true;
-      this.searched = false;
       this.searchError = "";
       this.segments = [];
       try {
         const result = await api.searchRecordings({ cameraId: this.selectedCamera.id, startTime: this.queryStart, endTime: this.queryEnd });
-        // 多段录像按开始时间排序后合并展示为一条结果
+        // 多段录像按开始时间排序后合并为一条连续回放
         this.segments = ((result && result.data) || []).slice().sort((a, b) => parseLocalMs(a.startTime) - parseLocalMs(b.startTime));
-        this.searched = true;
         if (!this.segments.length) {
           this.openRecordEmptyModal();
           return;
         }
+        // 查到录像直接在右侧播放器起播，不再展示搜索结果列表
+        this.playMergedResult();
       } catch (error) {
-        this.searched = true;
         const message = error instanceof Error ? error.message : String(error);
         // 设备未绑定 NVR / 反查不到录像通道 / 该时段无录像：统一弹友好提示，不暴露后端原始报错；
         // 其它错误（摄像头已删除、网络异常等）仍按原样展示，便于排查
@@ -443,7 +438,7 @@ export default defineComponent({
         this.searching = false;
       }
     },
-    // 查询结果合并为一条（开始时间 ~ 结束时间），点击从起点连续回放，段间自动接续
+    // 查询结果合并为一条（开始时间 ~ 结束时间），查询成功后从起点连续回放，段间自动接续
     playMergedResult() {
       if (!this.segments.length) return;
       this.playbackDuration = Math.max(0, Math.round((this.rangeEndMs - this.rangeStartMs) / 1000));
@@ -514,7 +509,7 @@ export default defineComponent({
     },
     togglePlayback() {
       if (!this.activeSegment) {
-        this.showToast("请先查询并点击左侧录像结果");
+        this.showToast("请先查询录像");
         return;
       }
       if (this.playbackPlaying) {
@@ -592,18 +587,8 @@ export default defineComponent({
       this.selectedRegion = region;
       this.selectedCamera = camera;
       this.segments = [];
-      this.searched = false;
       this.searchError = "";
       this.resetPlayback();
-    },
-    // 录像段时间显示为北京时间；endTime 与 startTime 同日时只显示时分秒
-    formatSegmentTime(value?: string, timeOnly = false): string {
-      const ms = parseLocalMs(value);
-      if (!ms) return "";
-      const date = new Date(ms);
-      const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
-      if (timeOnly) return time;
-      return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${time}`;
     },
     // 切换实况：正在回放时把当前摄像头带到实时预览页直接上屏播放
     goLivePreview() {

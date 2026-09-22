@@ -105,7 +105,7 @@
           </div>
           <div class="result-toolbar exact-i2i-result-toolbar"><div class="result-count">共找到 <b>{{ activeResultTabObj.items.length }}</b> 条相似结果</div></div>
           <div v-if="activeResultTabObj.loading" class="track-empty">正在搜索相似目标，请稍候...</div>
-          <image-results v-else-if="activeResultTabObj.items.length" :items="activeResultTabObj.items" :show-score="true" :selectable="false" :hide-jump="true" :hide-description="true" :show-actions="false" :disable-open="true" :show-full-date="true"></image-results>
+          <image-results v-else-if="activeResultTabObj.items.length" :items="activeResultTabObj.items" :show-score="true" :selectable="false" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :show-full-date="true" @open-result="openImagePreview"></image-results>
           <div v-else class="track-empty">未找到相似目标，可在事件卡片重新框选后再次搜索。</div>
         </div>
         <div v-else-if="activeResultTabObj && activeResultTabObj.type === 'quickDeploy'" class="exact-dialog-body exact-quick-deploy-tab" role="tabpanel" aria-label="快速布防">
@@ -204,6 +204,11 @@
     </div>
   </section>
   <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeResultCrop" @confirm="confirmResultCrop"></image-crop-dialog>
+  <!-- 以图搜图 tab 结果大图灯箱（同文搜图页 .image-lightbox） -->
+  <div v-if="previewImage" class="image-lightbox" @click.self="closeImagePreview">
+    <button class="image-lightbox-close" type="button" aria-label="关闭" @click="closeImagePreview">×</button>
+    <img class="image-lightbox-img" :src="previewImage" alt="结果大图" />
+  </div>
   <div v-if="trackResultModalItem" class="exact-result-modal-mask" @click.self="closeTrackResultModal">
     <section class="exact-result-modal" role="dialog" aria-modal="true" aria-label="轨迹结果详情">
       <div class="drawer-head"><h3>分析结果详情</h3><button class="close" aria-label="关闭" @click="closeTrackResultModal">×</button></div>
@@ -458,6 +463,11 @@ function mapAnalysisEvent(item: any, index: number, images: string[], segmentSec
   return { name: title || `事件 ${index + 1}`, time, start, image, detail: desc || "该分段无详细描述" };
 }
 
+// 分析结果列表按事件发生时间（start 秒）升序排列后展示
+function sortEventsByStart(events: any[]): any[] {
+  return events.slice().sort((a, b) => (Number(a && a.start) || 0) - (Number(b && b.start) || 0));
+}
+
 const RESULT_TAB_TITLES: Record<string, string> = {
   imageSearch: "以图搜图",
   quickDeploy: "快速布防",
@@ -586,6 +596,9 @@ export default defineComponent({
       localVideoUrl: lastLocalVideo.url || "",
       localVideoPoster: lastLocalVideo.poster || "",
       localVideoFile: null as File | null,
+      // 本地视频后台上传 MinIO 的在途任务：resolve 为 videoUrl（失败为 null），
+      // 提交提示词时复用其结果，避免重复上传
+      localVideoUploadPromise: null as Promise<string | null> | null,
       uploadingVideo: false,
       selectedSource: null,
       sourceConfirmed: false,
@@ -597,6 +610,7 @@ export default defineComponent({
       cropAction: "",
       cropTarget: null,
       cropTargetIndex: -1,
+      previewImage: "",
       activeQuickPrompt: "",
       query: "查找视频中出现的白色车辆，以及人员进入限制区域的情况",
       analyzed: false,
@@ -1065,6 +1079,22 @@ export default defineComponent({
       this.probeLocalVideoDuration(this.localVideoUrl);
       // 上传后立即确认视频源：播放器载入该视频，右侧展示视频问答信息栏
       this.confirmLocalSource();
+      // 播放的同时把视频后台存入 MinIO：提交提示词时直接复用 videoUrl，无需再等上传
+      this.localVideoUploadPromise = this.uploadLocalVideoToMinio(file);
+    },
+    // 本地视频后台上传 MinIO：成功后把 videoUrl 挂到当前本地视频源（analysisUrl），
+    // 提交提示词时直接复用；失败静默返回 null，提交时回退为同步上传并提示
+    async uploadLocalVideoToMinio(file: File): Promise<string | null> {
+      try {
+        const uploaded = await api.uploadAnalysisVideo(file);
+        // 上传期间用户可能删除或更换了视频：过期结果直接丢弃
+        if (this.localVideoFile !== file) return null;
+        const source = this.selectedSource as any;
+        if (source && source.sourceType === "本地上传") source.analysisUrl = uploaded.videoUrl;
+        return uploaded.videoUrl;
+      } catch {
+        return null;
+      }
     },
     // 截取上传视频的第一帧作为卡片缩略图；失败时保留占位图
     captureLocalVideoPoster(url) {
@@ -1141,6 +1171,7 @@ export default defineComponent({
       if (this.localVideoUrl) URL.revokeObjectURL(this.localVideoUrl);
       this.localVideoUrl = "";
       this.localVideoFile = null;
+      this.localVideoUploadPromise = null;
       this.localFileName = "";
       this.localFileSize = "";
       this.localFileDuration = "";
@@ -1273,7 +1304,7 @@ export default defineComponent({
       this.startThinkingTimer();
       this.resetPhaseTimers();
       this.questionBusy = true;
-      // 本地视频：首次分析前上传到 MinIO，换取分析服务可拉取的 videoUrl；
+      // 本地视频：上传后已后台存入 MinIO（见 uploadLocalVideoToMinio），这里直接复用 videoUrl；
       // 缺少本地文件（如重新进入页面后仅剩预览地址）时先拦截，避免提示词已入对话却无法继续
       const localVideoFile = this.localVideoFile;
       const needsLocalUpload = selectedSource.sourceType === "本地上传" && !selectedSource.analysisUrl;
@@ -1293,8 +1324,15 @@ export default defineComponent({
         this.uploadingVideo = true;
         this.startDownloadPhase();
         try {
-          const uploaded = await api.uploadAnalysisVideo(localVideoFile as File);
-          selectedSource.analysisUrl = uploaded.videoUrl;
+          // 后台上传已完成或仍在传输：复用其结果；后台上传失败时回退为同步上传
+          if (this.localVideoUploadPromise) {
+            const pendingUrl = await this.localVideoUploadPromise;
+            if (pendingUrl) selectedSource.analysisUrl = pendingUrl;
+          }
+          if (!selectedSource.analysisUrl) {
+            const uploaded = await api.uploadAnalysisVideo(localVideoFile as File);
+            selectedSource.analysisUrl = uploaded.videoUrl;
+          }
         } catch (error) {
           this.showToast(error instanceof Error ? error.message : "视频上传失败");
           this.stopThinkingTimer();
@@ -1366,7 +1404,7 @@ export default defineComponent({
           this.showToast(VIDEO_UNDERSTANDING_ERROR_TIP);
           return;
         }
-        this.events = findUnderstandingEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60)) as any;
+        this.events = sortEventsByStart(findUnderstandingEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60))) as any;
         this.applyEventFrameImages(this.events, selectedSource.analysisUrl);
         this.summary = {
           overview: understanding.overview,
@@ -1583,7 +1621,7 @@ export default defineComponent({
         const parsedEvents = findUnderstandingEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60));
         if (parsedEvents.length) {
           this.applyEventFrameImages(parsedEvents, selectedSource.analysisUrl);
-          this.events = parsedEvents as any;
+          this.events = sortEventsByStart(parsedEvents) as any;
           this.selectedEventIndex = 0;
           this.currentTime = (this.events[0] as any).start;
           this.seekVideo(this.currentTime);
@@ -1621,11 +1659,30 @@ export default defineComponent({
       this.cropTarget = null;
       this.cropTargetIndex = -1;
     },
-    confirmResultCrop(payload) {
+    // 以图搜图 tab：点击结果卡片放大显示图片（同文搜图页灯箱）
+    openImagePreview(payload: any) {
+      this.previewImage = payload && payload.item ? payload.item.image : "";
+    },
+    closeImagePreview() {
+      this.previewImage = "";
+    },
+    async confirmResultCrop(payload) {
       const { action, item, index, crop: selection } = payload;
       const crop = selection ? { ...selection, sourceName: item.title, sourceTime: item.date, sourceIndex: index } : null;
       this.closeResultCrop();
       // 裁图确认后不再跨页跳转，改为在右侧栏打开对应的页内 tab
+      if (action === "imageSearch" && crop) {
+        // 裁剪后的图片直接作为以图搜图 tab 的图片参数：本地裁出像素图并上传，
+        // 页签上传框展示裁剪图，检索时无需再次框选；失败时退回原图 + 框选参数（搜索时再裁剪）
+        try {
+          const file = await cropImageToFile(item.image, crop, "exact-crop.jpg");
+          const uploaded = await api.uploadPersonSearchImage(file);
+          this.openResultTab(action, { image: assetUrl(uploaded.imageUrl), crop: null, sourceName: item.title });
+          return;
+        } catch {
+          // 回落到原图 + 框选模式
+        }
+      }
       if (action === "imageSearch" || action === "quickDeploy" || action === "track") {
         this.openResultTab(action, { image: item.image, crop, sourceName: item.title });
       }

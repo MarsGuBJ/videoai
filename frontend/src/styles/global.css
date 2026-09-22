@@ -1190,10 +1190,12 @@
     /* 文搜图/图搜图等检索页：搜索栏抬到结果卡片之上。
        结果卡片是 position:relative，绘制层级高于 static 的搜索面板，
        面板内的区域/时间段下拉会被结果列表盖住，这里显式给搜索面板建立
-       更高的层叠上下文，保证下拉菜单完整可见 */
+       更高的层叠上下文，保证下拉菜单完整可见；
+       但必须低于各类弹窗遮罩（.modal-mask 28 / .exact-result-modal-mask 24），
+       否则裁剪弹窗等会被搜索表单遮挡 */
     .search-experience-page > .search-panel {
       position: relative;
-      z-index: 20;
+      z-index: 3;
     }
 
     /* 文搜图/图搜图搜索条件：所有控件单行排列、占满全宽 */
@@ -2116,14 +2118,26 @@
       padding-right: 2px;
     }
 
-    .timeline::before {
+    /* 竖线按条目分段绘制：.timeline 是滚动容器（max-height + overflow:auto），
+       容器级绝对定位竖线只能覆盖可视高度，条目多滚动后会缺线；
+       改为每条卡片绘制一段（穿过圆圈中心并延伸到下一条卡片），随内容完整延伸。
+       圆圈中心：left -28 + 9（半径）= -19px、top 20 + 9 = 29px（相对卡片 padding box） */
+    .timeline-card::after {
       content: "";
       position: absolute;
-      left: 12px;
-      top: 4px;
-      bottom: 8px;
+      left: -20px;
+      top: 0;
+      bottom: -10px;
       width: 2px;
       background: #80baff;
+    }
+
+    .timeline-card:first-child::after {
+      top: 4px;
+    }
+
+    .timeline-card:last-child::after {
+      bottom: calc(100% - 29px);
     }
 
     .timeline-card {
@@ -2596,14 +2610,26 @@
       padding-right: 2px;
     }
 
-    .timeline::before {
+    /* 竖线按条目分段绘制：.timeline 是滚动容器（max-height + overflow:auto），
+       容器级绝对定位竖线只能覆盖可视高度，条目多滚动后会缺线；
+       改为每条卡片绘制一段（穿过圆圈中心并延伸到下一条卡片），随内容完整延伸。
+       圆圈中心：left -28 + 9（半径）= -19px、top 20 + 9 = 29px（相对卡片 padding box） */
+    .timeline-card::after {
       content: "";
       position: absolute;
-      left: 12px;
-      top: 4px;
-      bottom: 8px;
+      left: -20px;
+      top: 0;
+      bottom: -10px;
       width: 2px;
       background: #80baff;
+    }
+
+    .timeline-card:first-child::after {
+      top: 4px;
+    }
+
+    .timeline-card:last-child::after {
+      bottom: calc(100% - 29px);
     }
 
     .timeline-card {
@@ -4313,9 +4339,12 @@
       font-size: 12px;
     }
 
+    /* 文搜视频页搜索表单面板：只需盖过下方分析区内容（z-index ≤ 8 的下拉/按钮），
+       必须低于弹窗遮罩（.exact-result-modal-mask 24 / .modal-mask 28），
+       否则面板及其内部展开的时间/区域下拉会遮挡裁剪弹窗等弹窗 */
     .exact-source-panel {
       position: relative;
-      z-index: 30;
+      z-index: 10;
       overflow: visible;
       padding: 0;
     }

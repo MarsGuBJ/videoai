@@ -50,9 +50,9 @@ export default {
       this.mediaToggled = { ...this.mediaToggled, [key]: !this.mediaToggled[key] };
     },
     onCardClick(index: number, item: any) {
-      // disableOpen：卡片纯展示（文搜视频页以图搜图 tab），点击不打开详情
+      // disableOpen：卡片纯展示，点击不打开详情
       if (this.disableOpen) return;
-      // emitOpen：点击卡片由页面接管（图搜图页弹窗框选后再搜、文搜图页打开图片灯箱）
+      // emitOpen：点击卡片由页面接管（图搜图页弹窗框选后再搜、文搜图/文搜视频页打开图片灯箱）
       if (this.emitOpen) {
         this.$emit("open-result", { item, index });
         return;
