@@ -100,8 +100,13 @@ export default defineComponent({
       hls: null as Hls | null,
       retryTimer: null as number | null,
       retryCount: 0,
-      // 出帧看门狗：load 后迟迟无画面时兜底（见 startStallWatchdog）
+      // 出帧看门狗：收到流数据后迟迟无画面时兜底（见 startStallWatchdog）
       stallTimer: null as number | null,
+      // 起播兜底计时器：load 后 30 秒仍无任何流数据（网络层卡死）才转入重连
+      stallGuardTimer: null as number | null,
+      // 当前流是否已触发 media_info（流已注册、序列头到达）：出帧看门狗以其为武装时机；
+      // 起播本身可能耗时十几秒（服务端等待源关键帧），期间连接静默属正常
+      streamDataSeen: false,
       // 当前流是否已禁用音轨：现场部分摄像头（如 4号楼枪机）主码流带 G.711(PCMA) 音频，
       // mpegts.js 不支持会抛 DemuxException/CodecUnsupported 导致整体播放失败，此时按无音频重建
       noAudio: false,
@@ -176,10 +181,19 @@ export default defineComponent({
         window.clearTimeout(this.stallTimer);
         this.stallTimer = null;
       }
+      if (this.stallGuardTimer !== null) {
+        window.clearTimeout(this.stallGuardTimer);
+        this.stallGuardTimer = null;
+      }
     },
-    // 出帧看门狗：流加载后 5 秒仍无画面（既无 error 也无 media_info 的静默卡死，
-    // 典型如 FLV 元数据声明了音轨但音频包迟迟不到，解复用器一直等待音频初始元数据），
-    // 先按无音频重建一次；已经禁过音轨仍无画面则转入指数退避重连
+    // 出帧看门狗：media_info 后 20 秒仍无画面（既无 error 也无帧的静默卡死，典型如
+    // FLV 元数据声明了音轨但音频包迟迟不到，解复用器一直等待音频初始元数据），先按
+    // 无音频重建一次；已经禁过音轨仍无画面则转入指数退避重连。
+    // 注意两点：① 不能在 load 后立即武装——media_info 在 ZLM 订阅后立即触发（缓存的
+    // 序列头），而回放起播本身可能耗时十几秒（服务端起播 primer 等源关键帧后才出媒体
+    // 数据，实测 4~16s），过早武装会陷入「重启→新建会话重新 primer→再看门狗」的循环，
+    // 把一次慢起播放大成一分钟以上（2026-09-22 实测 56~84s）；② 超时必须覆盖 primer
+    // 窗口（16MB 缓冲上限 ≈ 16s），故取 20s 而非 5s
     startStallWatchdog(token: number, player: mpegts.Player) {
       this.cancelStallWatchdog();
       this.stallTimer = window.setTimeout(() => {
@@ -200,7 +214,7 @@ export default defineComponent({
           return;
         }
         this.scheduleRetry();
-      }, 5000);
+      }, 20000);
     },
     clearRetry() {
       this.cancelRetryTimer();
@@ -415,9 +429,15 @@ export default defineComponent({
         );
         this.player = player;
         // H.265 passthrough 要求浏览器支持 HEVC MSE；在 media_info 拿到真实编码串后先探测，
-        // 不支持时给中文提示，避免 mpegts.js 抛出 addSourceBuffer 英文原始报错
+        // 不支持时给中文提示，避免 mpegts.js 抛出 addSourceBuffer 英文原始报错。
+        // media_info 同时作为出帧看门狗的武装时机（流已注册、序列头已到达；注意 ZLM 订阅后
+        // 立即回缓存序列头，此时媒体数据可能还要等十几秒——见 startStallWatchdog 的 20s 超时）
         player.on?.('media_info', (info: { videoCodec?: string }) => {
           if (token !== this.streamToken || this.player !== player) return;
+          if (!this.streamDataSeen) {
+            this.streamDataSeen = true;
+            this.startStallWatchdog(token, player);
+          }
           const codec = info?.videoCodec || '';
           if (isHevcCodec(codec) && !canPlayHevc(codec)) {
             this.showHevcUnsupported();
@@ -446,7 +466,15 @@ export default defineComponent({
         });
         player.attachMediaElement(video);
         player.load();
-        this.startStallWatchdog(token, player);
+        this.streamDataSeen = false;
+        // 兜底：30 秒仍无真实视频数据（网络层卡死，或流声明了音轨但音视频元数据始终
+        // 不齐导致 media_info 不触发——原 5 秒看门狗覆盖的场景）才转入指数退避重连
+        this.stallGuardTimer = window.setTimeout(() => {
+          this.stallGuardTimer = null;
+          if (token !== this.streamToken || this.player !== player) return;
+          if (this.streamDataSeen) return;
+          this.scheduleRetry();
+        }, 30000);
         Promise.resolve(player.play()).then(this.clearMessage).catch(() => {
           this.message = '点击视频播放后端流';
         });
