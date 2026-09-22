@@ -34,6 +34,14 @@ function formatMmSs(totalSeconds: number): string {
   return `${pad2(Math.floor(value / 60))}:${pad2(value % 60)}`;
 }
 
+// 无录像提示弹窗中的查询时段：按北京时间展示到分钟
+function formatDateTimeLabel(value?: string): string {
+  const ms = parseLocalMs(value);
+  if (!ms) return value || "-";
+  const date = new Date(ms);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
 // 即时回放固定检索窗口：最近 30 分钟（规避 NVR 最新录像段落盘/索引延迟导致窄窗口检索为空）
 const QUICK_REPLAY_SEARCH_WINDOW_MS = 30 * 60 * 1000;
 
@@ -240,6 +248,18 @@ export default {
     },
     recordDownloadCamera(): any {
       return (this.modal.item && this.modal.item.camera) || null;
+    },
+    // 无录像提示弹窗（上下文来自回放页 openModal('recordEmpty', { camera, startTime, endTime })）
+    recordEmptyCamera(): any {
+      return (this.modal.item && this.modal.item.camera) || null;
+    },
+    recordEmptyCameraName(): string {
+      const camera = this.recordEmptyCamera;
+      return (camera && camera.name) || "所选设备";
+    },
+    recordEmptyRangeText(): string {
+      const item = this.modal.item || {};
+      return `${formatDateTimeLabel(item.startTime)} ~ ${formatDateTimeLabel(item.endTime)}`;
     },
     quickReplayCamera(): any {
       return (this.modal.item && this.modal.item.camera) || null;
@@ -1692,6 +1712,9 @@ export default {
           <p v-else-if="recordDownloadError" class="modal-hint danger">{{ recordDownloadError }}</p>
           <div v-if="recordDownloadUrl" class="modal-form-row"><label>下载链接：</label><a :href="recordDownloadUrl" download>点击下载录像 MP4</a></div>
         </template>
+        <template v-if="modal.type === 'recordEmpty'">
+          <p class="modal-hint">设备「{{ recordEmptyCameraName }}」在 {{ recordEmptyRangeText }} 时段内没有查询到录像。可能是该设备未开启录像计划、录像已过保留期被覆盖，或所选时段内没有录像数据。请确认设备录像配置，或调整查询时间范围后重试。</p>
+        </template>
       </div>
       <div class="modal-footer">
         <template v-if="modal.type === 'eventDetail'">
@@ -1729,6 +1752,9 @@ export default {
         <template v-else-if="modal.type === 'recordDownload'">
           <button class="btn" @click="$emit('close')">取消</button>
           <button class="btn primary" :disabled="recordDownloadBusy || !recordDownloadCamera" @click="submitRecordDownload">{{ recordDownloadBusy ? '导出中…' : '开始下载' }}</button>
+        </template>
+        <template v-else-if="modal.type === 'recordEmpty'">
+          <button class="btn primary" @click="$emit('close')">知道了</button>
         </template>
         <template v-else>
           <button class="btn" @click="$emit('close')">取消</button>

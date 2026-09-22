@@ -94,11 +94,11 @@ function mapTextSearchItem(item: TextSearchItem, index: number) {
     date: formatCreateTime(payload.create_time),
     score: null,
     desc: item.esid || item.document_id || "",
-    // 卡片属性行；后端暂未返回的字段以 "—" 兜底，返回后自动生效
-    age: extra.age ?? "—",
-    accessory: extra.accessory ?? "—",
-    topColor: (payload.top_color ?? []).join("、") || "—",
-    action: extra.action ?? "—"
+    // 卡片属性行；值由 ImageResults 统一去掉方括号与引号，为空时该字段（含字段名）不展示
+    age: extra.age,
+    accessory: extra.accessory,
+    topColor: payload.top_color,
+    action: extra.action
   };
 }
 

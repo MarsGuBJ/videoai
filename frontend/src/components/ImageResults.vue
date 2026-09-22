@@ -1,5 +1,6 @@
 <script lang="ts">
 import { similarityColor } from "../utils/prototype-helpers";
+import { attributeText } from "../utils/attributes";
 
 // Injected functions are aliased (openResultImpl/setRouteImpl) and re-exposed
 // as same-named methods so templates type-check; runtime behavior is identical
@@ -20,6 +21,15 @@ export default {
   },
   methods: {
     similarityColor,
+    // 属性行：去掉方括号与引号只留文字，值为空的字段（连同字段名）不展示
+    attributeList(item: any) {
+      return [
+        { label: "年龄", value: attributeText(item.age) },
+        { label: "配饰", value: attributeText(item.accessory) },
+        { label: "衣服颜色", value: attributeText(item.topColor) },
+        { label: "行为", value: attributeText(item.action) }
+      ].filter((attr) => attr.value);
+    },
     openResult(index: number, item?: any) {
       (this as any).openResultImpl(index, item);
     },
@@ -65,11 +75,8 @@ export default {
       <img v-else class="thumb" :src="item.image" :alt="item.title" />
       <div class="body">
         <div class="result-card-location"><strong>{{ item.location }}</strong><span>{{ showFullDate ? item.date : item.date.slice(11, 19) }}</span></div>
-        <div v-if="showAttributes && (item.age || item.accessory || item.topColor || item.action)" class="result-attrs">
-          <span v-if="item.age"><span class="attr-label">年龄：</span>{{ item.age }}</span>
-          <span v-if="item.accessory"><span class="attr-label">配饰：</span>{{ item.accessory }}</span>
-          <span v-if="item.topColor"><span class="attr-label">衣服颜色：</span>{{ item.topColor }}</span>
-          <span v-if="item.action"><span class="attr-label">行为：</span>{{ item.action }}</span>
+        <div v-if="showAttributes && attributeList(item).length" class="result-attrs">
+          <span v-for="attr in attributeList(item)" :key="attr.label"><span class="attr-label">{{ attr.label }}：</span>{{ attr.value }}</span>
         </div>
         <h4 v-if="!hideDescription">{{ item.title }}</h4>
         <p v-if="!hideDescription">{{ item.desc }}</p>

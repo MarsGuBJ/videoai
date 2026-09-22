@@ -332,7 +332,7 @@ export default defineComponent({
         this.segments = ((result && result.data) || []).slice().sort((a, b) => parseLocalMs(a.startTime) - parseLocalMs(b.endTime));
         this.searched = true;
         if (!this.segments.length) {
-          this.showToast("该时段无录像");
+          this.openRecordEmptyModal(pending.startMs, pending.endMs);
           return;
         }
         // 合并结果整体回放：从带入的回放起点开始（全局进度，段间自动接续）
@@ -405,7 +405,10 @@ export default defineComponent({
         // 多段录像按开始时间排序后合并展示为一条结果
         this.segments = ((result && result.data) || []).slice().sort((a, b) => parseLocalMs(a.startTime) - parseLocalMs(b.startTime));
         this.searched = true;
-        if (!this.segments.length) this.showToast("该时段无录像");
+        if (!this.segments.length) {
+          this.openRecordEmptyModal();
+          return;
+        }
       } catch (error) {
         // 摄像头不存在（404）/未绑定 NVR（400）等，直接展示后端错误消息
         this.searched = true;
@@ -591,6 +594,17 @@ export default defineComponent({
       const startTime = this.rangeStartMs ? toLocalIsoSeconds(this.rangeStartMs) : this.queryStart;
       const endTime = this.rangeEndMs ? toLocalIsoSeconds(this.rangeEndMs) : this.queryEnd;
       this.openModal("recordDownload", { camera: this.selectedCamera, startTime, endTime });
+    },
+    // 查询不到录像时弹出友好提示弹窗（复用全局 modal 样式，参考设备管理页删除设备弹窗）；
+    // 传入 ms 用于即时回放「切至历史录像」带入的时间段，缺省用左侧查询框时段
+    openRecordEmptyModal(startMs?: number, endMs?: number) {
+      const start = startMs ?? parseLocalMs(this.queryStart);
+      const end = endMs ?? parseLocalMs(this.queryEnd);
+      this.openModal("recordEmpty", {
+        camera: this.selectedCamera,
+        startTime: start ? toLocalIsoSeconds(start) : this.queryStart,
+        endTime: end ? toLocalIsoSeconds(end) : this.queryEnd
+      });
     }
   },
   beforeUnmount() {

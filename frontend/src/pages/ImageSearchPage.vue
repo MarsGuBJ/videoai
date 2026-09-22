@@ -100,7 +100,6 @@ function formatCreateTime(value?: number | string): string {
 function mapSimilarPerson(result: SimilarPersonResult, index: number) {
   const raw = result.similarity_score;
   const score = raw === undefined || Number.isNaN(Number(raw)) ? 0 : Math.round(Number(raw) <= 1 ? Number(raw) * 100 : Number(raw));
-  const topColor = Array.isArray(result.top_color) ? result.top_color.join("、") : result.top_color;
   return {
     title: `相似人员 ${index + 1}`,
     image: assetUrl(result.image_url),
@@ -110,10 +109,10 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
     date: formatCreateTime(result.create_time),
     score,
     desc: result.es_doc_id || "",
-    // 原型结果卡片的属性行；后端暂未返回时为 undefined，卡片按字段级 v-if 隐藏
+    // 属性行原样交给 ImageResults：统一去掉方括号与引号，为空时字段（含字段名）不展示
     age: result.age,
     accessory: result.accessory,
-    topColor,
+    topColor: result.top_color,
     action: result.action
   };
 }

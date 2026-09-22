@@ -1,12 +1,12 @@
 <template>
-  <section class="content wide exact-page" @click="handleExactBlankClick">
+  <section class="content wide exact-page">
     <div class="title-row"><div><h1 class="page-title">文搜视频</h1><p class="page-subtitle">通过自然语言描述搜索和分析监控视频片段。</p></div></div>
     <div class="panel exact-source-panel">
       <div class="exact-source-modebar"><div class="exact-mode-tabs" role="tablist"><button class="exact-mode-tab" :class="{ active: sourceMode === 'online' }" role="tab" :aria-selected="sourceMode === 'online'" @click="setSourceMode('online')">在线监控点</button><button class="exact-mode-tab" :class="{ active: sourceMode === 'upload' }" role="tab" :aria-selected="sourceMode === 'upload'" @click="setSourceMode('upload')">上传本地视频</button></div></div>
       <div v-if="sourceMode === 'online'" class="exact-online-pane">
         <div class="exact-source-form" @click.stop>
           <div class="deploy-field"><label>区域 / 监控点</label><div class="exact-tree-select"><button class="exact-tree-trigger" :class="{ open: pointDropdownOpen }" @click="togglePointDropdown"><span>{{ selectedPointLabel }}</span><span>{{ pointDropdownOpen ? '收起' : '展开' }}⌄</span></button><div v-if="pointDropdownOpen" class="exact-tree-dropdown"><div class="exact-tree-search"><input v-model="pointSearchQuery" type="text" placeholder="输入关键字搜索监控点" @click.stop /></div><div v-for="entry in pointAreaEntries" :key="entry.area.name"><button class="exact-tree-area-row" :class="{ active: selectedArea && selectedArea.name === entry.area.name }" @click="toggleArea(entry.area)"><span>{{ expandedAreas[entry.area.name] || pointSearchActive ? '⌄' : '›' }} {{ entry.area.name }}</span><span>{{ entry.cameras.length }} 台设备</span></button><div v-if="expandedAreas[entry.area.name] || pointSearchActive" class="exact-tree-children"><button v-for="camera in entry.cameras" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, entry.area)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!pointAreaEntries.length" class="exact-tree-empty">未找到匹配的监控点</div></div></div></div>
-          <div class="deploy-field"><date-time-range-picker v-model:start="onlineStart" v-model:end="onlineEnd" @change="markPendingSourceChange" /></div>
+          <div class="deploy-field"><date-time-range-picker v-model:start="onlineStart" v-model:end="onlineEnd" @change="resetResultsBelowSearch" /></div>
           <button class="btn primary" :disabled="searching" @click="searchOnlineSources">⌕ 搜索回放</button>
         </div>
       </div>
@@ -21,12 +21,11 @@
     <div v-if="!sourceConfirmed" class="search-empty-state exact-source-empty"><strong>暂无搜索结果</strong><strong>选择在线监控点或上传本地视频后，点击「搜索回放」</strong></div>
 
     <div v-if="sourceConfirmed" class="exact-analysis-shell">
-      <div v-if="pendingSourceChange" class="exact-pending-mask" @click="cancelPendingSourceChange"><div><strong>视频源已调整，尚未生效</strong><p>下方结果仍保留。点击「搜索回放」生效，点击空白区域可还原到之前的选择与结果</p></div></div>
     <div class="exact-analysis-layout">
       <div class="panel exact-left-workspace">
       <div class="exact-video-panel">
         <div class="exact-player" ref="exactPlayer">
-          <div class="exact-player-media"><video v-if="selectedSource.videoUrl" ref="exactVideo" :src="selectedSource.videoUrl" muted playsinline @timeupdate="syncVideoTime" @loadedmetadata="syncVideoTime" @ended="playerPlaying = false"></video><video-player v-else-if="selectedSource.streamUrl" ref="exactStreamPlayer" :url="selectedSource.streamUrl" format="flv" :native-controls="false"></video-player><img v-else :src="selectedSource.image" :alt="selectedSource.name" /></div>
+          <div class="exact-player-media"><video v-if="selectedSource.videoUrl" ref="exactVideo" :src="selectedSource.videoUrl" muted playsinline autoplay @timeupdate="syncVideoTime" @loadedmetadata="onVideoLoaded" @play="playerPlaying = true" @pause="playerPlaying = false" @ended="playerPlaying = false"></video><video-player v-else-if="selectedSource.streamUrl" ref="exactStreamPlayer" :url="selectedSource.streamUrl" format="flv" :native-controls="false"></video-player><img v-else :src="selectedSource.image" :alt="selectedSource.name" /></div>
           <button class="exact-fullscreen-btn" type="button" :title="playerFullscreen ? '退出全屏' : '全屏播放'" :aria-label="playerFullscreen ? '退出全屏' : '全屏播放'" @click="togglePlayerFullscreen">
             <svg v-if="!playerFullscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
             <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
@@ -519,7 +518,7 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
 }
 
 // 视频理解接口报错时的友好提示（聊天消息与 toast 统一使用）
-const VIDEO_UNDERSTANDING_ERROR_TIP = "呃，大脑溜号了！请找管理员。";
+const VIDEO_UNDERSTANDING_ERROR_TIP = "视频分析接口报错了！请找管理员。";
 
 // 模板中直接使用注入的 openResult；vue-tsc 不会把 inject 键推导到模板 this 上，
 // 因此以类型补丁形式合并进 ComponentCustomProperties（运行时 inject 声明保持不变）。
@@ -541,6 +540,20 @@ export default defineComponent({
     this.loadCameras();
     this.$nextTick(() => this.applySourceFieldHints());
     document.addEventListener("fullscreenchange", this.syncFullscreenState);
+  },
+  // keep-alive 重新激活（从其它页面返回）：离开时正在播放的视频需继续播放，
+  // 兼容浏览器在元素脱离文档期间暂停媒体的场景
+  activated() {
+    if (!this.playerPlaying) return;
+    const video = this.$refs.exactVideo as HTMLVideoElement;
+    if (video) {
+      if (video.paused) video.play().catch(() => {});
+      return;
+    }
+    const streamPlayer = this.$refs.exactStreamPlayer as any;
+    if (streamPlayer && typeof streamPlayer.isPaused === "function" && streamPlayer.isPaused()) {
+      streamPlayer.resume();
+    }
   },
   updated() {
     this.$nextTick(() => this.applySourceFieldHints());
@@ -574,7 +587,6 @@ export default defineComponent({
       uploadingVideo: false,
       selectedSource: null,
       sourceConfirmed: false,
-      pendingSourceChange: false,
       cropDialogOpen: false,
       trackResultModalItem: null as any,
       trackResultModalIndex: -1,
@@ -754,8 +766,8 @@ export default defineComponent({
           this.selectedCamera = null;
           this.onlineSearched = false;
           this.onlineSources = [];
-        } else if (!this.selectedCamera) {
-          this.pendingSourceChange = true;
+        } else {
+          this.resetResultsBelowSearch();
         }
       }
       this.expandedAreas[area.name] = nextExpanded;
@@ -766,43 +778,44 @@ export default defineComponent({
       this.expandedAreas[area.name] = true;
       this.onlineSearched = false;
       this.onlineSources = [];
-      if (this.sourceConfirmed) this.pendingSourceChange = true;
+      this.resetResultsBelowSearch();
     },
     selectCamera(camera, area) {
+      const cameraChanged = !this.selectedCamera || this.selectedCamera.code !== camera.code;
+      const areaChanged = !!area && (!this.selectedArea || (this.selectedArea as any).name !== area.name);
       if (area) this.selectedArea = area;
       this.selectedCamera = camera;
       this.pointDropdownOpen = false;
-      if (this.sourceConfirmed) this.pendingSourceChange = true;
+      if (cameraChanged || areaChanged) this.resetResultsBelowSearch();
     },
-    markPendingSourceChange() {
-      if (this.sourceConfirmed) this.pendingSourceChange = true;
-    },
-    cancelPendingSourceChange() {
-      if (!this.pendingSourceChange || !this.selectedSource) return;
-      const selectedSource = this.selectedSource as any;
-      if (selectedSource.sourceType !== "本地上传") {
-        const area = this.areas.find(item => item.name === selectedSource.areaName)
-          || this.areas.find(item => item.cameras.some(camera => camera.code === selectedSource.camera));
-        if (area) {
-          this.selectedArea = area;
-          this.selectedCamera = area.cameras.find(camera => camera.code === selectedSource.camera) || null;
-          this.expandedAreas[area.name] = true;
-        }
-        if (selectedSource.time && selectedSource.time.indexOf(" - ") > -1) {
-          const parts = selectedSource.time.split(" - ");
-          this.onlineStart = parts[0];
-          this.onlineEnd = parts[1];
-        }
-      }
-      this.pointDropdownOpen = false;
-      this.pendingSourceChange = false;
-      this.showToast("已还原到当前生效的视频源与结果");
-    },
-    handleExactBlankClick(event) {
-      if (!this.pendingSourceChange) return;
-      const target = event.target as HTMLElement;
-      if (target && target.closest(".exact-source-form")) return;
-      this.cancelPendingSourceChange();
+    // 查询条件（区域 / 监控点 / 时间段）修改后：搜索栏下方立即回到初始空白态，
+    // 停止旧录像播放并清空上一轮问答与分析结果，待重新点击「搜索回放」再载入新录像
+    resetResultsBelowSearch() {
+      if (!this.sourceConfirmed && !this.selectedSource) return;
+      this.stopSimulation();
+      this.selectedSource = null;
+      this.sourceConfirmed = false;
+      this.analyzed = false;
+      this.videoView = "record";
+      this.currentTime = 0;
+      this.playerDuration = 3600;
+      this.events = [];
+      this.results = [];
+      this.summary = { overview: "", persons: [], vehicles: [] };
+      this.questionMessages = [];
+      this.questionInput = "";
+      this.questionBusy = false;
+      this.thinkingStartedAt = 0;
+      this.thinkingElapsed = 0;
+      this.stopThinkingTimer();
+      this.resetPhaseTimers();
+      this.analysisSnapshots = [];
+      this.activeAnalysisId = null;
+      this.analysisSnapshotCounter = 0;
+      this.messageDetailSnapshot = null;
+      this.resultTabs = [];
+      this.activeResultTab = "summary";
+      this.closeTrackResultModal();
     },
     fillQuickPrompt(prompt) {
       this.query = "";
@@ -925,7 +938,6 @@ export default defineComponent({
       this.stopSimulation();
       this.selectedSource = source;
       this.sourceConfirmed = true;
-      this.pendingSourceChange = false;
       this.analyzed = false;
       this.videoView = "record";
       this.currentTime = 0;
@@ -1116,7 +1128,6 @@ export default defineComponent({
         sourceType: "本地上传"
       };
       this.sourceConfirmed = true;
-      this.pendingSourceChange = false;
       this.analyzed = false;
       this.videoView = "record";
       this.currentTime = 0;
@@ -1140,7 +1151,6 @@ export default defineComponent({
         this.stopSimulation();
         this.selectedSource = null;
         this.sourceConfirmed = false;
-        this.pendingSourceChange = false;
         this.analyzed = false;
         this.videoView = "record";
         this.events = [];
@@ -1157,7 +1167,6 @@ export default defineComponent({
     backToSource() {
       this.stopSimulation();
       this.sourceConfirmed = false;
-      this.pendingSourceChange = false;
       this.analyzed = false;
       this.questionMessages = [];
       this.questionInput = "";
@@ -1175,7 +1184,6 @@ export default defineComponent({
       this.onlineEnd = "2026-07-24T10:00";
       this.selectedSource = null;
       this.sourceConfirmed = false;
-      this.pendingSourceChange = false;
       this.analyzed = false;
       this.videoView = "record";
       this.questionMessages = [];
@@ -1263,18 +1271,27 @@ export default defineComponent({
       this.startThinkingTimer();
       this.resetPhaseTimers();
       this.questionBusy = true;
-      // 本地视频：首次分析前上传到 MinIO，换取分析服务可拉取的 videoUrl
-      if (selectedSource.sourceType === "本地上传" && !selectedSource.analysisUrl) {
-        if (!this.localVideoFile) {
-          this.showToast("请重新上传本地视频");
-          this.stopThinkingTimer();
-          this.questionBusy = false;
-          return;
-        }
+      // 本地视频：首次分析前上传到 MinIO，换取分析服务可拉取的 videoUrl；
+      // 缺少本地文件（如重新进入页面后仅剩预览地址）时先拦截，避免提示词已入对话却无法继续
+      const localVideoFile = this.localVideoFile;
+      const needsLocalUpload = selectedSource.sourceType === "本地上传" && !selectedSource.analysisUrl;
+      if (needsLocalUpload && !localVideoFile) {
+        this.showToast("请重新上传本地视频");
+        this.stopThinkingTimer();
+        this.questionBusy = false;
+        return;
+      }
+      // 首次提交提示词需要先上传 / 导出视频文件（耗时较长），
+      // 因此先把提示词显示到对话中，再开始下载
+      const question = this.query.trim();
+      this.lastQuery = question;
+      this.questionMessages.push({ role: "user", text: question });
+      this.query = "";
+      if (needsLocalUpload) {
         this.uploadingVideo = true;
         this.startDownloadPhase();
         try {
-          const uploaded = await api.uploadAnalysisVideo(this.localVideoFile);
+          const uploaded = await api.uploadAnalysisVideo(localVideoFile as File);
           selectedSource.analysisUrl = uploaded.videoUrl;
         } catch (error) {
           this.showToast(error instanceof Error ? error.message : "视频上传失败");
@@ -1318,9 +1335,6 @@ export default defineComponent({
         return;
       }
       this.startAnalyzePhase();
-      const question = this.query.trim();
-      this.lastQuery = question;
-      this.questionMessages.push({ role: "user", text: question });
       this.analyzing = true;
       try {
         const requestParams = {
@@ -1368,7 +1382,6 @@ export default defineComponent({
         const snapshot = this.saveAnalysisSnapshot(answerText, question, response);
         this.pushAssistantMessage({ role: "assistant", text: answerText, analysisId: snapshot.id, thinkingSeconds: this.stopThinkingTimer() });
         this.activeAnalysisId = snapshot.id;
-        this.query = "";
         this.showToast("文搜分析完成，已生成事件结论");
       } catch (error) {
         console.error("视频理解接口调用失败：", error);
@@ -1397,6 +1410,19 @@ export default defineComponent({
     syncVideoTime(event) {
       this.currentTime = event.target.currentTime;
       if (event.target.duration && Number.isFinite(event.target.duration)) this.playerDuration = event.target.duration;
+    },
+    // 视频文件加载完成后自动播放（静音 + playsinline，满足浏览器自动播放策略）；
+    // 被浏览器拦截时保持暂停，仍可用控制条手动播放
+    onVideoLoaded(event) {
+      this.syncVideoTime(event);
+      const video = event.target as HTMLVideoElement;
+      video.playbackRate = this.playbackRate;
+      const result = video.play();
+      if (result && typeof result.catch === "function") {
+        result.catch(() => {
+          this.playerPlaying = false;
+        });
+      }
     },
     seekVideo(value) {
       const next = typeof value === "number" ? value : Number(value.target.value);

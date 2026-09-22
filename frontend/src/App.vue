@@ -232,7 +232,8 @@ export default defineComponent({
         videoConfig: { title: "视频参数配置", wide: true },
         customLayout: { title: "自定义分屏布局", wide: true },
         quickReplay: { title: "即时回放", narrow: true },
-        recordDownload: { title: "下载录像", narrow: true }
+        recordDownload: { title: "下载录像", narrow: true },
+        recordEmpty: { title: "无录像提示", narrow: true }
       } as any)[type] || { title: "新增", narrow: false };
       this.modal = { open: true, type, title: config.title, narrow: !!config.narrow, wide: !!config.wide, item };
     },
@@ -513,7 +514,13 @@ export default defineComponent({
       <app-topbar :route="state.route" :names="store.routeNames"></app-topbar>
       <main class="workspace" id="workspace">
         <div class="workspace-inner">
-          <router-view :key="state.route + '-' + state.routeVersion" :store="store" :state="state" :selected-version="selectedVersion" :selected-deploy-task="selectedDeployTask" :selected-event="selectedEvent" :selected-algorithm="selectedAlgorithm" :selected-camera="selectedCamera" :camera-edit-origin="cameraEditOrigin"></router-view>
+          <!-- 文搜视频页用 keep-alive 缓存：切到其它页面时组件不卸载，播放器（含 NVR 流 / 本地视频）继续播放，返回后原样恢复；
+               同路由重复点击（routeVersion 递增）会生成新实例，:max="1" 保证旧实例被回收，避免遗留后台播放 -->
+          <router-view v-slot="{ Component }">
+            <keep-alive :include="['ExactSearchPage']" :max="1">
+              <component :is="Component" :key="state.route + '-' + state.routeVersion" :store="store" :state="state" :selected-version="selectedVersion" :selected-deploy-task="selectedDeployTask" :selected-event="selectedEvent" :selected-algorithm="selectedAlgorithm" :selected-camera="selectedCamera" :camera-edit-origin="cameraEditOrigin"></component>
+            </keep-alive>
+          </router-view>
         </div>
       </main>
     </section>

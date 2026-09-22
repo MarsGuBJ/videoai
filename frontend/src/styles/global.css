@@ -5112,33 +5112,6 @@
       min-height: 0;
     }
 
-    .exact-pending-mask {
-      position: absolute;
-      inset: 0;
-      z-index: 20;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      border-radius: 6px;
-      background: rgba(248, 250, 252, .72);
-      backdrop-filter: blur(2px);
-      text-align: center;
-      pointer-events: auto;
-    }
-
-    .exact-pending-mask strong {
-      display: block;
-      color: #1d2939;
-      font-size: 14px;
-    }
-
-    .exact-pending-mask p {
-      margin: 6px 0 0;
-      color: #667085;
-      font-size: 12px;
-    }
-
     .exact-pagination {
       display: flex;
       align-items: center;
