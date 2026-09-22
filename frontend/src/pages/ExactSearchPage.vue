@@ -842,8 +842,9 @@ export default defineComponent({
       let durationSeconds = 200;
       if (!analysisUrl) {
         // 摄像头只有流地址（flv/rtsp）时：先起 NVR 回放流即时播放（与录像回放页一致），
-        // 录像 MP4 的导出推迟到首个视频问答提示词发送时再进行
-        if (!selectedCamera.nvrTrackId) {
+        // 录像 MP4 的导出推迟到首个视频问答提示词发送时再进行。
+        // 不要求平台侧填 nvrTrackId：MCP 会按 sourceUrl 反查所属 NVR/CVR 通道
+        if (!selectedCamera.sourceUrl) {
           this.showToast("该点位暂无可分析的视频文件地址");
           return;
         }

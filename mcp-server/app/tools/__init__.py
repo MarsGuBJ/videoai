@@ -12,7 +12,7 @@ from .persons import (
     get_person_search_result,
     search_person_by_bbox,
 )
-from .recordings import download_recording, export_recording, search_recordings
+from .recordings import download_recording, export_recording, get_recording_stream, search_recordings
 from .search import search_person_by_image, text_search_images
 from .understanding import video_understanding
 
@@ -27,6 +27,8 @@ __all__ = [
     "get_live_stream",
     "get_person_bbox",
     "get_person_search_result",
+    # HTTP-only：未注册为 MCP tool（见 app/routes.py）
+    "get_recording_stream",
     "list_cameras",
     "query_face_matches",
     "search_person_by_bbox",

@@ -16,6 +16,8 @@ VideoAI MCP Server 用于向 MCP 客户端暴露视频监控与检索能力：
 
 多数 tool 同时返回 `data`（JSON 结构化数据）和 `xml`（`sxin-*` 格式摘要，供 AI 代理解析展示）；各节示例以 `data` 为主。
 
+`xml` 字段的内容**不含** `<?xml version="1.0" encoding="UTF-8"?>` 声明，直接以根元素开头（例如 `<sxin-camera-list ...>`），便于嵌入拼接；需要声明的消费方自行补上即可。
+
 ## 2. 服务信息
 
 默认服务名：
@@ -30,12 +32,13 @@ videoai-monitoring
 http://192.168.11.194:8097/mcp
 ```
 
-同一服务内还提供匿名 HTTP JSON 入口，路径为 `/<mcp接口>-http`。HTTP 接口使用 `POST`，请求体为 JSON object，功能和同名 MCP tool 一致。
+同一服务内还提供匿名 HTTP JSON 入口，路径为 `/<mcp接口>-http`。HTTP 接口使用 `POST`，请求体为 JSON object，功能和同名 MCP tool 一致。少数接口只有 HTTP 入口、不注册为 MCP tool，已在名称后标注。
 
 ```text
 http://192.168.11.194:8097/list_cameras-http
 http://192.168.11.194:8097/get_live_stream-http
 http://192.168.11.194:8097/search_recordings-http
+http://192.168.11.194:8097/get_recording_stream-http   # 仅 HTTP，返回 H.265 直通流
 http://192.168.11.194:8097/download_recording-http
 http://192.168.11.194:8097/export_recording-http
 http://192.168.11.194:8097/video_understanding-http
@@ -141,31 +144,29 @@ MCP Server 依赖以下服务：
 
 #### 输入参数
 
-无。
+| 参数 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `name` | `string` | `""` | 按摄像头名称做大小写不敏感的子串过滤；为空则不过滤。 |
+| `page` | `integer` | `1` | 页码，从 1 开始；小于 1 时按 1 处理。 |
+| `pageSize` | `integer` | `20` | 每页条数，上限 `200`。 |
 
 #### 返回值
 
-返回 `data`（摄像头数组，不含仅作 NVR 录像通道、无直播源的设备）和 `xml`（`sxin-camera-list` 摘要）。
+返回 `data`（当前页摄像头数组，不含仅作 NVR 录像通道、无直播源的设备）、`total`（过滤后的总条数）、`page`、`pageSize` 和 `xml`（`sxin-camera-list` 摘要）。名称过滤先于分页，`total` 为过滤后的总数，不受分页影响。
 
 ```json
 {
   "data": [
     {
-      "cameraId": "6f1d3f34-7ab1-4d7e-9f1e-f3d0a7b9c101",
-      "name": "Gate Camera",
+      "id": "6f1d3f34-7ab1-4d7e-9f1e-f3d0a7b9c101",
       "status": "RUNNING",
       "url": "http://192.168.11.194:81/live/camera1.live.flv",
-      "livePlaybackUrl": "http://192.168.11.194:81/live/camera1.live.flv",
-      "sourceUrl": "rtsp://192.168.1.20/Streaming/Channels/101",
-      "nvrBinding": {
-        "bound": true,
-        "nvrId": "main-nvr",
-        "nvrChannel": "1",
-        "nvrTrackId": "101",
-        "nvrStreamType": "main"
-      }
+      "name": "Gate Camera"
     }
   ],
+  "total": 1,
+  "page": 1,
+  "pageSize": 20,
   "xml": "<sxin-camera-list count=\"1\">...</sxin-camera-list>"
 }
 ```
@@ -174,17 +175,15 @@ MCP Server 依赖以下服务：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `cameraId` | `string` | 摄像头 ID。 |
+| `id` | `string` | 摄像头 ID，作为 `cameraId` 传给 `get_live_stream`、`search_recordings`、`export_recording` 等接口。 |
 | `name` | `string` | 摄像头名称。 |
 | `status` | `string` | 摄像头状态，例如 `RUNNING`、`STOPPED`。 |
 | `url` | `string` | 实时流播放地址。 |
-| `livePlaybackUrl` | `string` | 兼容旧客户端的实时流播放地址，值与 `url` 一致。 |
-| `sourceUrl` | `string` | 摄像头原始源地址。 |
-| `nvrBinding.bound` | `boolean` | 是否具备 NVR 历史录像查询绑定。 |
-| `nvrBinding.nvrId` | `string|null` | NVR 标识。 |
-| `nvrBinding.nvrChannel` | `string|null` | NVR 通道。 |
-| `nvrBinding.nvrTrackId` | `string|null` | 海康 track ID。 |
-| `nvrBinding.nvrStreamType` | `string|null` | 码流类型。 |
+| `total` | `integer` | 过滤后的摄像头总数（不受分页影响）。 |
+| `page` | `integer` | 当前页码。 |
+| `pageSize` | `integer` | 当前每页条数。 |
+
+> 需要摄像头的原始 `sourceUrl`、NVR 绑定等信息时，走 backend-lite 的 `/api/cameras` 接口；`list_cameras` 只返回上表字段。
 
 ### 6.2 `get_live_stream`
 
@@ -347,6 +346,51 @@ MCP Server 依赖以下服务：
 - 成功：`302 Found`，`Location` 头指向 FLV 播放地址。
 - 参数错误：`400` JSON（`{"error": {"type": "ValueError", "message": ...}}`）。
 - 建流失败：`500` JSON，细节记录于 MCP 服务端日志。
+
+### 6.3.2 `POST /get_recording_stream-http`
+
+为 `search_recordings` 已缓存（`recordingId` 仍在 TTL 内）的录像段临时建流，返回 **H.265** 播放地址。
+
+该接口**只提供 HTTP 兼容入口，刻意不注册为 MCP tool**——MCP tool 目录里没有 `get_recording_stream`。与 `GET /recording-live` 的区别：本接口返回 JSON（不是 302），并在 SDK 回放路径上走 **H.265 直通**。
+
+H.265 直通把设备原码流（现场 NVR 多为 smart265/HEVC）直接封进 FLV，不做 libx264 实时转码，省去转码开销并保留设备原画质。代价是直通无法改写时间戳，因此**只支持等速**（`speed=1`），其它倍速档位返回 `400` 而不是静默降级成转码。播放端必须支持 HEVC（前端用 mpegts.js + 浏览器 HEVC MSE；flv.js 不支持 H.265）。非 SDK 源（RTSP 转发）同样走直通，因此不叠加回放水印。
+
+#### 请求体
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- | --- |
+| `recordingId` | `string` | 是 | — | `search_recordings` 返回并缓存过的录像段 ID。 |
+| `format` | `string` | 否 | `flv` | 非 SDK 源的输出容器，可选 `flv` 或 `hls`；SDK 源固定 `flv`。 |
+| `speed` | `float` | 否 | `1` | 回放倍速；H.265 直通仅支持 `1`。 |
+
+#### 响应
+
+成功返回 `200` JSON：
+
+```json
+{
+  "url": "http://192.168.11.194:81/live/hcn-h265-<recordingId>.live.flv",
+  "format": "flv",
+  "expiresAt": "2026-06-22T10:00:00+00:00",
+  "source": "hikvision_hcnetsdk_playback",
+  "metadata": {
+    "cameraId": "6f1d3f34-7ab1-4d7e-9f1e-f3d0a7b9c101",
+    "cameraName": "金山12楼门口",
+    "recordingId": "rec-...",
+    "trackId": "601",
+    "startTime": "2026-06-22T09:00:00+08:00",
+    "endTime": "2026-06-22T10:00:00+08:00",
+    "codec": "h265"
+  },
+  "xml": "<sxin-video-file url=\"...\" format=\"flv\" source=\"...\" codec=\"h265\" .../>",
+  "input": {"recordingId": "rec-...", "format": "flv", "speed": 1.0, "codec": "h265"}
+}
+```
+
+错误响应与其它 `-http` 接口一致（`400` JSON / `500` JSON）：
+
+- `recordingId` 未知或已过期：`400`，消息 `recordingId is unknown or expired; call search_recordings again`。
+- H.265 直通配非等速：`400`，消息 `codec h265 passes the device bitstream through and only supports speed 1.0`。
 
 ### 6.4 `download_recording`
 
@@ -680,7 +724,7 @@ videoai://recordings/b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22
 
 ### 文搜视频（录像内容分析）
 
-1. 调用 `list_cameras`，取目标摄像头的 `nvrBinding.nvrTrackId`。
+1. 调用 `list_cameras`（可按 `name` 过滤、用 `page`/`pageSize` 翻页），取目标摄像头的 `id` 作为 `cameraId`。
 2. 调用 `export_recording`，传入 `cameraId`（或 `trackId`）和时间段，等待导出（默认走 HCNetSDK 按时间下载，非实时、更快；SDK 不可用时 20 分钟内的白名单 trackId 时段回退 RTSP 抓流，耗时 ≈ 所选时长），得到 MinIO MP4 `videoUrl`。
 3. 调用 `video_understanding`，传入 `videoUrl` 和中文 `question`（用户问题），读取结构化事件、重点事件与关键帧。
 

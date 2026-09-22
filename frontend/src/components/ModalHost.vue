@@ -1242,7 +1242,7 @@ export default {
 </script>
 
 <template>
-  <div class="modal-mask" :class="{ open: modal.open }" :aria-hidden="modal.open ? 'false' : 'true'" @click.self="$emit('close')">
+  <div class="modal-mask" :class="{ open: modal.open }" :inert="!modal.open" @click.self="$emit('close')">
     <section class="modal-dialog" :class="[{ narrow: modal.narrow }, { wide: modal.wide }, { 'event-detail-dialog': modal.type === 'eventDetail' || modal.type === 'reviewTaskDetail' }]" aria-label="弹窗表单">
       <div class="modal-head">
         <h3>{{ modal.title }}</h3>

@@ -32,27 +32,30 @@
 
 返回所有实时摄像头（NVR 专用录像通道自动排除）。
 
-**参数**：无
+**参数**：
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| `name` | string | 否 | `""` | 按名称子串过滤（大小写不敏感） |
+| `page` | integer | 否 | `1` | 页码，从 1 开始 |
+| `pageSize` | integer | 否 | `20` | 每页条数，上限 200 |
+
+名称过滤先于分页；`total` 为过滤后的总数，与 `page`/`pageSize` 一起在 JSON 结果中返回。
 
 **XML 响应**：
 ```xml
-<?xml version="1.0" encoding="UTF-8"?>
 <sxin-camera-list count="2">
  <camera
    id="c71f4f5d-065a-40d8-b81a-72124c94b131"
-   name="金山12楼门口"
    status="RUNNING"
-   livePlaybackUrl="http://192.168.11.194:5174/live/camera-1782139888691571790/hls.m3u8"
-   sourceUrl="rtmp://localhost:1945/live/camera-1782139888691571790"
-   nvrBinding="false">
+   url="http://192.168.11.194:5174/live/camera-1782139888691571790/hls.m3u8"
+   name="金山12楼门口">
   </camera>
  <camera
    id="95fb9b8d-d3a8-4ab6-b0cd-c874b67024c4"
-   name="1205实验室"
    status="RUNNING"
-   livePlaybackUrl="http://192.168.11.194:5174/live/cam65/hls.m3u8"
-   sourceUrl="rtmp://localhost:1945/live/cam65"
-   nvrBinding="true">
+   url="http://192.168.11.194:5174/live/cam65/hls.m3u8"
+   name="1205实验室">
   </camera>
 </sxin-camera-list>
 ```
@@ -61,12 +64,12 @@
 
 | 属性 | 说明 |
 |------|------|
-| `id` | 摄像头唯一标识，用于 get_live_stream / search_recordings |
+| `id` | 摄像头唯一标识，作为 `cameraId` 用于 get_live_stream / search_recordings |
 | `name` | 摄像头名称 |
 | `status` | RUNNING / STOPPED |
-| `livePlaybackUrl` | HLS 直播流地址，可直接播放 |
-| `sourceUrl` | 内部源地址 |
-| `nvrBinding` | true=已绑定 NVR 通道，可查询录像 |
+| `url` | 实时流播放地址，可直接播放 |
+
+> `sourceUrl`、NVR 绑定等字段已不再由 `list_cameras` 返回；需要时走 backend-lite 的 `/api/cameras` 接口。
 
 ---
 
@@ -81,7 +84,6 @@
 
 **XML 响应**：
 ```xml
-<?xml version="1.0" encoding="UTF-8"?>
 <sxin-camera-flow
   url="http://192.168.11.194:5174/live/cam65/hls.m3u8"
   format="hls"
@@ -122,7 +124,6 @@
 
 **XML 响应**：
 ```xml
-<?xml version="1.0" encoding="UTF-8"?>
 <sxin-video-list count="2">
  <recording
    recordingId="abc123def456..."
@@ -191,7 +192,6 @@ curl -X POST http://192.168.11.194:8097/download_recording-http \
 
 **XML 响应**：
 ```xml
-<?xml version="1.0" encoding="UTF-8"?>
 <sxin-dino-event-list count="10">
  <event
    eventId="dino-mock-001"
@@ -328,7 +328,7 @@ curl -X POST http://192.168.11.194:8097/download_recording-http \
 
 ## 注意事项
 
-1. `livePlaybackUrl` / `url` 均为可播放地址（直播 / 录像回放），浏览器、ffmpeg、VLC 等播放器可直接打开
+1. `list_cameras` 的 `url` 与录像回放的 `url` 均为可播放地址（直播 / 录像回放），浏览器、ffmpeg、VLC 等播放器可直接打开
 2. 录像回放 `url` 由 ffmpeg 把 HCNetSDK 回调码流转 RTMP，再由 ZLMediaKit 输出 FLV；时延约 2-3 秒
 3. `search_recordings(autoProxy=true)` 支持并发回放流，当前设备实测稳定并发上限为 2 路
 4. `download_recording` 返回 MinIO MP4 文件链接，不占用长期回放流

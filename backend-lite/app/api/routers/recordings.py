@@ -62,7 +62,9 @@ def recordings_search(request: RecordingSearchRequest) -> RecordingSearchRespons
 def recordings_stream(request: RecordingSearchRequest) -> RecordingStreamResponse:
     """检索录像并返回第一段录像的按需回放链接（/recording-live 动态链接，speed 指定回放倍速）。
 
-    链接在首次请求时才建立 SDK 回放流；不再调用 MCP get_recording_stream（该接口已移除）。
+    链接在首次请求时才建立 SDK 回放流，因此这里直接返回链接而不预建流。
+    MCP 侧的 get_recording_stream 仍保留为 HTTP 兼容接口（返回 H.265 直通流），
+    但不是 MCP tool，且只支持等速，本接口的倍速回放继续走 /recording-live。
     """
     _camera, camera_id, start_time, end_time = _resolve_camera(request)
     speed = request.speed if request.speed is not None else 1.0

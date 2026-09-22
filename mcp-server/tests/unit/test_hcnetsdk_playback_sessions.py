@@ -47,6 +47,7 @@ def make_session(stream_name: str, recording_id: str):
         ffmpeg=FakeFfmpeg(),
         expires_at=time.monotonic() + 1800,
         speed=1.0,
+        codec="h264",
     )
 
 
@@ -57,7 +58,7 @@ def test_ensure_playback_reuses_live_session(monkeypatch):
     session = make_session("hcn-a", recording.recordingId)
     proxy._sessions[session.stream_name] = session
 
-    def fail_start(rec, speed=1.0):
+    def fail_start(rec, speed=1.0, codec="h264"):
         raise AssertionError("must reuse the existing session")
 
     monkeypatch.setattr(proxy, "_start_session", fail_start)
@@ -78,7 +79,7 @@ def test_ensure_playback_evicts_oldest_when_at_limit(monkeypatch):
     new_session = make_session("hcn-new", new_recording.recordingId)
     stopped = []
 
-    monkeypatch.setattr(proxy, "_start_session", lambda rec, speed=1.0: new_session)
+    monkeypatch.setattr(proxy, "_start_session", lambda rec, speed=1.0, codec="h264": new_session)
     monkeypatch.setattr(proxy, "_stop_session", lambda session: stopped.append(session.stream_name))
 
     url = asyncio.run(proxy.ensure_playback(new_recording))
@@ -99,7 +100,7 @@ def test_ensure_playback_evicts_and_retries_on_start_failure(monkeypatch):
     stopped = []
     calls = []
 
-    def flaky_start(rec, speed=1.0):
+    def flaky_start(rec, speed=1.0, codec="h264"):
         calls.append(rec.recordingId)
         if len(calls) == 1:
             raise HcNetSdkError("NET_DVR_PlayBackByTime_V40 failed: 17")
@@ -123,7 +124,7 @@ def test_ensure_playback_retries_start_failure_without_sessions(monkeypatch):
     new_session = make_session("hcn-new", recording.recordingId)
     calls = []
 
-    def flaky_start(rec, speed=1.0):
+    def flaky_start(rec, speed=1.0, codec="h264"):
         calls.append(rec.recordingId)
         if len(calls) < 3:
             raise HcNetSdkError("ffmpeg exited")
@@ -145,7 +146,7 @@ def test_ensure_playback_raises_after_all_sessions_evicted(monkeypatch):
     proxy._sessions[old.stream_name] = old
     stopped = []
 
-    def always_fail(rec, speed=1.0):
+    def always_fail(rec, speed=1.0, codec="h264"):
         raise HcNetSdkError("NET_DVR_PlayBackByTime_V40 failed: 17")
 
     monkeypatch.setattr(proxy, "_start_session", always_fail)

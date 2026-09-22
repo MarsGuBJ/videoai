@@ -57,9 +57,13 @@ def test_list_cameras_http_returns_json(monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["data"][0]["cameraId"] == "cam-1"
+    assert payload["data"][0]["id"] == "cam-1"
     assert payload["data"][0]["url"] == "http://video.example/live/cam-1.live.flv"
-    assert payload["xml"].startswith("<?xml")
+    assert payload["total"] == 1
+    assert payload["page"] == 1
+    # 响应 xml 不带 <?xml ...?> 声明，根元素直接开头
+    assert payload["xml"].startswith("<sxin-camera-list")
+    assert "<?xml" not in payload["xml"]
 
 
 def test_search_recordings_http_uses_beijing_time_and_boolean_conversion(monkeypatch):
@@ -105,11 +109,63 @@ def test_search_recordings_http_uses_beijing_time_and_boolean_conversion(monkeyp
     assert calls[0][0].hour == 0
 
 
-def test_get_recording_stream_http_route_removed():
-    """get_recording_stream 已从 MCP 接口移除：-http 入口不再注册。"""
-    response = post("/get_recording_stream-http", json={"recordingId": "rec-any", "format": "flv"})
+def test_get_recording_stream_is_not_registered_as_mcp_tool():
+    """get_recording_stream 只暴露 HTTP 兼容接口，刻意不注册为 MCP tool。"""
+    tool_names = {tool.name for tool in asyncio.run(server.mcp.list_tools())}
 
-    assert response.status_code == 404
+    assert "get_recording_stream" not in tool_names
+
+
+def test_get_recording_stream_http_route_returns_h265_passthrough(monkeypatch):
+    start = datetime(2026, 7, 8, tzinfo=timezone.utc)
+    recording = RecordingSegment(
+        recordingId="rec-h265",
+        cameraId="cam-hcn",
+        cameraName="IPC-198",
+        trackId="1",
+        startTime=start,
+        endTime=start.replace(minute=5),
+        playbackUri="hcnetsdk://192.168.11.198:8000/channels/1",
+        source=server.NET_DVR_PLAYBACK_BY_TIME,
+    )
+    calls = []
+
+    async def fake_ensure_playback(cached_recording, speed=1.0, codec="h264"):
+        calls.append((cached_recording.recordingId, speed, codec))
+        return "http://zlm/live/hcn-h265-rec-h265.live.flv"
+
+    server.recording_cache.put_many([recording])
+    monkeypatch.setattr(server.hcnetsdk_playback, "ensure_playback", fake_ensure_playback)
+
+    response = post(
+        "/get_recording_stream-http",
+        json={"recordingId": recording.recordingId, "format": "flv"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["url"] == "http://zlm/live/hcn-h265-rec-h265.live.flv"
+    assert payload["format"] == "flv"
+    # H.265 直通：必须把 codec=h265 透传给回放代理，并对调用方回显
+    assert calls == [("rec-h265", 1.0, "h265")]
+    assert payload["metadata"]["codec"] == "h265"
+    assert payload["input"] == {"recordingId": "rec-h265", "format": "flv", "speed": 1.0, "codec": "h265"}
+    assert 'codec="h265"' in payload["xml"]
+
+
+def test_get_recording_stream_http_rejects_speed_for_h265_passthrough():
+    """H.265 直通无法改写时间戳：非等速请求按 400 拒绝，而不是静默降级成转码。"""
+    response = post("/get_recording_stream-http", json={"recordingId": "rec-any", "speed": 2})
+
+    assert response.status_code == 400
+    assert "h265" in response.json()["error"]["message"]
+
+
+def test_get_recording_stream_http_rejects_unknown_recording_id():
+    response = post("/get_recording_stream-http", json={"recordingId": "rec-does-not-exist"})
+
+    assert response.status_code == 400
+    assert "unknown or expired" in response.json()["error"]["message"]
 
 
 def test_download_recording_http_route(monkeypatch, tmp_path):

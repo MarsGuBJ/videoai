@@ -1,5 +1,6 @@
 """以图搜人 / 文本检索代理与查询图片资源路由。"""
 
+import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -12,9 +13,17 @@ from app.schemas.person_search import (
     PersonSearchImageResponse,
     TextSearchQueryRequest,
 )
-from app.services.person_search import person_api_get, person_api_post, required_text, retrieve_api_post
+from app.services.person_search import (
+    es_document_api_post,
+    person_api_get,
+    person_api_post,
+    required_text,
+    retrieve_api_post,
+)
 from app.services.search_keywords import SEARCH_TYPE_TEXT_IMAGE, record_search_keyword
 from app.utils.assets import save_query_image
+
+logger = logging.getLogger(__name__)
 
 TEXT_SEARCH_DEFAULT_PAGE = 1
 TEXT_SEARCH_DEFAULT_PAGE_SIZE = 10
@@ -79,9 +88,49 @@ def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest) -> dict:
 
 @router.get("/api/person-search/results/{task_id}")
 def person_search_result_proxy(task_id: str) -> dict:
-    """代理：轮询以图搜人任务结果。"""
+    """代理：轮询以图搜人任务结果；result 中只有 es_ids 时经 ES 文档接口解析为完整人员文档。"""
     safe_task_id = required_text(task_id, "taskId")
-    return person_api_get(f"/vlm-application/search/searchPersonResult/{quote(safe_task_id, safe='')}")
+    response = person_api_get(f"/vlm-application/search/searchPersonResult/{quote(safe_task_id, safe='')}")
+    return resolve_similar_persons(response)
+
+
+def resolve_similar_persons(response: dict) -> dict:
+    """把任务结果里的 es_ids 解析为 similar_persons（前端结果卡片期望的结构）。
+
+    vlm-application v3 的检索结果只回 es_ids + index_name（不再回 ES 全量文档），
+    这里调用检索配套服务的 es-documents/by-ids 补齐文档字段；解析失败时透传原始响应，
+    不影响任务状态轮询。
+    """
+    result = ((response.get("data") or {}).get("data") or {}).get("result")
+    if not isinstance(result, dict) or result.get("similar_persons"):
+        return response
+    result_data = result.get("data")
+    es_ids = result_data.get("es_ids") if isinstance(result_data, dict) else None
+    if not es_ids:
+        return response
+    try:
+        documents = es_document_api_post("/api/v1/queries/es-documents/by-ids", {"esids": es_ids})
+    except HTTPException:
+        logger.warning("es-documents/by-ids 解析失败，透传 es_ids 原始结果", exc_info=True)
+        return response
+    items = documents.get("items") or []
+    similar_persons = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        payload = item.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        entry = dict(payload)
+        entry["es_doc_id"] = item.get("document_id")
+        if item.get("score") is not None:
+            entry.setdefault("similarity_score", item.get("score"))
+        similar_persons.append(entry)
+    # by-ids 不保证按入参顺序返回，按 es_ids 顺序重排（相似度由高到低）
+    order = {doc_id: index for index, doc_id in enumerate(es_ids)}
+    similar_persons.sort(key=lambda entry: order.get(entry.get("es_doc_id"), len(order)))
+    result["similar_persons"] = similar_persons
+    return response
 
 
 @router.post("/api/text-search/query")

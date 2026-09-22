@@ -50,6 +50,32 @@ NET_DVR_SETSPEED = 24
 NET_DVR_PLAYBACK_BY_TIME = "hikvision_hcnetsdk_playback"
 NET_DVR_DOWNLOAD_BY_TIME = "hikvision_hcnetsdk_download"
 PLAYBACK_CALLBACK = CFUNCTYPE(None, c_long, c_uint32, POINTER(c_ubyte), c_uint32, c_void_p)
+# 回放流编码方式：h264 为默认（libx264 转码，兼容所有播放器）；
+# h265 为设备原码流直通（-c:v copy，现场 NVR 多为 smart265/HEVC，省去转码开销）
+CODEC_H264 = "h264"
+CODEC_H265 = "h265"
+PLAYBACK_CODECS = (CODEC_H264, CODEC_H265)
+
+
+def normalize_playback_codec(codec: str, speed: float = 1.0) -> str:
+    """校验并归一化回放编码方式。
+
+    Args:
+        codec: ``h264``（libx264 转码）或 ``h265``（原码流直通）。
+        speed: 回放倍速；H.265 直通无法改写时间戳，只支持等速。
+
+    Returns:
+        归一化后的编码名（缺省 ``h264``）。
+
+    Raises:
+        ValueError: 编码名非法，或 H.265 直通与非等速组合。
+    """
+    normalized = (codec or CODEC_H264).strip().lower()
+    if normalized not in PLAYBACK_CODECS:
+        raise ValueError(f"codec must be one of {PLAYBACK_CODECS}")
+    if normalized == CODEC_H265 and speed != 1.0:
+        raise ValueError("codec h265 passes the device bitstream through and only supports speed 1.0")
+    return normalized
 
 
 # SDK 点播回调为不限速取流（现场实测约 15MB/s ≈ 35 倍速），远高于 ffmpeg 按倍速的消费速率。
@@ -328,20 +354,23 @@ class HcNetSdkPlaybackProxy:
             logger.warning("failed to measure NVR clock skew for %s; assuming 0", self.host, exc_info=True)
             return 0.0
 
-    async def start_playback(self, recording: RecordingSegment, speed: float = 1.0) -> str:
+    async def start_playback(self, recording: RecordingSegment, speed: float = 1.0, codec: str = CODEC_H264) -> str:
         """Start (or reuse) an SDK playback session for the recording and return its public FLV URL."""
-        return await self.ensure_playback(recording, speed)
+        return await self.ensure_playback(recording, speed, codec)
 
-    async def ensure_playback(self, recording: RecordingSegment, speed: float = 1.0) -> str:
+    async def ensure_playback(
+        self, recording: RecordingSegment, speed: float = 1.0, codec: str = CODEC_H264
+    ) -> str:
         """Reuse the live session for the recording, or start one with oldest-first eviction.
 
         默认不限制并发会话数；配置上限后达到上限时逐出最早建立的会话。新建失败
         （NVR 会话数/带宽限制）时也会逐出最老会话后重试，保证新请求总能拿到流。
-        同一段录像倍速变化时先停掉旧会话再以新倍速起流。
+        同一段录像倍速或编码变化时先停掉旧会话再以新参数起流。
         """
+        codec = normalize_playback_codec(codec, speed)
         async with self._semaphore:
             await self._cleanup_expired_locked()
-            existing = self._find_live_session_locked(recording.recordingId, speed)
+            existing = self._find_live_session_locked(recording.recordingId, speed, codec)
             if existing is not None:
                 return existing.playback_url
             for stream_name, session in list(self._sessions.items()):
@@ -355,7 +384,7 @@ class HcNetSdkPlaybackProxy:
                 while self._max_live_sessions > 0 and len(self._sessions) >= self._max_live_sessions:
                     await self._stop_oldest_locked()
                 try:
-                    session = await asyncio.to_thread(self._start_session, recording, speed)
+                    session = await asyncio.to_thread(self._start_session, recording, speed, codec)
                 except (HcNetSdkError, TimeoutError) as exc:
                     last_error = exc
                     if self._sessions:
@@ -365,11 +394,14 @@ class HcNetSdkPlaybackProxy:
                 return session.playback_url
             raise last_error or HcNetSdkError("HCNetSDK playback failed")
 
-    def _find_live_session_locked(self, recording_id: str, speed: float = 1.0) -> PlaybackSession | None:
+    def _find_live_session_locked(
+        self, recording_id: str, speed: float = 1.0, codec: str = CODEC_H264
+    ) -> PlaybackSession | None:
         for session in self._sessions.values():
             if (
                 session.recording_id == recording_id
                 and session.speed == speed
+                and session.codec == codec
                 and not session.failed
                 and session.ffmpeg is not None
                 and session.ffmpeg.poll() is None
@@ -408,8 +440,12 @@ class HcNetSdkPlaybackProxy:
             session = self._sessions.pop(stream_name)
             await asyncio.to_thread(self._stop_session, session)
 
-    def _start_session(self, recording: RecordingSegment, speed: float = 1.0) -> PlaybackSession:
-        stream_name = f"hcn-{recording.recordingId[:12]}-{uuid4().hex[:8]}"
+    def _start_session(
+        self, recording: RecordingSegment, speed: float = 1.0, codec: str = CODEC_H264
+    ) -> PlaybackSession:
+        # 编码写进流名：同一段录像的 H.264/H.265 流互不覆盖，可按需并存
+        codec_tag = "h265" if codec == CODEC_H265 else "h264"
+        stream_name = f"hcn-{codec_tag}-{recording.recordingId[:12]}-{uuid4().hex[:8]}"
         playback_url = f"{self.zlm_public_http_url}/live/{stream_name}.live.flv"
         self._close_zlm_stream(stream_name)
         session = PlaybackSession(
@@ -429,6 +465,7 @@ class HcNetSdkPlaybackProxy:
             expires_at=time.monotonic() + max(self.ttl_seconds, 1),
             recording_id=recording.recordingId,
             speed=speed,
+            codec=codec,
         )
         try:
             session.start()
@@ -746,6 +783,8 @@ class PlaybackSession:
     recording_id: str = ""
     # 回放倍速：1 为等速；SDK 点播回调为不限速取流，倍速靠 ffmpeg 限速读取 + 时间戳压缩实现
     speed: float = 1.0
+    # 输出编码：h264（libx264 转码，兼容性最好）或 h265（原码流直通，仅等速）
+    codec: str = CODEC_H264
 
     def __post_init__(self) -> None:
         self.user_id = -1
@@ -781,21 +820,27 @@ class PlaybackSession:
         if self.speed != 1.0:
             # 压缩/拉伸时间戳让播放器按倍速渲染；fps=25 固定输出帧率
             args += ["-vf", f"setpts=PTS/{self.speed:g},fps=25"]
-        # 现场 NVR 多为 smart265/HEVC，FLV 直推 HEVC 时不支持 H.265 的播放器
-        # （无 HEVC 扩展的浏览器 MSE、flv.js 等）无法播放，任何倍速都必须转码
-        # H.264；禁止改回 -c:v copy
-        args += [
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
-            "-g",
-            "50",
-        ]
+        if self.codec == CODEC_H265:
+            # H.265 直通：不重编码，直接把设备原码流（smart265/HEVC）封进 FLV，
+            # 与实时预览 media_proxy 的 -c:v copy 路径一致。直通无法改写时间戳，
+            # 因此倍速由调用方在校验层拒绝（见 normalize_playback_codec）。
+            args += ["-c:v", "copy"]
+        else:
+            # 现场 NVR 多为 smart265/HEVC，FLV 直推 HEVC 时不支持 H.265 的播放器
+            # （无 HEVC 扩展的浏览器 MSE、flv.js 等）无法播放，任何倍速都必须转码
+            # H.264；默认编码（h264）禁止改回 -c:v copy
+            args += [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-pix_fmt",
+                "yuv420p",
+                "-g",
+                "50",
+            ]
         args += [
             "-f",
             "flv",

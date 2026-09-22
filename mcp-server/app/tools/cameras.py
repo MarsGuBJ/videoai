@@ -4,34 +4,39 @@ from ..context import mcp, settings, videoai
 from ..models import StreamResponse
 from ..xml_builder import build_camera_flow_xml, build_camera_list_xml
 
+DEFAULT_CAMERA_PAGE_SIZE = 20
+MAX_CAMERA_PAGE_SIZE = 200
+
 
 @mcp.tool()
-async def list_cameras() -> dict:
-    """List live cameras configured in VideoAI, excluding NVR-only recording channels. Returns JSON and XML output."""
+async def list_cameras(name: str = "", page: int = 1, pageSize: int = DEFAULT_CAMERA_PAGE_SIZE) -> dict:
+    """List live cameras configured in VideoAI, excluding NVR-only recording channels.
+    name filters cameras by a case-insensitive substring of the camera name; page/pageSize
+    paginate the result (page starts at 1). Each item returns id, status, url and name.
+    Returns JSON and XML output."""
     cameras = await videoai.list_cameras()
     live_cameras = [c for c in cameras if not _is_nvr_only_channel(c)]
-    items = []
-    for camera in live_cameras:
-        live_url = _public_url(camera.playbackUrl)
-        items.append(
-            {
-                "cameraId": camera.id,
-                "name": camera.name,
-                "status": camera.status,
-                "url": live_url,
-                "livePlaybackUrl": live_url,
-                "sourceUrl": camera.sourceUrl,
-                "nvrBinding": {
-                    "bound": camera.nvr_bound,
-                    "nvrId": camera.nvrId,
-                    "nvrChannel": camera.nvrChannel,
-                    "nvrTrackId": camera.nvrTrackId,
-                    "nvrStreamType": camera.nvrStreamType,
-                },
-            }
-        )
+    keyword = (name or "").strip().lower()
+    if keyword:
+        live_cameras = [c for c in live_cameras if keyword in (c.name or "").lower()]
+    page = max(1, int(page or 1))
+    page_size = max(1, min(int(pageSize or DEFAULT_CAMERA_PAGE_SIZE), MAX_CAMERA_PAGE_SIZE))
+    total = len(live_cameras)
+    offset = (page - 1) * page_size
+    items = [
+        {
+            "id": camera.id,
+            "status": camera.status,
+            "url": _public_url(camera.playbackUrl),
+            "name": camera.name,
+        }
+        for camera in live_cameras[offset : offset + page_size]
+    ]
     return {
         "data": items,
+        "total": total,
+        "page": page,
+        "pageSize": page_size,
         "xml": build_camera_list_xml(items),
     }
 

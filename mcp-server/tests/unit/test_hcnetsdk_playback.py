@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from app.hcnetsdk_playback import (
     NET_DVR_PLAYPAUSE,
     NET_DVR_PLAYRESTART,
@@ -15,6 +17,7 @@ from app.hcnetsdk_playback import (
     PlaybackSession,
     channels_from_device_info,
     device_channel_numbers,
+    normalize_playback_codec,
 )
 
 
@@ -32,6 +35,7 @@ class FakeSession:
     ffmpeg: FakeFfmpeg = field(default_factory=FakeFfmpeg)
     expires_at: float = field(default_factory=lambda: time.monotonic() + 1800)
     speed: float = 1.0
+    codec: str = "h264"
 
 
 def make_proxy() -> HcNetSdkPlaybackProxy:
@@ -114,7 +118,7 @@ def test_start_playback_keeps_one_existing_live_session(monkeypatch):
     def fake_stop_session(session):
         calls.append(("stop", session.stream_name))
 
-    def fake_start_session(recording, speed=1.0):
+    def fake_start_session(recording, speed=1.0, codec="h264"):
         calls.append(("start", recording.recordingId, speed))
         return FakeSession("new-1", "http://zlm/live/new-1.live.flv")
 
@@ -149,7 +153,7 @@ def test_start_playback_evicts_only_oldest_session_when_at_limit(monkeypatch):
     def fake_stop_session(session):
         calls.append(("stop", session.stream_name))
 
-    def fake_start_session(recording, speed=1.0):
+    def fake_start_session(recording, speed=1.0, codec="h264"):
         calls.append(("start", recording.recordingId, speed))
         return FakeSession("new-1", "http://zlm/live/new-1.live.flv", recording_id=recording.recordingId)
 
@@ -173,7 +177,7 @@ def test_start_playback_evicts_only_oldest_session_when_at_limit(monkeypatch):
     ]
 
 
-def make_playback_session(speed: float = 1.0) -> PlaybackSession:
+def make_playback_session(speed: float = 1.0, codec: str = "h264") -> PlaybackSession:
     return PlaybackSession(
         sdk=None,
         stream_name="hcn-test",
@@ -189,6 +193,7 @@ def make_playback_session(speed: float = 1.0) -> PlaybackSession:
         timeout=15,
         expires_at=time.monotonic() + 1800,
         speed=speed,
+        codec=codec,
     )
 
 
@@ -226,6 +231,35 @@ def test_ffmpeg_args_slow_motion_stretches_timestamps():
 
     assert args[args.index("-readrate") + 1] == "0.5"
     assert args[args.index("-vf") + 1] == "setpts=PTS/0.5,fps=25"
+
+
+def test_ffmpeg_args_h265_passes_device_bitstream_through():
+    """H.265 直通：原码流封进 FLV，不重编码、不加滤镜。"""
+    args = make_playback_session(codec="h265")._ffmpeg_args()
+
+    assert args[args.index("-c:v") + 1] == "copy"
+    assert "libx264" not in args
+    assert "-vf" not in args
+    assert "-pix_fmt" not in args
+    # 等速仍按实时节流推送
+    assert "-re" in args
+    assert args[-2:] == ["flv", "rtmp://zlm/live/hcn-test"]
+
+
+def test_normalize_playback_codec_defaults_to_h264():
+    assert normalize_playback_codec("") == "h264"
+    assert normalize_playback_codec("H265") == "h265"
+
+
+def test_normalize_playback_codec_rejects_h265_with_speed():
+    """直通无法改写时间戳，非等速必须显式报错而不是静默转码。"""
+    with pytest.raises(ValueError, match="h265"):
+        normalize_playback_codec("h265", speed=2.0)
+
+
+def test_normalize_playback_codec_rejects_unknown_codec():
+    with pytest.raises(ValueError, match="codec must be one of"):
+        normalize_playback_codec("av1")
 
 
 def make_flow_session(commands: list[int]) -> PlaybackSession:
@@ -353,9 +387,11 @@ def test_speed_change_restarts_session_with_new_speed(monkeypatch):
     def fake_stop_session(session):
         calls.append(("stop", session.stream_name))
 
-    def fake_start_session(recording, speed=1.0):
+    def fake_start_session(recording, speed=1.0, codec="h264"):
         calls.append(("start", recording.recordingId, speed))
-        return FakeSession("new-1", "http://zlm/live/new-1.live.flv", recording_id=recording.recordingId, speed=speed)
+        return FakeSession(
+            "new-1", "http://zlm/live/new-1.live.flv", recording_id=recording.recordingId, speed=speed, codec=codec
+        )
 
     monkeypatch.setattr(proxy, "_cleanup_expired_locked", fake_cleanup)
     monkeypatch.setattr(proxy, "_stop_session", fake_stop_session)
@@ -370,4 +406,41 @@ def test_speed_change_restarts_session_with_new_speed(monkeypatch):
 
     assert url == "http://zlm/live/new-1.live.flv"
     assert calls == [("stop", "old-1"), ("start", "rec-1", 4.0)]
+    assert "old-1" not in proxy._sessions
+
+
+def test_codec_change_restarts_session_with_h265_passthrough(monkeypatch):
+    """同一段录像请求 H.265 直通时不复用已有 H.264 会话，按新编码重新起流。"""
+    proxy = make_proxy()
+    proxy._sessions = {
+        "old-1": FakeSession("old-1", "http://zlm/live/old-1.live.flv", recording_id="rec-1", codec="h264"),
+    }
+    calls = []
+
+    async def fake_cleanup():
+        pass
+
+    def fake_stop_session(session):
+        calls.append(("stop", session.stream_name))
+
+    def fake_start_session(recording, speed=1.0, codec="h264"):
+        calls.append(("start", codec))
+        return FakeSession(
+            "new-1", "http://zlm/live/new-1.live.flv", recording_id=recording.recordingId, codec=codec
+        )
+
+    monkeypatch.setattr(proxy, "_cleanup_expired_locked", fake_cleanup)
+    monkeypatch.setattr(proxy, "_stop_session", fake_stop_session)
+    monkeypatch.setattr(proxy, "_start_session", fake_start_session)
+
+    recording = proxy.build_recording(
+        datetime(2026, 7, 16, 9, 0, tzinfo=timezone.utc),
+        datetime(2026, 7, 16, 9, 10, tzinfo=timezone.utc),
+    )
+    recording.recordingId = "rec-1"
+
+    url = asyncio.run(proxy.ensure_playback(recording, 1.0, "h265"))
+
+    assert url == "http://zlm/live/new-1.live.flv"
+    assert calls == [("stop", "old-1"), ("start", "h265")]
     assert "old-1" not in proxy._sessions

@@ -21,37 +21,21 @@ description: 视频查询与回放 skill：用于用户查询摄像头列表、�
 
 ### 1. list_cameras — 查询摄像头列表
 
-**无参数**。返回所有已配置摄像头及 NVR 绑定信息。
+**无参数**（可选 `name` 按名称子串过滤、`page`/`pageSize` 分页）。返回所有已配置摄像头；`sourceUrl`、NVR 绑定等字段已不再返回，需要时走 backend-lite 的 `/api/cameras` 接口。
 
 **XML 格式**：
 <sxin-camera-list count="2">
   <camera>
     <id>14a9a092-00e4-48db-8945-305f69d60d75</id>
-    <name>摄像头-65</name>
     <status>RUNNING</status>
-    <livePlaybackUrl>http://192.168.11.194:8082/live/cam65/hls.m3u8</livePlaybackUrl>
-    <sourceUrl>rtmp://localhost:1945/live/cam65</sourceUrl>
-    <nvrBinding>
-      <bound>true</bound>
-      <nvrId>cam65-nvr</nvrId>
-      <nvrChannel>1</nvrChannel>
-      <nvrTrackId>101</nvrTrackId>
-      <nvrStreamType>main</nvrStreamType>
-    </nvrBinding>
+    <url>http://192.168.11.194:8082/live/cam65/hls.m3u8</url>
+    <name>摄像头-65</name>
   </camera>
   <camera>
     <id>4e653058-16c5-4cc3-9422-b241a66c1238</id>
-    <name>摄像头-198</name>
     <status>RUNNING</status>
-    <livePlaybackUrl>http://192.168.11.194:8082/live/camera-1782139888691571790/hls.m3u8</livePlaybackUrl>
-    <sourceUrl>rtmp://localhost:1945/live/camera-1782139888691571790</sourceUrl>
-    <nvrBinding>
-      <bound>false</bound>
-      <nvrId/>
-      <nvrChannel/>
-      <nvrTrackId/>
-      <nvrStreamType/>
-    </nvrBinding>
+    <url>http://192.168.11.194:8082/live/camera-1782139888691571790/hls.m3u8</url>
+    <name>摄像头-198</name>
   </camera>
 </sxin-camera-list>
 
@@ -174,7 +158,7 @@ description: 视频查询与回放 skill：用于用户查询摄像头列表、�
 1. NVR 录像查询要求摄像头已配置 NVR 绑定（`nvrTrackId` 或 `nvrChannel`）
 2. 历史录像回放 URL 具有时效性（默认 300 秒），过期需重新调用 `get_recording_stream`
 3. 摄像头如无 SD 卡或 NAS 存储，`search_recordings` 将返回空列表
-4. XML 内容在响应的 `xml` 字段中，同时保留 `data` 字段的 JSON 结构化数据
+4. XML 内容在响应的 `xml` 字段中，同时保留 `data` 字段的 JSON 结构化数据；`xml` **不带** `<?xml ...?>` 声明，直接以 `<sxin-*>` 根元素开头
 
 ## Output Contract
 

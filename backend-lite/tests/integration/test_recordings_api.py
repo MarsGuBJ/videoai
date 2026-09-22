@@ -133,7 +133,7 @@ def test_search_unbound_camera_still_proxied(client: TestClient, monkeypatch: py
 
 
 def test_stream_happy_path(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """检索到录像后返回第一段录像的 /recording-live 按需回放链接（MCP 端 get_recording_stream 已移除）。"""
+    """检索到录像后返回第一段录像的 /recording-live 按需回放链接（倍速回放走该链接，不经 MCP get_recording_stream）。"""
     captured: list = []
     _fake_mcp_post(
         monkeypatch,

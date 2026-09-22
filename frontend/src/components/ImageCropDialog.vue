@@ -100,7 +100,7 @@ export default {
 </script>
 
 <template>
-  <div class="modal-mask image-crop-mask" :class="{ open: open }" :aria-hidden="open ? 'false' : 'true'" @click.self="closeDialog">
+  <div class="modal-mask image-crop-mask" :class="{ open: open }" :inert="!open" @click.self="closeDialog">
     <section class="modal-dialog image-crop-dialog" role="dialog" aria-modal="true" aria-labelledby="shared-image-crop-title">
       <div class="modal-head"><h3 id="shared-image-crop-title">{{ actionLabel }} · 框选目标</h3><button class="modal-close" aria-label="关闭" @click="closeDialog">×</button></div>
       <div class="modal-body image-crop-body">

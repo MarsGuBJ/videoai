@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     # 外部检索服务（内网默认值为历史约定，见 .env.example）
     person_api_base_url: str = "http://10.10.3.100:15501"
     retrieve_api_base_url: str = "http://10.10.3.100:15000"
+    # 图搜图结果图片的 ES 文档查询接口（/api/v1/queries/es-documents/by-ids），现场按实际部署覆盖
+    es_document_api_base_url: str = "http://10.10.3.100:15010"
     video_analysis_api_base_url: str = "http://10.10.3.100:8780"
     mcp_server_base_url: str = "http://192.168.11.194:8097"
     # MinIO（文搜视频：本地视频上传后供分析服务拉取；默认值与 mcp-server 侧一致）
@@ -132,6 +134,7 @@ class Settings(BaseSettings):
     @field_validator(
         "person_api_base_url",
         "retrieve_api_base_url",
+        "es_document_api_base_url",
         "video_analysis_api_base_url",
         "mcp_server_base_url",
         "backend_public_url",

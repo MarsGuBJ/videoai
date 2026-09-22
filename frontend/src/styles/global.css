@@ -1187,6 +1187,15 @@
       cursor: pointer;
     }
 
+    /* 文搜图/图搜图等检索页：搜索栏抬到结果卡片之上。
+       结果卡片是 position:relative，绘制层级高于 static 的搜索面板，
+       面板内的区域/时间段下拉会被结果列表盖住，这里显式给搜索面板建立
+       更高的层叠上下文，保证下拉菜单完整可见 */
+    .search-experience-page > .search-panel {
+      position: relative;
+      z-index: 20;
+    }
+
     /* 文搜图/图搜图搜索条件：所有控件单行排列、占满全宽 */
     .search-filter-row {
       display: flex;
@@ -4768,9 +4777,10 @@
 
     .exact-tree-list {
       display: grid;
-      gap: 4px;
-      /* 列表被页面 flex 规则撑高时，行保持固有高度向上对齐，不随容器拉伸 */
+      /* 单列网格默认 align-content: stretch，列表容器被 flex 撑满高度时
+         每个区域行会被拉伸，收起状态顶层节点之间出现大片空白，改为顶端紧凑排布 */
       align-content: start;
+      gap: 4px;
     }
 
     .exact-tree-item {
@@ -8632,6 +8642,17 @@
       }
     }
 
+    /* 实时预览 / 录像回放页：页面主体是大面积视频画面，背景装饰层
+       （workspace::before 的 12s 光带扫描 + workspace::after 的 6s 圆环缩放）
+       会让整个内容区持续重绘，观感上像页面在反复刷新。这两页把装饰动画停掉，
+       只保留静态背景（画面对比敏感，其它页面不受影响）。 */
+    main.workspace:has(.media-preview-page)::before,
+    main.workspace:has(.media-preview-page)::after,
+    main.workspace:has(.media-playback-page)::before,
+    main.workspace:has(.media-playback-page)::after {
+      animation: none;
+    }
+
     .access-protocol-tabs {
       display: flex;
       align-items: flex-end;
@@ -10504,10 +10525,16 @@
       position: absolute;
       inset: -5px;
       z-index: -1;
-      border: 1px solid rgba(22, 119, 255, .28);
+      border: 1px solid rgba(22, 119, 255, .22);
       border-radius: 50%;
       content: "";
-      animation: sxin-fab-pulse 2.8s ease-out infinite;
+    }
+
+    /* 悬浮球外圈原先用 2.8s 脉冲扩散动画，实测在实时预览/录像回放等视频页
+       每帧产生约 2000+ 像素变化，观感上像整页在反复刷新，已改为静态光晕；
+       悬停时用过渡放大外圈作为反馈，保留可点击的视觉提示 */
+    .sxin-fab {
+      transition: transform .2s ease, box-shadow .2s ease;
     }
 
     .sxin-fab:hover {
@@ -10515,9 +10542,10 @@
       box-shadow: 0 16px 34px rgba(22, 119, 255, .46), inset 4px 4px 10px rgba(255, 255, 255, .3), inset -5px -7px 12px rgba(8, 54, 142, .3);
     }
 
-    @keyframes sxin-fab-pulse {
-      0%, 58%, 100% { opacity: .8; transform: scale(.92); }
-      76% { opacity: 0; transform: scale(1.18); }
+    .sxin-fab:hover::after {
+      opacity: .55;
+      transform: scale(1.12);
+      transition: opacity .2s ease, transform .2s ease;
     }
 
     .sxin-fab-mark {

@@ -47,7 +47,7 @@ export default {
 </script>
 
 <template>
-  <div class="drawer-mask" :class="{ open: drawer.open }" :aria-hidden="drawer.open ? 'false' : 'true'" @click.self="$emit('close')">
+  <div class="drawer-mask" :class="{ open: drawer.open }" :inert="!drawer.open" @click.self="$emit('close')">
     <aside class="drawer" aria-label="详情抽屉">
       <div class="drawer-head">
         <h3>{{ drawer.title }}</h3>

@@ -1,4 +1,7 @@
-"""XML response builder for VideoAI MCP server — attribute-based format."""
+"""XML response builder for VideoAI MCP server — attribute-based format.
+
+所有 build_* 返回的 ``xml`` 字符串都不含 ``<?xml ...?>`` 声明，根元素直接开头。
+"""
 
 import xml.dom.minidom
 from datetime import datetime
@@ -22,16 +25,12 @@ def build_camera_list_xml(cameras: list[dict]) -> str:
     root.set("count", str(len(cameras)))
     for cam in cameras:
         c = SubElement(root, "camera")
-        c.set("id", _attr(cam.get("cameraId")))
-        c.set("name", _attr(cam.get("name")))
+        c.set("id", _attr(cam.get("id")))
         c.set("status", _attr(cam.get("status")))
         c.set("url", _attr(cam.get("url")))
-        c.set("livePlaybackUrl", _attr(cam.get("livePlaybackUrl")))
-        c.set("sourceUrl", _attr(cam.get("sourceUrl")))
-        binding = cam.get("nvrBinding", {})
-        c.set("nvrBinding", _attr(binding.get("bound", False)))
+        c.set("name", _attr(cam.get("name")))
         c.text = "\n  "
-    return _xml_declaration() + _pretty(root)
+    return _pretty(root)
 
 
 def build_camera_flow_xml(data: dict) -> str:
@@ -48,7 +47,7 @@ def build_camera_flow_xml(data: dict) -> str:
     root.set("cameraId", _attr(meta.get("cameraId")))
     root.set("cameraName", _attr(meta.get("cameraName")))
     root.set("status", _attr(meta.get("status")))
-    return _xml_declaration() + _pretty(root)
+    return _pretty(root)
 
 
 def build_video_list_xml(recordings: list[dict]) -> str:
@@ -75,7 +74,7 @@ def build_video_list_xml(recordings: list[dict]) -> str:
         meta = rec.get("metadata", {})
         r.set("nvrId", _attr(meta.get("nvrId")))
         r.text = "\n  "
-    return _xml_declaration() + _pretty(root)
+    return _pretty(root)
 
 
 def build_video_file_xml(data: dict) -> str:
@@ -84,6 +83,7 @@ def build_video_file_xml(data: dict) -> str:
     root.set("url", _attr(data.get("url")))
     root.set("format", _attr(data.get("format")))
     root.set("source", _attr(data.get("source")))
+    root.set("codec", _attr(data.get("codec") or data.get("metadata", {}).get("codec")))
     expires = data.get("expiresAt")
     if isinstance(expires, datetime):
         expires = expires.isoformat()
@@ -101,7 +101,7 @@ def build_video_file_xml(data: dict) -> str:
     if isinstance(end, datetime):
         end = end.isoformat()
     root.set("endTime", _attr(end))
-    return _xml_declaration() + _pretty(root)
+    return _pretty(root)
 
 
 def build_dino_event_list_xml(events: list[dict]) -> str:
@@ -121,20 +121,20 @@ def build_dino_event_list_xml(events: list[dict]) -> str:
         item.set("eventImage", _attr(event.get("eventImage")))
         item.set("eventDescription", _attr(event.get("eventDescription")))
         item.text = "\n  "
-    return _xml_declaration() + _pretty(root)
+    return _pretty(root)
 
 
 def _pretty(element: Element) -> str:
-    """Return pretty-printed XML string with indentation (no declaration)."""
+    """Return pretty-printed XML string with indentation (no declaration).
+
+    返回值刻意不带 ``<?xml ...?>`` 声明：响应的 ``xml`` 字段要求可直接拼接/内嵌，
+    声明由消费方自行按需添加。
+    """
     raw = tostring(element, encoding="unicode")
     # 输入为本地构造的 XML，非外部不可信数据
     dom = xml.dom.minidom.parseString(raw)  # noqa: S318
-    # Remove extra XML declaration from minidom
+    # minidom 的 toprettyxml 会自带 XML 声明，这里去掉
     result = dom.toprettyxml(indent=" ")
     if result.startswith("<?xml"):
         result = result[result.index("?>") + 2 :].lstrip("\n")
     return result
-
-
-def _xml_declaration() -> str:
-    return '<?xml version="1.0" encoding="UTF-8"?>\n'

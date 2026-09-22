@@ -101,10 +101,10 @@ HIKVISION_NVR_PASSWORD=change-me
 
 可用 MCP tools：
 
-- `list_cameras`：查询摄像头列表、实时视频流 URL 和 NVR 绑定信息。
+- `list_cameras`：查询摄像头列表，支持 `name` 模糊过滤与 `page`/`pageSize` 分页，返回摄像头 ID、名称、状态和实时流 URL。
 - `get_live_stream`：返回摄像头实时播放 URL。
 - `search_recordings`：按时间区间使用 HCNetSDK 回调推流，返回 `192.168.11.198` 通道 1 的 FLV 回放流 URL。
-- `get_recording_stream`：把历史录像通过代理转为短期 FLV/HLS 播放 URL，默认返回 FLV。
+- `get_recording_stream`：**仅 HTTP 兼容接口**（`POST /get_recording_stream-http`，未注册为 MCP tool）；把 `search_recordings` 缓存过的录像段转为短期 **H.265 直通**播放 URL，只支持等速。
 - `download_recording`：按时间区间使用 `NET_DVR_GetFileByTime` 下载 `192.168.11.198` 通道 1 录像，转为 MP4 后保存到 MinIO，并返回 MP4 文件 URL。
 - `upload_face_image`：通过图片 URL 上传人脸照片到人脸库，并创建默认开启的人脸布控任务。
 - `detect_persons`：调用人员检测接口，返回图片中的行人 bbox。

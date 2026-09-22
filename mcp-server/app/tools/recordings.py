@@ -1,7 +1,7 @@
 """Recording search, playback and download MCP tools."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlparse
 
 from ..context import (
@@ -21,8 +21,13 @@ from ..context import (
     settings,
     videoai,
 )
-from ..hcnetsdk_playback import HcNetSdkPlaybackProxy
-from ..models import Camera, RecordingSegment
+from ..hcnetsdk_playback import (
+    CODEC_H265,
+    NET_DVR_PLAYBACK_BY_TIME,
+    HcNetSdkPlaybackProxy,
+    normalize_playback_codec,
+)
+from ..models import Camera, RecordingSegment, StreamResponse
 from ..nvr_devices import resolve_device_channel, resolve_device_credentials, search_segments
 from ..recording_export import (
     MAX_EXPORT_DURATION_SECONDS,
@@ -32,7 +37,7 @@ from ..recording_export import (
     export_recording_via_downloader,
     export_recording_via_sdk_download,
 )
-from ..xml_builder import build_video_list_xml
+from ..xml_builder import build_video_file_xml, build_video_list_xml
 
 # download_recording 的 speedx 可选值：1 为默认（不下发流控），其余映射 NET_DVR_SETSPEED 的 Mbps 流控值
 ALLOWED_DOWNLOAD_SPEEDS = (1, 2, 4, 8, 16, 32)
@@ -236,6 +241,74 @@ def dynamic_recording_url(start: datetime, end: datetime) -> str:
 
 # 现场海康 NVR（10.10.7.252/253）RTSP 回放 Scale 实测支持的倍速档位
 PLAYBACK_SPEEDS = (0.25, 0.5, 1, 2, 4, 8, 16, 32)
+
+
+async def get_recording_stream(recordingId: str, format: str = "flv", speed: float = 1.0) -> dict:
+    """为缓存中的录像段起流，返回 **H.265** 播放地址。
+
+    **只作为 HTTP 兼容接口暴露（``POST /get_recording_stream-http``），不注册为 MCP tool。**
+
+    编码走 H.265 直通：直接把设备原码流（现场 NVR 多为 smart265/HEVC）封进 FLV，不做
+    libx264 转码，省去实时转码开销、保留设备原画质。直通无法改写时间戳，因此只支持等速
+    ``speed=1.0``；播放端需支持 HEVC（前端用 mpegts.js + 浏览器 HEVC MSE，flv.js 不支持）。
+
+    Args:
+        recordingId: ``search_recordings`` 返回并缓存过的录像段 ID。
+        format: 非 SDK 源（RTSP 转发）的输出容器，``flv`` 或 ``hls``；SDK 源固定 FLV。
+        speed: 回放倍速。H.265 直通仅支持 1.0，其它档位报 ValueError。
+
+    Returns:
+        ``StreamResponse`` 字典（url/format/expiresAt/source/metadata）加 ``xml`` 与 ``input``。
+
+    Raises:
+        ValueError: recordingId 未知或已过期、倍速不受支持、H.265 与非等速组合。
+    """
+    if speed not in PLAYBACK_SPEEDS:
+        raise ValueError(f"unsupported playback speed: {speed}; supported: {PLAYBACK_SPEEDS}")
+    codec = normalize_playback_codec(CODEC_H265, speed)
+    recording = recording_cache.get(recordingId)
+    if recording is None:
+        raise ValueError("recordingId is unknown or expired; call search_recordings again")
+    if recording.source == NET_DVR_PLAYBACK_BY_TIME:
+        proxy = await resolve_playback_proxy(recording)
+        url = await proxy.ensure_playback(recording, speed, codec)
+        playback_format = "flv"
+    else:
+        playback_format = normalize_playback_format(format)
+        # H.265 直通不重编码，无法叠加回放水印（overlay 需要 libx264 滤镜）
+        url = await media_proxy.start_rtsp_relay(
+            recording.recordingId,
+            recording.playbackUri,
+            playback_format,
+            overlay_text="",
+            fallback_file=settings.recording_fallback_file,
+        )
+    response = StreamResponse(
+        url=url,
+        format=playback_format,
+        expiresAt=datetime.now(timezone.utc) + timedelta(seconds=settings.playback_ttl_seconds),
+        source=recording.source,
+        metadata=dict(recording_metadata(recording), codec=codec),
+    )
+    data = response.model_dump(mode="json")
+    data["xml"] = build_video_file_xml(data)
+    data["input"] = {"recordingId": recordingId, "format": format, "speed": speed, "codec": codec}
+    return data
+
+
+async def resolve_playback_proxy(recording: RecordingSegment) -> HcNetSdkPlaybackProxy:
+    """Route an SDK playback recording to its device's proxy.
+
+    cameraId 路径检索出的录像（metadata.deviceHost 存在且非单例回放设备）按 recording.cameraId
+    再查一次摄像头，经 resolve_device_credentials（含 IPC→NVR 反查）路由到 nvr_devices 中对应
+    NVR 的 per-device 代理；其余走单例 hcnetsdk_playback。
+    """
+    device_host = str(recording.metadata.get("deviceHost") or "")
+    if not device_host or device_host == hcnetsdk_playback.host:
+        return hcnetsdk_playback
+    camera = await videoai.get_camera(recording.cameraId)
+    credentials = await resolve_device_credentials(camera, channel_lookup, known_nvr_hosts)
+    return nvr_devices.proxy_for_credentials(credentials)
 
 
 @mcp.tool()

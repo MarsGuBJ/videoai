@@ -22,6 +22,8 @@ from .tools import (
     get_live_stream,
     get_person_bbox,
     get_person_search_result,
+    # get_recording_stream 只暴露 HTTP 兼容接口，未注册为 MCP tool（见 tools/recordings.py）
+    get_recording_stream,
     list_cameras,
     query_face_matches,
     search_person_by_bbox,
@@ -44,6 +46,8 @@ def register_http_tool_routes() -> None:
         "list_cameras": list_cameras,
         "get_live_stream": get_live_stream,
         "search_recordings": search_recordings,
+        # HTTP 兼容接口：返回 H.265 直通回放流；刻意不注册为 MCP tool
+        "get_recording_stream": get_recording_stream,
         "download_recording": download_recording,
         "export_recording": export_recording,
         "video_understanding": video_understanding,
