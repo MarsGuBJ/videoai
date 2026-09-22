@@ -1713,7 +1713,7 @@ export default {
           <div v-if="recordDownloadUrl" class="modal-form-row"><label>下载链接：</label><a :href="recordDownloadUrl" download>点击下载录像 MP4</a></div>
         </template>
         <template v-if="modal.type === 'recordEmpty'">
-          <p class="modal-hint">设备「{{ recordEmptyCameraName }}」在 {{ recordEmptyRangeText }} 时段内没有查询到录像。可能是该设备未开启录像计划、录像已过保留期被覆盖，或所选时段内没有录像数据。请确认设备录像配置，或调整查询时间范围后重试。</p>
+          <p class="modal-hint">设备「{{ recordEmptyCameraName }}」在 {{ recordEmptyRangeText }} 时段内没有查询到录像。可能是该设备未开启录像计划、未配置录像存储，或所选时段内没有录像数据（录像也可能已过保留期被覆盖）。请确认设备录像配置，或调整查询时间范围后重试。</p>
         </template>
       </div>
       <div class="modal-footer">

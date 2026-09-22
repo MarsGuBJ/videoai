@@ -113,6 +113,19 @@ function parseLocalMs(value?: string): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
+// “查询不到录像”类错误：后端在设备未绑定 NVR / 反查不到录像通道 / 该时段无录像时
+// 返回的报错（多为英文技术描述），页面统一按“查询不到录像”处理，不把原始报错展示给用户
+const RECORDING_UNAVAILABLE_PATTERNS: RegExp[] = [
+  /not bound to an NVR/i,
+  /reverse lookup missed/i,
+  /known NVR\/CVR input channel/i,
+  /录像/
+];
+
+function isRecordingUnavailable(message: string): boolean {
+  return RECORDING_UNAVAILABLE_PATTERNS.some((pattern) => pattern.test(message || ""));
+}
+
 // 参考站（iSecure Center）回放工具栏倍速档位
 const SPEED_LEVELS = [0.25, 0.5, 1, 2, 4];
 
@@ -340,10 +353,16 @@ export default defineComponent({
         const offset = Math.max(0, Math.round((pending.startMs - this.rangeStartMs) / 1000));
         this.startPlaybackAt(offset);
       } catch (error) {
-        // 摄像头不存在（404）/未绑定 NVR（400）等，直接展示后端错误消息
         this.searched = true;
-        this.searchError = error instanceof Error ? error.message : String(error);
-        this.showToast(`录像查询失败：${this.searchError}`);
+        const message = error instanceof Error ? error.message : String(error);
+        // 设备未绑定 NVR / 反查不到录像通道 / 该时段无录像：统一弹友好提示，不暴露后端原始报错；
+        // 其它错误（摄像头已删除、网络异常等）仍按原样展示，便于排查
+        if (isRecordingUnavailable(message)) {
+          this.openRecordEmptyModal();
+        } else {
+          this.searchError = message;
+          this.showToast(`录像查询失败：${message}`);
+        }
       } finally {
         this.searching = false;
       }
@@ -410,10 +429,16 @@ export default defineComponent({
           return;
         }
       } catch (error) {
-        // 摄像头不存在（404）/未绑定 NVR（400）等，直接展示后端错误消息
         this.searched = true;
-        this.searchError = error instanceof Error ? error.message : String(error);
-        this.showToast(`录像查询失败：${this.searchError}`);
+        const message = error instanceof Error ? error.message : String(error);
+        // 设备未绑定 NVR / 反查不到录像通道 / 该时段无录像：统一弹友好提示，不暴露后端原始报错；
+        // 其它错误（摄像头已删除、网络异常等）仍按原样展示，便于排查
+        if (isRecordingUnavailable(message)) {
+          this.openRecordEmptyModal();
+        } else {
+          this.searchError = message;
+          this.showToast(`录像查询失败：${message}`);
+        }
       } finally {
         this.searching = false;
       }
