@@ -102,7 +102,8 @@ MCP Server 依赖以下服务：
 | `HCNETSDK_CHANNEL` | `1` | 默认录像通道。 |
 | `HCNETSDK_MAX_LIVE_SESSIONS` | `0` | 每台设备同时保持的 SDK 回放会话上限；`0` 表示不限制。仅为 NVR 回放并发受限的特定部署环境（如 demo 环境）设置，例如 `2`。 |
 | `HCNETSDK_DEVICE_PORT` | `8000` | cameraId 多 NVR 路径下各摄像头绑定设备的 HCNetSDK 端口。 |
-| `HCNETSDK_DOWNLOAD_NVR_HOSTS` | `10.10.7.252,10.10.7.253` | `download_recording` 允许选择的 NVR 名称/IP，使用逗号分隔。 |
+| `HCNETSDK_DOWNLOAD_NVR_HOSTS` | 按部署网段 | `download_recording` 允许选择的 NVR 名称/IP，使用逗号分隔。置空（或不设置）时按 MCP 对外基址（`VIDEOAI_MCP_PUBLIC_BASE_URL`）的网段自动选择：10 网段 → `10.10.7.252,10.10.7.253`，172 网段 → 空（只用 CVR）；未知网段兜底为 `10.10.7.252,10.10.7.253`。新环境在 `app/settings.py` 的 `_ENV_DEVICE_DEFAULTS` 追加映射。 |
+| `CVR_HOSTS` | 按部署网段 | CVR 中心存储集群地址，逗号分隔。置空（或不设置）时按部署网段自动选择：10 网段 → 空，172 网段 → `172.21.200.21,172.21.200.22,172.21.200.23`；未知网段兜底同 172 网段。 |
 | `HCNETSDK_DOWNLOAD_PORT` | `8000` | 录像下载设备的 HCNetSDK 端口。 |
 | `HCNETSDK_DOWNLOAD_USERNAME` | `admin` | 录像下载设备共用的登录用户名。 |
 | `HCNETSDK_DOWNLOAD_PASSWORD` | 空 | 录像下载设备共用的登录密码，必须通过部署环境配置。 |
@@ -240,7 +241,7 @@ MCP Server 依赖以下服务：
 
 - **传 `cameraId`（多 NVR 路径）**：先通过视频平台接口查询摄像头，随后定位其所属 NVR：
   - 摄像头 `sourceUrl`（形如 `rtsp://user:pass@<nvrIP>:554/Streaming/Channels/101`）指向已知 NVR（`HCNETSDK_HOST` 或 `HCNETSDK_DOWNLOAD_NVR_HOSTS` 中的主机）时，用内嵌账号密码对该设备做 ISAPI 录像检索（`POST /ISAPI/ContentMgmt/search`，Digest 认证）；SDK 回放通道优先取 `nvrChannel`，否则由 `nvrTrackId` 换算（如 `201`→通道 `2`）。
-  - `sourceUrl` 直连 IPC 时（录像实际存储在某台 NVR 上），对 `HCNETSDK_DOWNLOAD_NVR_HOSTS` 中的每台 NVR 拉取 `GET /ISAPI/ContentMgmt/InputProxy/channels` 输入代理通道列表，按源 IPC 地址反查所属 NVR 与真实通道号（平台 `nvrTrackId` 对直连 IPC 可能是批量导入的脏数据，不作准；映射整体缓存 10 分钟，凭据用 `HCNETSDK_DOWNLOAD_USERNAME`/`HCNETSDK_DOWNLOAD_PASSWORD`）。反查未命中时回退按 `sourceUrl` 主机直连处理，仍未绑定 NVR（`nvrTrackId`/`nvrChannel` 均空）时报 400/ValueError。
+  - `sourceUrl` 直连 IPC 时（录像实际存储在某台 NVR 上），对 `HCNETSDK_DOWNLOAD_NVR_HOSTS` 与 `CVR_HOSTS` 中的每台设备（两者默认值均按部署网段自动选择，见环境变量表）拉取 `GET /ISAPI/ContentMgmt/InputProxy/channels` 输入代理通道列表，按源 IPC 地址反查所属 NVR 与真实通道号（平台 `nvrTrackId` 对直连 IPC 可能是批量导入的脏数据，不作准；映射整体缓存 10 分钟，凭据用 `HCNETSDK_DOWNLOAD_USERNAME`/`HCNETSDK_DOWNLOAD_PASSWORD`，CVR 用 `CVR_USERNAME`/`CVR_PASSWORD`）。反查未命中时回退按 `sourceUrl` 主机直连处理，仍未绑定 NVR（`nvrTrackId`/`nvrChannel` 均空）时报 400/ValueError。
   - 每个检索命中映射为一条录像段。设备无录像时返回空列表；设备不可达或认证失败时报错。SDK 端口默认 `8000`，可用环境变量 `HCNETSDK_DEVICE_PORT` 覆盖。
 - **不传 `cameraId`（单设备路径，保持原有行为）**：`trackId` 参数会被忽略，实际回放设备与通道由 `HCNETSDK_HOST`/`HCNETSDK_PORT`/`HCNETSDK_CHANNEL` 等环境变量决定，固定返回 1 条结果。
 
@@ -762,11 +763,13 @@ HCNETSDK_USERNAME=admin
 HCNETSDK_PASSWORD=cisdi123
 HCNETSDK_CHANNEL=1
 HCNETSDK_MAX_LIVE_SESSIONS=0
-HCNETSDK_DOWNLOAD_NVR_HOSTS=10.10.7.252,10.10.7.253
+HCNETSDK_DOWNLOAD_NVR_HOSTS=
 HCNETSDK_DOWNLOAD_PORT=8000
 HCNETSDK_DOWNLOAD_USERNAME=admin
 HCNETSDK_DOWNLOAD_PASSWORD=change-me
 HCNETSDK_DOWNLOAD_CHANNEL=1
+# 置空时按部署网段自动选择（10 网段 → NVR 10.10.7.252/253；172 网段 → CVR 172.21.200.21/22/23）
+CVR_HOSTS=
 MINIO_ENDPOINT=192.168.11.194
 MINIO_PORT=9000
 MINIO_USE_SSL=false
