@@ -12,7 +12,7 @@ MAX_CAMERA_PAGE_SIZE = 200
 async def list_cameras(name: str = "", page: int = 1, pageSize: int = DEFAULT_CAMERA_PAGE_SIZE) -> dict:
     """List live cameras configured in VideoAI, excluding NVR-only recording channels.
     name filters cameras by a case-insensitive substring of the camera name; page/pageSize
-    paginate the result (page starts at 1). Each item returns id, status, url and name.
+    paginate the result (page starts at 1). Each item returns id, url and name.
     Returns JSON and XML output."""
     cameras = await videoai.list_cameras()
     live_cameras = [c for c in cameras if not _is_nvr_only_channel(c)]
@@ -26,7 +26,6 @@ async def list_cameras(name: str = "", page: int = 1, pageSize: int = DEFAULT_CA
     items = [
         {
             "id": camera.id,
-            "status": camera.status,
             "url": _public_url(camera.playbackUrl),
             "name": camera.name,
         }

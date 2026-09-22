@@ -34,7 +34,7 @@ def install_fake_cameras(monkeypatch, cameras):
     monkeypatch.setattr("app.tools.cameras._public_url", lambda url: f"https://video.example{url}")
 
 
-def test_list_cameras_returns_id_status_url_name_and_excludes_nvr_only(monkeypatch):
+def test_list_cameras_returns_id_url_name_and_excludes_nvr_only(monkeypatch):
     install_fake_cameras(
         monkeypatch,
         [
@@ -57,15 +57,17 @@ def test_list_cameras_returns_id_status_url_name_and_excludes_nvr_only(monkeypat
     assert result["page"] == 1
     assert len(result["data"]) == 1
     item = result["data"][0]
+    # 摄像头状态（拉流状态）不再对外返回，避免智能体/界面展示 STOPPED 造成误解
     assert item == {
         "id": "cam-1",
-        "status": "RUNNING",
         "url": "https://video.example/live/cam-1.live.flv",
         "name": "园区摄像头",
     }
+    assert "status" not in item
     assert "录像通道" not in result["xml"]
     assert 'id="cam-1"' in result["xml"]
     assert 'url="https://video.example/live/cam-1.live.flv"' in result["xml"]
+    assert "status" not in result["xml"]
 
 
 def test_list_cameras_filters_by_name_fuzzy_case_insensitive(monkeypatch):
