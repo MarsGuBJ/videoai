@@ -18,7 +18,7 @@
     </div>
 
     <!-- 与文搜图页一致的占位区域：确认视频源前提示操作路径 -->
-    <div v-if="!sourceConfirmed" class="search-empty-state exact-source-empty"><strong>暂无搜索结果</strong><strong>选择在线监控点或上传本地视频后，点击「搜索回放」</strong></div>
+    <div v-if="!sourceConfirmed" class="search-empty-state exact-source-empty"><img :src="emptyBg" alt="" class="search-empty-illustration" /><strong>暂无搜索结果</strong><strong>选择在线监控点或上传本地视频后，点击「搜索回放」</strong></div>
 
     <div v-if="sourceConfirmed" class="exact-analysis-shell">
     <div class="exact-analysis-layout">
@@ -278,6 +278,7 @@ import ImageCropDialog from "../components/ImageCropDialog.vue";
 import ImageResults from "../components/ImageResults.vue";
 import DateTimeRangePicker from "../components/DateTimeRangePicker.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
+import emptyBg from "../assets/empty_bg.png";
 import { api, assetUrl, videoAnalysisFrameUrl } from "../api";
 import type { PersonSearchBboxPoint, SimilarPersonResult } from "../api";
 import type { DeploymentTaskCreate } from "../types";
@@ -561,6 +562,7 @@ export default defineComponent({
   data() {
     const lastLocalVideo = this.store && this.store.lastLocalVideo ? this.store.lastLocalVideo : {};
     return {
+      emptyBg,
       sourceMode: "online",
       selectedArea: null,
       selectedCamera: null,

@@ -1224,7 +1224,8 @@
     .search-empty-state {
       display: grid;
       place-items: center;
-      gap: 7px;
+      place-content: center;
+      gap: 8px;
       min-height: 260px;
       border: 1px dashed #c9d0db;
       border-radius: 6px;
@@ -2033,12 +2034,17 @@
       display: grid;
       min-height: 308px;
       place-items: center;
+      place-content: center;
       border: 1px dashed #c9d0db;
       border-radius: 6px;
       background: #fbfcfe;
       color: #98a2b3;
       text-align: center;
       line-height: 1.7;
+    }
+
+    .track-empty .search-empty-illustration {
+      margin-bottom: 10px;
     }
 
     .map-board {
@@ -2508,12 +2514,17 @@
       display: grid;
       min-height: 308px;
       place-items: center;
+      place-content: center;
       border: 1px dashed #c9d0db;
       border-radius: 6px;
       background: #fbfcfe;
       color: #98a2b3;
       text-align: center;
       line-height: 1.7;
+    }
+
+    .track-empty .search-empty-illustration {
+      margin-bottom: 10px;
     }
 
     .map-board {
@@ -3534,6 +3545,42 @@
       max-height: 460px;
       object-fit: contain;
       pointer-events: none;
+    }
+
+    .image-crop-transform {
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    .image-crop-stage.mode-zoom {
+      cursor: grab;
+    }
+
+    .image-crop-stage.mode-zoom.panning {
+      cursor: grabbing;
+    }
+
+    .image-crop-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .image-crop-mode-btn {
+      padding: 5px 16px;
+      border: 1px solid #d0d9e7;
+      border-radius: 4px;
+      background: #fff;
+      color: #344054;
+      font-size: 13px;
+      line-height: 20px;
+      cursor: pointer;
+    }
+
+    .image-crop-mode-btn.active {
+      border-color: #20b7d5;
+      background: #20b7d5;
+      color: #fff;
     }
 
     .image-crop-selection {
@@ -5271,6 +5318,12 @@
     .exact-source-empty {
       margin-top: 20px;
       flex: 1 1 auto;
+    }
+
+    .search-empty-illustration {
+      width: 220px;
+      max-width: 60%;
+      margin-bottom: 4px;
     }
 
     .exact-left-workspace {

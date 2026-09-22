@@ -45,3 +45,7 @@ tmp-verify/
 ~$*
 .venv/
 *.db
+
+# 本地环境脚本（每台机器配置不同，不随仓库分发）
+scripts/check-github.sh
+scripts/setup-repo-deploy-key.sh

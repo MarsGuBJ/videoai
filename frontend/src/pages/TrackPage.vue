@@ -57,7 +57,7 @@
               </article>
             </div>
           </div>
-          <div class="track-empty" v-else>点击左侧“搜索候选图片”，系统将使用搜索结果直接生成轨迹图。</div>
+          <div class="track-empty" v-else><img :src="emptyBg" alt="" class="search-empty-illustration" />点击左侧“搜索候选图片”，系统将使用搜索结果直接生成轨迹图。</div>
         </div>
       </div>
       <div v-if="searching" class="search-loading-mask" @click.stop><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索候选图片，请稍候...</p></div></div>
@@ -76,6 +76,7 @@ import { api, assetUrl } from "../api";
 import type { PersonSearchBboxPoint, PersonSearchResultResponse, SimilarPersonResult } from "../api";
 import ImageCropDialog from "../components/ImageCropDialog.vue";
 import DateTimeRangePicker from "../components/DateTimeRangePicker.vue";
+import emptyBg from "../assets/empty_bg.png";
 import { cropImageToFile, cropToPixelBbox } from "../utils/person-search";
 import type { ImageCropSelection } from "../utils/person-search";
 
@@ -158,6 +159,7 @@ export default defineComponent({
   },
   data() {
     return {
+      emptyBg,
       searched: false,
       searching: false,
       trackGenerated: false,

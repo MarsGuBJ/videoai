@@ -159,7 +159,6 @@ MCP Server 依赖以下服务：
   "data": [
     {
       "id": "6f1d3f34-7ab1-4d7e-9f1e-f3d0a7b9c101",
-      "status": "RUNNING",
       "url": "http://192.168.11.194:81/live/camera1.live.flv",
       "name": "Gate Camera"
     }
@@ -177,7 +176,6 @@ MCP Server 依赖以下服务：
 | --- | --- | --- |
 | `id` | `string` | 摄像头 ID，作为 `cameraId` 传给 `get_live_stream`、`search_recordings`、`export_recording` 等接口。 |
 | `name` | `string` | 摄像头名称。 |
-| `status` | `string` | 摄像头状态，例如 `RUNNING`、`STOPPED`。 |
 | `url` | `string` | 实时流播放地址。 |
 | `total` | `integer` | 过滤后的摄像头总数（不受分页影响）。 |
 | `page` | `integer` | 当前页码。 |
