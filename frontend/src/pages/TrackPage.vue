@@ -364,7 +364,12 @@ export default defineComponent({
           const payload = personSearchResultPayload(response);
           this.rawPersons = payload?.similar_persons ?? [];
           this.applyTrackResults();
-          this.showToast(payload?.message || `找到 ${this.trackItems.length} 个候选目标，已生成轨迹`);
+          // 结果为空时不能沿用上游"找到 N 个"的提示，否则会出现"提示成功但右侧无图"
+          this.showToast(
+            this.trackItems.length > 0
+              ? payload?.message || `找到 ${this.trackItems.length} 个候选目标，已生成轨迹`
+              : "未找到匹配的候选目标"
+          );
           return;
         }
         if (taskStatus === "error") {
