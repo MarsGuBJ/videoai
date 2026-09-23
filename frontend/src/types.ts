@@ -561,7 +561,8 @@ export type NvrImportItem = {
   nvrHost: string;
   sourceUrl: string;
   protocol: string;
-  status: "new" | "update" | null;
+  /** new = 可新增；existing = 设备已存在（同源 IP），导入时跳过、不更新 */
+  status: "new" | "existing" | null;
   localCameraId: string | null;
 };
 
@@ -573,7 +574,7 @@ export type NvrImportFailure = {
 export type NvrImportPrecheck = {
   items: NvrImportItem[];
   newCount: number;
-  updateCount: number;
+  existingCount: number;
   failures: NvrImportFailure[];
 };
 

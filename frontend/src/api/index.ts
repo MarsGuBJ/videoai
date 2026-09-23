@@ -614,7 +614,7 @@ export const api = {
 
   nvrImportPrecheck: (payload: { hosts: string[]; username: string; password: string }) =>
     request<NvrImportPrecheck>('/api/nvr-import/precheck', { method: 'POST', body: JSON.stringify(payload) }),
-  nvrImportSync: (payload: { items: NvrImportItem[]; targetArea: string; overwrite: boolean; username: string; password: string }) =>
+  nvrImportSync: (payload: { items: NvrImportItem[]; targetArea: string; username: string; password: string }) =>
     request<CloudSyncResult>('/api/nvr-import/sync', { method: 'POST', body: JSON.stringify(payload) }),
 
   llmConfigs: () => request<LlmConfig[]>('/api/llm-configs'),

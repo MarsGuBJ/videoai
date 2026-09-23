@@ -139,7 +139,6 @@ export default {
       nvrItems: [] as any[],
       nvrSummary: null as NvrImportPrecheck | null,
       nvrBusy: false,
-      nvrConflictStrategy: "overwrite",
       nvrTargetArea: "",
       nvrAreaOptions: [] as string[],
       // 录像下载弹窗（上下文来自回放页 openModal('recordDownload', { camera, startTime, endTime })）
@@ -510,7 +509,6 @@ export default {
       this.nvrItems = [];
       this.nvrSummary = null;
       this.nvrBusy = false;
-      this.nvrConflictStrategy = "overwrite";
       this.nvrTargetArea = "";
       api.cameras()
         .then((list) => {
@@ -569,11 +567,10 @@ export default {
         const result = await api.nvrImportSync({
           items,
           targetArea: this.nvrTargetArea,
-          overwrite: this.nvrConflictStrategy === "overwrite",
           username: this.nvrUsername.trim(),
           password: this.nvrPassword
         });
-        this.showToast(`导入完成：新增 ${result.created} 台，更新 ${result.updated} 台，跳过 ${result.skipped} 台`);
+        this.showToast(`导入完成：新增 ${result.created} 台，跳过 ${result.skipped} 台（已存在的设备不会更新）`);
         this.$emit("close");
         (this as any).refreshCamerasImpl();
       } catch (error) {
@@ -1756,16 +1753,16 @@ export default {
             </div>
             <div class="modal-form-row"><label>登录账号：</label><input class="input" v-model.trim="nvrUsername" placeholder="如 admin" /></div>
             <div class="modal-form-row"><label>登录密码：</label><input class="input" type="password" v-model="nvrPassword" /></div>
-            <div class="modal-form-row"><label>冲突处理：</label><select class="select" v-model="nvrConflictStrategy"><option value="overwrite">NVR覆盖本地</option><option value="skip">保留本地，仅新增</option></select></div>
             <div class="modal-form-row"><label>所属区域：</label><input class="input" v-model.trim="nvrTargetArea" list="nvr-target-area-options" placeholder="留空则使用默认区域" /><datalist id="nvr-target-area-options"><option v-for="area in nvrAreaOptions" :key="area" :value="area"></option></datalist></div>
           </div>
-          <div class="modal-summary-strip"><strong>预计导入</strong><span v-if="nvrSummary">新增 {{ nvrSummary.newCount }} 台，更新 {{ nvrSummary.updateCount }} 台</span><span v-else>请填写地址与账号后点击「预检查」</span></div>
+          <p class="modal-hint">导入仅新增设备：设备列表中已存在的设备（源 IP 相同）会跳过，不会被更新或覆盖。</p>
+          <div class="modal-summary-strip"><strong>预计导入</strong><span v-if="nvrSummary">新增 {{ nvrSummary.newCount }} 台，已存在跳过 {{ nvrSummary.existingCount }} 台</span><span v-else>请填写地址与账号后点击「预检查」</span></div>
           <p v-if="nvrSummary && nvrSummary.failures.length" class="modal-hint danger">以下设备读取失败：{{ nvrSummary.failures.map((f) => `${f.host}（${f.reason}）`).join("、") }}</p>
           <div class="modal-table-wrap">
             <table class="prototype-table">
               <thead><tr><th style="width:36px;"><input type="checkbox" :checked="nvrAllChecked" :disabled="!nvrItems.length" aria-label="全选通道" @change="toggleNvrAll" /></th><th>设备名称</th><th>通道</th><th>源IP地址</th><th>所属NVR</th><th>处理方式</th></tr></thead>
               <tbody>
-                <tr v-for="item in nvrItems" :key="item.nvrHost + '-' + item.trackId"><td><input type="checkbox" v-model="item.checked" /></td><td>{{ item.name }}</td><td>{{ item.channel }}</td><td>{{ item.ip || '-' }}</td><td>{{ item.nvrHost }}</td><td><span class="status-pill" :class="item.status === 'new' ? 'pass' : 'waiting'">{{ item.status === 'new' ? '新增' : '更新' }}</span></td></tr>
+                <tr v-for="item in nvrItems" :key="item.nvrHost + '-' + item.trackId"><td><input type="checkbox" v-model="item.checked" /></td><td>{{ item.name }}</td><td>{{ item.channel }}</td><td>{{ item.ip || '-' }}</td><td>{{ item.nvrHost }}</td><td><span class="status-pill" :class="item.status === 'new' ? 'pass' : 'waiting'">{{ item.status === 'new' ? '新增' : '已存在（跳过）' }}</span></td></tr>
                 <tr v-if="!nvrItems.length"><td colspan="6" class="empty-cell">{{ nvrBusy ? '正在读取NVR/CVR通道...' : '尚未预检查' }}</td></tr>
               </tbody>
             </table>

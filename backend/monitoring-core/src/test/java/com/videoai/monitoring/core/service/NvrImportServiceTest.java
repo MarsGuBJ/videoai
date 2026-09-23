@@ -65,7 +65,7 @@ class NvrImportServiceTest {
 
         assertEquals(2, result.items().size());
         assertEquals(2, result.newCount());
-        assertEquals(0, result.updateCount());
+        assertEquals(0, result.existingCount());
         assertTrue(result.failures().isEmpty());
         NvrImportItem first = result.items().get(0);
         assertEquals("南门枪机", first.name());
@@ -76,7 +76,7 @@ class NvrImportServiceTest {
     }
 
     @Test
-    void precheckMarksUpdateWhenLocalCameraHasSameIp() {
+    void precheckMarksExistingWhenLocalCameraHasSameIp() {
         UUID localId = UUID.randomUUID();
         when(cameraService.list()).thenReturn(List.of(camera(localId, "10.10.0.93")));
         when(nvrChannelClient.fetchDevice(anyString(), anyInt(), anyString(), anyString()))
@@ -85,8 +85,8 @@ class NvrImportServiceTest {
         NvrImportPrecheckResponse result = service.precheck(new NvrImportPrecheckRequest(
                 new String[]{"10.0.0.1"}, "admin", "secret"));
 
-        assertEquals(1, result.updateCount());
-        assertEquals("update", result.items().get(0).status());
+        assertEquals(1, result.existingCount());
+        assertEquals("existing", result.items().get(0).status());
         assertEquals(localId.toString(), result.items().get(0).localCameraId());
     }
 
@@ -120,17 +120,17 @@ class NvrImportServiceTest {
     }
 
     @Test
-    void syncCreatesNewAndSkipsExistingWhenNotOverwrite() {
+    void syncCreatesNewAndSkipsExisting() {
         UUID localId = UUID.randomUUID();
         when(cameraService.list()).thenReturn(List.of(camera(localId, "10.10.0.93")));
 
         CloudSyncResultResponse result = service.sync(new NvrImportSyncRequest(
                 List.of(
                         new NvrImportItem("南门枪机", "10.10.0.93", "554", "1", "101", "10.0.0.1",
-                                "rtsp://admin:secret@10.0.0.1:554/Streaming/Channels/101", "RTSP 拉流", "update", localId.toString()),
+                                "rtsp://admin:secret@10.0.0.1:554/Streaming/Channels/101", "RTSP 拉流", "existing", localId.toString()),
                         new NvrImportItem("北门枪机", "10.10.0.94", "554", "1", "101", "10.0.0.1",
                                 "rtsp://admin:secret@10.0.0.1:554/Streaming/Channels/102", "RTSP 拉流", "new", null)),
-                "园区总部", false, "admin", "secret"));
+                "园区总部", "admin", "secret"));
 
         assertEquals(1, result.created());
         assertEquals(0, result.updated());
@@ -151,19 +151,20 @@ class NvrImportServiceTest {
     }
 
     @Test
-    void syncUpdatesExistingWhenOverwrite() {
+    void syncNeverUpdatesExistingDevice() {
         UUID localId = UUID.randomUUID();
         when(cameraService.list()).thenReturn(List.of(camera(localId, "10.10.0.93")));
 
         CloudSyncResultResponse result = service.sync(new NvrImportSyncRequest(
                 List.of(new NvrImportItem("南门枪机", "10.10.0.93", "554", "1", "101", "10.0.0.1",
-                        "rtsp://admin:secret@10.0.0.1:554/Streaming/Channels/101", "RTSP 拉流", "update", localId.toString())),
-                null, true, "admin", "secret"));
+                        "rtsp://admin:secret@10.0.0.1:554/Streaming/Channels/101", "RTSP 拉流", "existing", localId.toString())),
+                "园区总部", "admin", "secret"));
 
         assertEquals(0, result.created());
-        assertEquals(1, result.updated());
-        verify(cameraService).update(eq(localId), any());
+        assertEquals(0, result.updated());
+        assertEquals(1, result.skipped());
         verify(cameraService, never()).create(any());
+        verify(cameraService, never()).update(any(), any());
     }
 
     @Test
@@ -173,7 +174,7 @@ class NvrImportServiceTest {
         CloudSyncResultResponse result = service.sync(new NvrImportSyncRequest(
                 List.of(new NvrImportItem("无名通道", null, "554", "3", "301", "10.0.0.1",
                         null, "RTSP 拉流", "new", null)),
-                null, true, "admin", "secret"));
+                null, "admin", "secret"));
 
         assertEquals(0, result.created());
         assertEquals(1, result.skipped());

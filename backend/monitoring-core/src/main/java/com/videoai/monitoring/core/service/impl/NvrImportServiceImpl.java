@@ -1,7 +1,6 @@
 package com.videoai.monitoring.core.service.impl;
 
 import com.videoai.monitoring.common.dto.CameraCreateRequest;
-import com.videoai.monitoring.common.dto.CameraUpdateRequest;
 import com.videoai.monitoring.common.dto.NvrImportItem;
 import com.videoai.monitoring.common.dto.NvrImportPrecheckRequest;
 import com.videoai.monitoring.common.dto.NvrImportSyncRequest;
@@ -29,7 +28,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 从 NVR/CVR 导入设备：通过海康 ISAPI 读取通道清单，按 IP 判重后创建/更新摄像头。
+ * 从 NVR/CVR 导入设备：通过海康 ISAPI 读取通道清单，按源 IP 判重后**只新增**不存在的摄像头。
+ * 硬约束：已存在的设备一律跳过，不做任何更新（避免导入覆盖现场手工维护的设备配置）。
  * 安全约束：任何日志/异常消息不得包含设备密码；sourceUrl 内嵌凭据是设备表现有存储约定。
  */
 @Service
@@ -72,8 +72,8 @@ public class NvrImportServiceImpl implements NvrImportService {
             }
         }
         int newCount = (int) items.stream().filter(item -> "new".equals(item.status())).count();
-        int updateCount = (int) items.stream().filter(item -> "update".equals(item.status())).count();
-        return new NvrImportPrecheckResponse(items, newCount, updateCount, failures);
+        int existingCount = items.size() - newCount;
+        return new NvrImportPrecheckResponse(items, newCount, existingCount, failures);
     }
 
     @Override
@@ -85,39 +85,31 @@ public class NvrImportServiceImpl implements NvrImportService {
         String password = request.password();
         Map<String, CameraResponse> localByIp = localByIp();
         int created = 0;
-        int updated = 0;
         int skipped = 0;
         for (NvrImportItem item : items) {
             String ip = clean(item.ip());
             CameraResponse local = ip != null ? localByIp.get(ip) : null;
-            if (local == null) {
-                String sourceUrl = clean(item.sourceUrl());
-                if (sourceUrl == null) {
-                    skipped++;
-                    continue;
-                }
-                String name = clean(item.name()) != null ? item.name().trim()
-                        : ip != null ? ip : "通道" + item.channel();
-                cameraService.create(new CameraCreateRequest(
-                        name, sourceUrl, null, targetArea, null,
-                        clean(item.channel()), clean(item.trackId()), STREAM_TYPE_MAIN, PROTOCOL_RTSP, VENDOR_HIKVISION,
-                        ip, clean(item.port()), username, password, null, null,
-                        null, null, null, null, null, null,
-                        null, null, null, null, null, null, null, null));
-                created++;
-            } else if (request.overwrite()) {
-                cameraService.update(local.id(), new CameraUpdateRequest(
-                        clean(item.name()), clean(item.sourceUrl()), null, targetArea, null,
-                        clean(item.channel()), clean(item.trackId()), STREAM_TYPE_MAIN, PROTOCOL_RTSP, VENDOR_HIKVISION,
-                        ip, clean(item.port()), username, password, null, null,
-                        null, null, null, null, null, null,
-                        null, null, null, null, null, null, null, null));
-                updated++;
-            } else {
+            // 硬约束：设备已存在（同源 IP）时只跳过，绝不更新；导入只新增新设备
+            if (local != null) {
                 skipped++;
+                continue;
             }
+            String sourceUrl = clean(item.sourceUrl());
+            if (sourceUrl == null) {
+                skipped++;
+                continue;
+            }
+            String name = clean(item.name()) != null ? item.name().trim()
+                    : ip != null ? ip : "通道" + item.channel();
+            cameraService.create(new CameraCreateRequest(
+                    name, sourceUrl, null, targetArea, null,
+                    clean(item.channel()), clean(item.trackId()), STREAM_TYPE_MAIN, PROTOCOL_RTSP, VENDOR_HIKVISION,
+                    ip, clean(item.port()), username, password, null, null,
+                    null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null));
+            created++;
         }
-        return new CloudSyncResultResponse(created, updated, skipped);
+        return new CloudSyncResultResponse(created, 0, skipped);
     }
 
     private NvrImportItem toItem(NvrChannel channel, String nvrHost, int rtspPort,
@@ -135,7 +127,7 @@ public class NvrImportServiceImpl implements NvrImportService {
                 nvrHost,
                 sourceUrl,
                 PROTOCOL_RTSP,
-                local == null ? "new" : "update",
+                local == null ? "new" : "existing",
                 local == null ? null : local.id().toString());
     }
 

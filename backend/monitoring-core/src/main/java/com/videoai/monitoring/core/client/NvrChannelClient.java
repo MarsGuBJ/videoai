@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * 从 NVR/CVR 读取通道清单（海康 ISAPI，HTTP Digest）。
@@ -55,23 +56,47 @@ public class NvrChannelClient {
     /**
      * 拉取设备通道列表与 RTSP 端口。凭据错误或设备不可达时抛 ResponseStatusException(BAD_GATEWAY)，
      * 消息不含密码；InputProxy / Network 端口接口不可用（部分固件无此接口）时对应信息留空/取默认，不视为失败。
+     * CVR 中心存储（DS-A80348S 等）没有可用的 Streaming/channels（实测 HTTP 403），
+     * 此时回退为 InputProxy 通道清单；两者都拿不到才报错。
      */
     public NvrDevice fetchDevice(String host, int port, String username, String password) {
         String base = "http://" + host + ":" + port;
         requireOk(get(base + "/ISAPI/System/deviceInfo", username, password), host, "设备信息读取失败");
         Map<Integer, InputProxyChannel> sourceChannels = fetchInputProxy(base, username, password);
         HttpResponse<String> streaming = get(base + "/ISAPI/Streaming/channels", username, password);
-        requireOk(streaming, host, "通道列表读取失败");
         List<NvrChannel> channels = new ArrayList<>();
-        for (StreamChannel stream : parseStreamingChannels(streaming.body())) {
-            int channel = stream.id() / 100;
-            InputProxyChannel proxy = sourceChannels.get(channel);
-            String name = stream.channelName() != null ? stream.channelName()
-                    : proxy != null && proxy.name() != null ? proxy.name()
-                    : "通道" + channel;
-            channels.add(new NvrChannel(channel, stream.id(), name, proxy != null ? proxy.ip() : null));
+        if (streaming.statusCode() == 200) {
+            for (StreamChannel stream : parseStreamingChannels(streaming.body())) {
+                int channel = stream.id() / 100;
+                InputProxyChannel proxy = sourceChannels.get(channel);
+                String name = stream.channelName() != null ? stream.channelName()
+                        : proxy != null && proxy.name() != null ? proxy.name()
+                        : "通道" + channel;
+                channels.add(new NvrChannel(channel, stream.id(), name, proxy != null ? proxy.ip() : null));
+            }
+        }
+        if (channels.isEmpty()) {
+            channels.addAll(fromInputProxy(sourceChannels));
+        }
+        if (channels.isEmpty() && streaming.statusCode() != 200) {
+            requireOk(streaming, host, "通道列表读取失败");
         }
         return new NvrDevice(channels, fetchRtspPort(base, username, password));
+    }
+
+    /**
+     * CVR/中心存储回退路径：Streaming/channels 不可用时按 InputProxy 通道清单构造通道，
+     * 主码流 trackId = 通道号 * 100 + 1（现场实测 CVR 通道 108 → trackId 10801）。
+     */
+    static List<NvrChannel> fromInputProxy(Map<Integer, InputProxyChannel> sourceChannels) {
+        List<NvrChannel> channels = new ArrayList<>();
+        for (Map.Entry<Integer, InputProxyChannel> entry : new TreeMap<>(sourceChannels).entrySet()) {
+            int id = entry.getKey();
+            InputProxyChannel proxy = entry.getValue();
+            channels.add(new NvrChannel(id, id * 100 + 1,
+                    proxy.name() != null ? proxy.name() : "通道" + id, proxy.ip()));
+        }
+        return channels;
     }
 
     private Map<Integer, InputProxyChannel> fetchInputProxy(String base, String username, String password) {
