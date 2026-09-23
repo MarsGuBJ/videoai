@@ -131,7 +131,9 @@ public class NvrChannelClient {
         try {
             return digestClient.get(url, username, password);
         } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "NVR 连接失败: " + e.getMessage(), e);
+            // 部分异常（如连接超时）getMessage() 为 null，兜底用异常类型名，避免提示出现 "null"
+            String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "NVR 连接失败: " + detail, e);
         }
     }
 
