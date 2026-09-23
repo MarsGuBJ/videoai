@@ -1,9 +1,30 @@
 import base64
+import uuid
 from urllib.parse import urljoin
 
 import httpx
 
 from .models import Camera
+
+
+class CameraNotFoundError(ValueError):
+    """cameraId 非法或摄像头不存在；按调用方参数错误处理（HTTP 400），不放大成上游 500。"""
+
+
+def normalize_camera_id(camera_id: str | None) -> str:
+    """校验并规范化 cameraId，返回小写标准 UUID 字符串。
+
+    backend-media（Java）对非 UUID 的 cameraId 会返回类型转换 500，因此这里在发起请求前
+    用 UUID 解析拦截调用方输入错误：非法输入抛 ``CameraNotFoundError``（``ValueError`` 子类，
+    HTTP 层映射为 400）。首尾空白与 ``{uuid}`` 包裹形式会被规范化。
+    """
+    raw = str(camera_id).strip() if camera_id is not None else ""
+    if raw.startswith("{") and raw.endswith("}"):
+        raw = raw[1:-1].strip()
+    try:
+        return str(uuid.UUID(raw))
+    except (ValueError, AttributeError, TypeError):
+        raise CameraNotFoundError(f"{camera_id!r} is not a valid camera id") from None
 
 
 class VideoAiClient:
@@ -19,8 +40,12 @@ class VideoAiClient:
             return [Camera.model_validate(item) for item in response.json()]
 
     async def get_camera(self, camera_id: str) -> Camera:
+        # 非法 cameraId 不发起上游请求（避免上游 UUID 类型转换 500）；上游 404 是客户端错误。
+        normalized = normalize_camera_id(camera_id)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(f"{self.media_base_url}/api/cameras/{camera_id}")
+            response = await client.get(f"{self.media_base_url}/api/cameras/{normalized}")
+            if response.status_code == 404:
+                raise CameraNotFoundError(f"camera not found: {normalized}")
             response.raise_for_status()
             return Camera.model_validate(response.json())
 
