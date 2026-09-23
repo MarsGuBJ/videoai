@@ -137,8 +137,8 @@ export default defineComponent({
       imagePreview: this.state.prefill || "",
       imageCrop: this.state.imageCrop,
       page: 1,
-      pageSize: 8,
-      pageSizeOptions: [8, 16, 24],
+      pageSize: 12,
+      pageSizeOptions: [12, 24, 36],
       jumpPage: "",
       // Real person-search state (batch A API wiring)
       selectedFile: null as File | null,
