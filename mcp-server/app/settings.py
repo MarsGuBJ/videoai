@@ -45,6 +45,7 @@ def _env_bool(name: str, default: bool) -> bool:
 class Settings:
     videoai_base_url: str
     videoai_media_base_url: str
+    videoai_media_public_base_url: str
     person_api_base_url: str
     retrieve_api_base_url: str
     retrieve_api_timeout_seconds: float
@@ -131,6 +132,11 @@ def load_settings() -> Settings:
         videoai_base_url=_env("VIDEOAI_BACKEND_URL", "http://localhost:8081").rstrip("/"),
         videoai_media_base_url=(
             _env("VIDEOAI_MEDIA_BACKEND_URL", "") or _env("VIDEOAI_BACKEND_URL", "http://localhost:8081")
+        ).rstrip("/"),
+        # list_cameras 返回的按需拉流代理链接（/api/live/*.flv）的对外基址：
+        # 必须为播放端实际可访问的 backend-media 地址，默认回落到 videoai_base_url
+        videoai_media_public_base_url=(
+            _env("VIDEOAI_MEDIA_PUBLIC_BASE_URL", "") or _env("VIDEOAI_BACKEND_URL", "http://localhost:8081")
         ).rstrip("/"),
         person_api_base_url=_env("PERSON_API_BASE_URL", "http://10.10.3.100:15501").rstrip("/"),
         retrieve_api_base_url=_env("RETRIEVE_API_BASE_URL", "http://10.10.3.100:15000").rstrip("/"),

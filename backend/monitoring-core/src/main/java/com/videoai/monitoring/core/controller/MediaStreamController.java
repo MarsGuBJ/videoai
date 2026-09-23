@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Stream distribution endpoints ported from backend-lite/main.py:
  * live FLV proxying, HLS playlist/segment proxying, MJPEG transcoding and
- * the worker annotated stream.
+ * the worker annotated stream. 直播 FLV 代理对未开播摄像头按需自动开播。
  */
 @RestController
 public class MediaStreamController implements MediaStreamApi {
@@ -198,7 +198,7 @@ public class MediaStreamController implements MediaStreamApi {
                 .body(body);
     }
 
-    /** require_preview_camera from backend-lite/main.py. */
+    /** require_preview_camera from backend-lite/main.py；非 RUNNING 时按需自动开播（同 OpenDeviceController.liveFlv）。 */
     private CameraResponse requirePreviewCamera(String streamName) {
         List<CameraResponse> matches = cameraService.findByStreamName(streamName);
         if (matches.isEmpty()) {
@@ -208,11 +208,14 @@ public class MediaStreamController implements MediaStreamApi {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Camera stream name is not unique");
         }
         CameraResponse camera = matches.get(0);
-        if (!"RUNNING".equals(camera.status())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Camera is not running");
-        }
         if (camera.sourceUrl() == null || !camera.sourceUrl().toLowerCase().startsWith("rtsp://")) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Camera does not provide an RTSP source");
+        }
+        // 请求时动态建立视频流：未开播的摄像头先挂流（含可推导的子码流），
+        // 流就绪等待由 openLiveRemote 在 startTimeoutMs 窗口内的 404 重试覆盖
+        if (!"RUNNING".equals(camera.status())) {
+            log.info("live flv auto-starting camera {} ({})", camera.name(), camera.id());
+            camera = cameraService.start(camera.id());
         }
         return camera;
     }

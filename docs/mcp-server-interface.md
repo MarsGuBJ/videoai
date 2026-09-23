@@ -161,7 +161,7 @@ MCP Server 依赖以下服务：
     {
       "id": "6f1d3f34-7ab1-4d7e-9f1e-f3d0a7b9c101",
       "status": "RUNNING",
-      "url": "http://192.168.11.194:81/live/camera1.live.flv",
+      "url": "http://192.168.11.194:8082/api/live/camera1.live.flv",
       "name": "Gate Camera"
     }
   ],
@@ -179,7 +179,7 @@ MCP Server 依赖以下服务：
 | `id` | `string` | 摄像头 ID，作为 `cameraId` 传给 `get_live_stream`、`search_recordings`、`export_recording` 等接口。 |
 | `status` | `string` | 设备在线状态：`RUNNING` = 在线，`STOPPED` = 离线（取自后端 `onlineStatus`，非拉流状态）。 |
 | `name` | `string` | 摄像头名称。 |
-| `url` | `string` | 实时流播放地址。 |
+| `url` | `string` | 实时流播放地址。RTSP 源摄像头返回后端代理地址（`{backend-media}/api/live/{streamName}.live.flv`，基址由 `VIDEOAI_MEDIA_PUBLIC_BASE_URL` 决定）：播放器请求该链接时，若摄像头未开播后端会先自动拉流再代理播放（按需拉流）；http(s) 源等其它情况仍返回原始播放地址。 |
 | `total` | `integer` | 过滤后的摄像头总数（不受分页影响）。 |
 | `page` | `integer` | 当前页码。 |
 | `pageSize` | `integer` | 当前每页条数。 |

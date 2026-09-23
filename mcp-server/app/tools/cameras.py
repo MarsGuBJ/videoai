@@ -15,6 +15,8 @@ async def list_cameras(name: str = "", page: int = 1, pageSize: int = DEFAULT_CA
     name filters cameras by a case-insensitive substring of the camera name; page/pageSize
     paginate the result (page starts at 1). Each item returns id, status, url and name,
     where status reflects device online status (RUNNING = online, STOPPED = offline).
+    The url is a backend-proxied live address: playing it auto-starts the camera's
+    stream on demand if it is not already running.
     Returns JSON and XML output."""
     cameras = await videoai.list_cameras()
     live_cameras = [c for c in cameras if not _is_nvr_only_channel(c)]
@@ -29,7 +31,7 @@ async def list_cameras(name: str = "", page: int = 1, pageSize: int = DEFAULT_CA
         {
             "id": camera.id,
             "status": _online_status(camera),
-            "url": _public_url(camera.playbackUrl),
+            "url": _playback_url(camera),
             "name": camera.name,
         }
         for camera in live_cameras[offset : offset + page_size]
@@ -84,6 +86,18 @@ def _public_url(url: str) -> str:
     For relative /live/ paths, use ZLM_PUBLIC_HTTP_URL (or fallback to backend)."""
     public_base = settings.zlm_public_http_url or settings.videoai_base_url
     return videoai.absolute_url(url, public_base=public_base)
+
+
+def _playback_url(camera) -> str:
+    """Build the list_cameras playback URL.
+    For ZLM-proxied live streams (relative /live/*.live.flv playback URLs, i.e. RTSP
+    sources), return the backend proxy endpoint /api/live/{streamName}.live.flv so
+    that playing the link auto-starts the stream on demand. Other sources (http(s)
+    passthrough, mjpeg fallback) keep the original playback URL."""
+    url = camera.playbackUrl or ""
+    if url.startswith("/live/") and url.endswith(".live.flv") and camera.streamName:
+        return f"{settings.videoai_media_public_base_url}/api/live/{camera.streamName}.live.flv"
+    return _public_url(url)
 
 
 def detect_format(url: str) -> str:

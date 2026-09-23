@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import httpx
 
@@ -52,13 +53,21 @@ def test_list_cameras_http_returns_json(monkeypatch):
 
     monkeypatch.setattr(server.videoai, "list_cameras", fake_list_cameras)
     monkeypatch.setattr("app.tools.cameras._public_url", lambda url: f"http://video.example{url}")
+    monkeypatch.setattr(
+        "app.tools.cameras.settings",
+        SimpleNamespace(
+            videoai_media_public_base_url="http://video.example",
+            zlm_public_http_url="http://video.example",
+            videoai_base_url="http://video.example",
+        ),
+    )
 
     response = post("/list_cameras-http", json={})
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["data"][0]["id"] == "cam-1"
-    assert payload["data"][0]["url"] == "http://video.example/live/cam-1.live.flv"
+    assert payload["data"][0]["url"] == "http://video.example/api/live/cam-1.live.flv"
     assert payload["total"] == 1
     assert payload["page"] == 1
     # 响应 xml 不带 <?xml ...?> 声明，根元素直接开头

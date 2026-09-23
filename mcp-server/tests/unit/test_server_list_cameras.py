@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import app.server as server
 from app.models import Camera
@@ -33,6 +34,14 @@ def install_fake_cameras(monkeypatch, cameras):
 
     monkeypatch.setattr(server.videoai, "list_cameras", fake_list_cameras)
     monkeypatch.setattr("app.tools.cameras._public_url", lambda url: f"https://video.example{url}")
+    monkeypatch.setattr(
+        "app.tools.cameras.settings",
+        SimpleNamespace(
+            videoai_media_public_base_url="https://video.example",
+            zlm_public_http_url="https://video.example",
+            videoai_base_url="https://video.example",
+        ),
+    )
 
 
 def test_list_cameras_returns_id_url_name_and_excludes_nvr_only(monkeypatch):
@@ -59,16 +68,40 @@ def test_list_cameras_returns_id_url_name_and_excludes_nvr_only(monkeypatch):
     assert len(result["data"]) == 1
     item = result["data"][0]
     # status 取自设备在线状态（onlineStatus），不再取拉流状态
+    # url 为后端按需拉流代理地址，播放时自动开播
     assert item == {
         "id": "cam-1",
         "status": "RUNNING",
-        "url": "https://video.example/live/cam-1.live.flv",
+        "url": "https://video.example/api/live/cam-1.live.flv",
         "name": "园区摄像头",
     }
     assert "录像通道" not in result["xml"]
     assert 'id="cam-1"' in result["xml"]
-    assert 'url="https://video.example/live/cam-1.live.flv"' in result["xml"]
+    assert 'url="https://video.example/api/live/cam-1.live.flv"' in result["xml"]
     assert 'status="RUNNING"' in result["xml"]
+
+
+def test_list_cameras_non_zlm_sources_keep_passthrough_url(monkeypatch):
+    install_fake_cameras(
+        monkeypatch,
+        [
+            make_camera(id="cam-http", sourceUrl="http://camera/live", playbackUrl="http://camera/live.flv"),
+            make_camera(
+                id="cam-mjpeg",
+                sourceUrl="http://camera/mjpeg",
+                playbackUrl="/api/streams/live/cam-mjpeg.mjpeg",
+            ),
+        ],
+    )
+    monkeypatch.setattr("app.tools.cameras._public_url", lambda url: url)
+
+    result = asyncio.run(server.list_cameras())
+
+    urls = {item["id"]: item["url"] for item in result["data"]}
+    assert urls == {
+        "cam-http": "http://camera/live.flv",
+        "cam-mjpeg": "/api/streams/live/cam-mjpeg.mjpeg",
+    }
 
 
 def test_list_cameras_status_reflects_online_status(monkeypatch):

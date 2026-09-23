@@ -222,6 +222,8 @@ services:
     environment:
       VIDEOAI_BACKEND_URL: ${BACKEND_INTERNAL_URL:-http://backend:8081}
       VIDEOAI_MEDIA_BACKEND_URL: http://backend-media:8081
+      # list_cameras 按需拉流代理链接（/api/live/*.flv）对外基址：必须为播放端可访问的 backend-media 地址
+      VIDEOAI_MEDIA_PUBLIC_BASE_URL: ${MEDIA_PUBLIC_URL:-http://192.168.11.194:8082}
       PERSON_API_BASE_URL: ${PERSON_API_BASE_URL:-http://10.10.3.100:15501}
       RETRIEVE_API_BASE_URL: ${RETRIEVE_API_BASE_URL:-http://10.10.3.100:15000}
       RETRIEVE_API_TIMEOUT_SECONDS: ${RETRIEVE_API_TIMEOUT_SECONDS:-120}
