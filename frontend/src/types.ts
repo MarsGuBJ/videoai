@@ -552,6 +552,31 @@ export type CloudSyncResult = {
   skipped: number;
 };
 
+export type NvrImportItem = {
+  name: string;
+  ip: string | null;
+  port: string;
+  channel: string;
+  trackId: string;
+  nvrHost: string;
+  sourceUrl: string;
+  protocol: string;
+  status: "new" | "update" | null;
+  localCameraId: string | null;
+};
+
+export type NvrImportFailure = {
+  host: string;
+  reason: string;
+};
+
+export type NvrImportPrecheck = {
+  items: NvrImportItem[];
+  newCount: number;
+  updateCount: number;
+  failures: NvrImportFailure[];
+};
+
 export type AccessCertificate = {
   id: string;
   deviceCode: string;

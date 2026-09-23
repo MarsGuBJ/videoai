@@ -2,7 +2,7 @@
 import * as XLSX from "xlsx";
 import { api } from "../api";
 import type { RecordingSegment } from "../api";
-import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, ReviewType } from "../types";
+import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, NvrImportPrecheck, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { deviceStatusLabel, onlineStatusOf, streamStatusLabel } from "../utils/device-status";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
@@ -132,6 +132,16 @@ export default {
       cloudConflictStrategy: "overwrite",
       cloudTargetArea: "",
       cloudAreaOptions: [] as string[],
+      // 从NVR/CVR导入弹窗
+      nvrHostRows: [""] as string[],
+      nvrUsername: "",
+      nvrPassword: "",
+      nvrItems: [] as any[],
+      nvrSummary: null as NvrImportPrecheck | null,
+      nvrBusy: false,
+      nvrConflictStrategy: "overwrite",
+      nvrTargetArea: "",
+      nvrAreaOptions: [] as string[],
       // 录像下载弹窗（上下文来自回放页 openModal('recordDownload', { camera, startTime, endTime })）
       recordDownloadStart: "",
       recordDownloadEnd: "",
@@ -246,6 +256,12 @@ export default {
     cloudAllChecked(): boolean {
       return this.cloudItems.length > 0 && this.cloudCheckedItems.length === this.cloudItems.length;
     },
+    nvrCheckedItems(): any[] {
+      return this.nvrItems.filter((item) => item.checked);
+    },
+    nvrAllChecked(): boolean {
+      return this.nvrItems.length > 0 && this.nvrCheckedItems.length === this.nvrItems.length;
+    },
     recordDownloadCamera(): any {
       return (this.modal.item && this.modal.item.camera) || null;
     },
@@ -345,6 +361,8 @@ export default {
         if (this.modal.item) this.modal.item.area = this.moveArea;
       } else if (this.modal.type === "mediaCloud") {
         this.initCloudSync();
+      } else if (this.modal.type === "mediaNvrImport") {
+        this.initNvrImport();
       } else if (this.modal.type === "mediaCapability") {
         this.initCapabilityForm();
       } else if (this.modal.type === "mediaRegion") {
@@ -483,6 +501,86 @@ export default {
     },
     showToast(message: string) {
       (this as any).toastImpl(message);
+    },
+    // --- 从NVR/CVR导入弹窗 ---
+    initNvrImport() {
+      this.nvrHostRows = [""];
+      this.nvrUsername = "";
+      this.nvrPassword = "";
+      this.nvrItems = [];
+      this.nvrSummary = null;
+      this.nvrBusy = false;
+      this.nvrConflictStrategy = "overwrite";
+      this.nvrTargetArea = "";
+      api.cameras()
+        .then((list) => {
+          const areas = (list || []).map((camera) => (camera.area || "").trim()).filter(Boolean);
+          this.nvrAreaOptions = Array.from(new Set(areas));
+        })
+        .catch(() => {});
+    },
+    addNvrHostRow() {
+      this.nvrHostRows.push("");
+    },
+    removeNvrHostRow(index: number) {
+      if (this.nvrHostRows.length <= 1) {
+        this.nvrHostRows = [""];
+        return;
+      }
+      this.nvrHostRows.splice(index, 1);
+    },
+    toggleNvrAll(event: any) {
+      const checked = !!(event.target && event.target.checked);
+      this.nvrItems.forEach((item) => { item.checked = checked; });
+    },
+    async runNvrPrecheck() {
+      if (this.nvrBusy) return;
+      const hosts = this.nvrHostRows.map((row) => row.trim()).filter(Boolean);
+      if (!hosts.length) {
+        this.showToast("请先添加NVR/CVR地址");
+        return;
+      }
+      if (!this.nvrUsername.trim() || !this.nvrPassword) {
+        this.showToast("请输入登录账号和密码");
+        return;
+      }
+      this.nvrBusy = true;
+      try {
+        const result = await api.nvrImportPrecheck({ hosts, username: this.nvrUsername.trim(), password: this.nvrPassword });
+        this.nvrSummary = result;
+        this.nvrItems = result.items.map((item) => ({ ...item, checked: true }));
+        if (!result.items.length && !result.failures.length) this.showToast("NVR/CVR 上未读取到摄像头通道");
+      } catch (error) {
+        this.nvrItems = [];
+        this.nvrSummary = null;
+        this.showToast(error instanceof Error ? error.message : "NVR/CVR 预检查失败");
+      } finally {
+        this.nvrBusy = false;
+      }
+    },
+    async runNvrSync() {
+      const items = this.nvrCheckedItems.map((item) => {
+        const { checked, ...rest } = item;
+        return rest;
+      });
+      if (!items.length || this.nvrBusy) return;
+      this.nvrBusy = true;
+      try {
+        const result = await api.nvrImportSync({
+          items,
+          targetArea: this.nvrTargetArea,
+          overwrite: this.nvrConflictStrategy === "overwrite",
+          username: this.nvrUsername.trim(),
+          password: this.nvrPassword
+        });
+        this.showToast(`导入完成：新增 ${result.created} 台，更新 ${result.updated} 台，跳过 ${result.skipped} 台`);
+        this.$emit("close");
+        (this as any).refreshCamerasImpl();
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "NVR/CVR 导入失败");
+      } finally {
+        this.nvrBusy = false;
+      }
     },
     // 能力配置弹窗：回填勾选设备当前的云台开关（全部勾选设备都开启时才勾上），用户可再编辑
     initCapabilityForm() {
@@ -1645,6 +1743,34 @@ export default {
             </table>
           </div>
         </template>
+        <template v-if="modal.type === 'mediaNvrImport'">
+          <div class="modal-form-grid">
+            <div class="modal-form-row"><label>NVR/CVR地址：</label>
+              <div>
+                <div v-for="(row, index) in nvrHostRows" :key="index" style="display:flex;gap:6px;margin-bottom:6px;">
+                  <input class="input" v-model="nvrHostRows[index]" placeholder="如 192.168.1.100 或 192.168.1.100:8080" />
+                  <button class="btn" :disabled="nvrHostRows.length <= 1" @click="removeNvrHostRow(index)">删除</button>
+                </div>
+                <button class="btn" @click="addNvrHostRow">＋ 添加地址</button>
+              </div>
+            </div>
+            <div class="modal-form-row"><label>登录账号：</label><input class="input" v-model.trim="nvrUsername" placeholder="如 admin" /></div>
+            <div class="modal-form-row"><label>登录密码：</label><input class="input" type="password" v-model="nvrPassword" /></div>
+            <div class="modal-form-row"><label>冲突处理：</label><select class="select" v-model="nvrConflictStrategy"><option value="overwrite">NVR覆盖本地</option><option value="skip">保留本地，仅新增</option></select></div>
+            <div class="modal-form-row"><label>所属区域：</label><input class="input" v-model.trim="nvrTargetArea" list="nvr-target-area-options" placeholder="留空则使用默认区域" /><datalist id="nvr-target-area-options"><option v-for="area in nvrAreaOptions" :key="area" :value="area"></option></datalist></div>
+          </div>
+          <div class="modal-summary-strip"><strong>预计导入</strong><span v-if="nvrSummary">新增 {{ nvrSummary.newCount }} 台，更新 {{ nvrSummary.updateCount }} 台</span><span v-else>请填写地址与账号后点击「预检查」</span></div>
+          <p v-if="nvrSummary && nvrSummary.failures.length" class="modal-hint danger">以下设备读取失败：{{ nvrSummary.failures.map((f) => `${f.host}（${f.reason}）`).join("、") }}</p>
+          <div class="modal-table-wrap">
+            <table class="prototype-table">
+              <thead><tr><th style="width:36px;"><input type="checkbox" :checked="nvrAllChecked" :disabled="!nvrItems.length" aria-label="全选通道" @change="toggleNvrAll" /></th><th>设备名称</th><th>通道</th><th>源IP地址</th><th>所属NVR</th><th>处理方式</th></tr></thead>
+              <tbody>
+                <tr v-for="item in nvrItems" :key="item.nvrHost + '-' + item.trackId"><td><input type="checkbox" v-model="item.checked" /></td><td>{{ item.name }}</td><td>{{ item.channel }}</td><td>{{ item.ip || '-' }}</td><td>{{ item.nvrHost }}</td><td><span class="status-pill" :class="item.status === 'new' ? 'pass' : 'waiting'">{{ item.status === 'new' ? '新增' : '更新' }}</span></td></tr>
+                <tr v-if="!nvrItems.length"><td colspan="6" class="empty-cell">{{ nvrBusy ? '正在读取NVR/CVR通道...' : '尚未预检查' }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
         <template v-if="modal.type === 'videoConfig'">
           <div class="modal-split video-config-modal">
             <div class="modal-split-main">
@@ -1739,6 +1865,10 @@ export default {
         <template v-else-if="modal.type === 'mediaCloud'">
           <button class="btn" :disabled="cloudBusy || !cloudPlatformId || (isGb28181Mode && !gb28181EntryId)" @click="runCloudPrecheck">{{ cloudSummary ? '重新预检查' : '预检查' }}</button>
           <button class="btn primary" :disabled="cloudBusy || !cloudCheckedItems.length" @click="runCloudSync">开始同步</button>
+        </template>
+        <template v-else-if="modal.type === 'mediaNvrImport'">
+          <button class="btn" :disabled="nvrBusy" @click="runNvrPrecheck">{{ nvrSummary ? '重新预检查' : '预检查' }}</button>
+          <button class="btn primary" :disabled="nvrBusy || !nvrCheckedItems.length" @click="runNvrSync">开始导入</button>
         </template>
         <template v-else-if="modal.type === 'videoConfig'">
           <button class="btn" @click="resetVideoConfig">恢复默认配置</button>

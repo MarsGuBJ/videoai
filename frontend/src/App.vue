@@ -228,6 +228,7 @@ export default defineComponent({
         mediaCapability: { title: "批量配置设备能力", narrow: true },
         mediaRegion: { title: "区域管理", wide: true },
         mediaCloud: { title: "从云平台同步设备", wide: true },
+        mediaNvrImport: { title: "从NVR/CVR导入设备", wide: true },
         mediaDelete: { title: "删除设备", narrow: true },
         videoConfig: { title: "视频参数配置", wide: true },
         customLayout: { title: "自定义分屏布局", wide: true },

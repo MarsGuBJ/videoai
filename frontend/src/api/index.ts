@@ -1,4 +1,4 @@
-import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, WindowsCameraStatus, WorkerNode } from '../types';
+import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, NvrImportItem, NvrImportPrecheck, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, WindowsCameraStatus, WorkerNode } from '../types';
 
 export type {
   AccessCertificate,
@@ -30,7 +30,7 @@ export type {
 export const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 export const MEDIA_API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_MEDIA_API_BASE_URL);
 
-const MEDIA_API_PATH_PREFIXES = ['/api/cameras', '/api/live', '/api/streams', '/api/access-config', '/api/cloud-platforms', '/api/regions'];
+const MEDIA_API_PATH_PREFIXES = ['/api/cameras', '/api/live', '/api/streams', '/api/access-config', '/api/cloud-platforms', '/api/nvr-import', '/api/regions'];
 
 function isMediaApiPath(path: string): boolean {
   return MEDIA_API_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
@@ -611,6 +611,11 @@ export const api = {
     request<CloudSyncPrecheck>(`/api/cloud-platforms/${encodeURIComponent(id)}/precheck`, { method: 'POST' }),
   cloudPlatformSync: (id: string, payload: { items: CloudDeviceItem[]; targetArea: string; overwrite: boolean }) =>
     request<CloudSyncResult>(`/api/cloud-platforms/${encodeURIComponent(id)}/sync`, { method: 'POST', body: JSON.stringify(payload) }),
+
+  nvrImportPrecheck: (payload: { hosts: string[]; username: string; password: string }) =>
+    request<NvrImportPrecheck>('/api/nvr-import/precheck', { method: 'POST', body: JSON.stringify(payload) }),
+  nvrImportSync: (payload: { items: NvrImportItem[]; targetArea: string; overwrite: boolean; username: string; password: string }) =>
+    request<CloudSyncResult>('/api/nvr-import/sync', { method: 'POST', body: JSON.stringify(payload) }),
 
   llmConfigs: () => request<LlmConfig[]>('/api/llm-configs'),
   createLlmConfig: (payload: LlmConfigPayload) =>
