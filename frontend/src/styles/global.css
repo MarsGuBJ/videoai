@@ -6132,6 +6132,16 @@
       height: 64px;
       border-radius: 4px;
       object-fit: cover;
+      cursor: zoom-in;
+      transition: box-shadow .15s ease, transform .15s ease;
+    }
+
+    /* 分析结果卡片左侧截图为独立放大热区：悬浮给出可点击反馈 */
+    .exact-event-card img:hover,
+    .exact-event-card img:focus-visible {
+      box-shadow: 0 0 0 2px rgba(22, 119, 255, .55);
+      transform: scale(1.03);
+      outline: none;
     }
 
     .exact-event-card h4 {

@@ -71,7 +71,7 @@
             <div class="exact-section-title" style="margin-top:16px;"><div><h3>分析结果</h3><p>共识别 {{ events.length }} 个关键事件，点击卡片定位上方视频。</p></div></div>
             <div class="exact-event-list">
               <article v-for="(event, index) in events" :key="event.name" class="exact-event-card" :class="{ active: selectedEventIndex === index }" @click="selectEvent(index)">
-                <img :src="event.image" :alt="event.name" @error="onEventImageError(event)" />
+                <img :src="event.image" :alt="event.name" role="button" tabindex="0" :title="'点击放大：' + event.name" :aria-label="'放大查看 ' + event.name" @error="onEventImageError(event)" @click.stop="openEventImagePreview(event)" @keydown.enter.stop.prevent="openEventImagePreview(event)" @keydown.space.stop.prevent="openEventImagePreview(event)" />
                 <div>
                   <div class="exact-event-meta"><strong>发生时间 {{ event.time }}</strong><span>回放定位</span></div>
                   <h4>{{ event.name }}</h4>
@@ -1564,6 +1564,11 @@ export default defineComponent({
     },
     onEventImageError(event) {
       if (event.fallbackImage && event.image !== event.fallbackImage) event.image = event.fallbackImage;
+    },
+    // 分析结果卡片左侧截图单独热区：点击放大查看（@click.stop 不触发卡片的「回放定位」）
+    openEventImagePreview(event) {
+      const image = event && event.image;
+      if (image) this.previewImage = image;
     },
     async askVideoQuestion(text) {
       const question = String(typeof text === "string" ? text : (this.questionInput || "")).trim();
