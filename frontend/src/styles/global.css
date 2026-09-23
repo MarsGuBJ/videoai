@@ -2134,8 +2134,11 @@
       content: "";
       position: absolute;
       left: -20px;
-      top: 0;
-      bottom: -10px;
+      /* 上下各外扩 7px：卡片间距为 10px，之前 top:0/bottom:-10px 因卡片 1px 边框
+         实际只延伸到间距的 9px，与下一段起点之间会漏出约 2px 的缺口；
+         外扩后相邻两段互相重叠，竖线连续无断口。 */
+      top: -7px;
+      bottom: -7px;
       width: 2px;
       background: #80baff;
     }
@@ -2169,6 +2172,8 @@
       border: 3px solid var(--blue);
       border-radius: 50%;
       background: #fff;
+      /* 圆圈压在竖线（同元素的 ::after）之上，用白色填充盖住穿过的线段 */
+      z-index: 1;
     }
 
     .timeline-card h4 {
@@ -2626,8 +2631,11 @@
       content: "";
       position: absolute;
       left: -20px;
-      top: 0;
-      bottom: -10px;
+      /* 上下各外扩 7px：卡片间距为 10px，之前 top:0/bottom:-10px 因卡片 1px 边框
+         实际只延伸到间距的 9px，与下一段起点之间会漏出约 2px 的缺口；
+         外扩后相邻两段互相重叠，竖线连续无断口。 */
+      top: -7px;
+      bottom: -7px;
       width: 2px;
       background: #80baff;
     }
@@ -2661,6 +2669,8 @@
       border: 3px solid var(--blue);
       border-radius: 50%;
       background: #fff;
+      /* 圆圈压在竖线（同元素的 ::after）之上，用白色填充盖住穿过的线段 */
+      z-index: 1;
     }
 
     .timeline-card h4 {
