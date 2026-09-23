@@ -21,7 +21,7 @@ description: 视频查询与回放 skill：用于用户查询摄像头列表、�
 
 ### 1. list_cameras — 查询摄像头列表
 
-**无参数**（可选 `name` 按名称子串过滤、`page`/`pageSize` 分页）。返回所有已配置摄像头；`sourceUrl`、NVR 绑定等字段已不再返回，需要时走 backend-lite 的 `/api/cameras` 接口。
+**无参数**（可选 `name` 按名称子串过滤、`page`/`pageSize` 分页）。返回所有已配置摄像头；`status` 取自设备在线状态（`RUNNING` = 在线，`STOPPED` = 离线），`sourceUrl`、NVR 绑定等字段不返回，需要时走 backend-lite 的 `/api/cameras` 接口。
 
 **XML 格式**：
 <sxin-camera-list count="2">

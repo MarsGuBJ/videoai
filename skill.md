@@ -47,11 +47,13 @@
 <sxin-camera-list count="2">
  <camera
    id="c71f4f5d-065a-40d8-b81a-72124c94b131"
+   status="RUNNING"
    url="http://192.168.11.194:5174/live/camera-1782139888691571790/hls.m3u8"
    name="金山12楼门口">
   </camera>
  <camera
    id="95fb9b8d-d3a8-4ab6-b0cd-c874b67024c4"
+   status="STOPPED"
    url="http://192.168.11.194:5174/live/cam65/hls.m3u8"
    name="1205实验室">
   </camera>
@@ -63,10 +65,11 @@
 | 属性 | 说明 |
 |------|------|
 | `id` | 摄像头唯一标识，作为 `cameraId` 用于 get_live_stream / search_recordings |
+| `status` | 设备在线状态：`RUNNING` = 在线，`STOPPED` = 离线（取自设备在线状态，非拉流状态） |
 | `name` | 摄像头名称 |
 | `url` | 实时流播放地址，可直接播放 |
 
-> `status`（拉流状态）、`sourceUrl`、NVR 绑定等字段不再由 `list_cameras` 返回；需要时走 backend-lite 的 `/api/cameras` 接口。
+> `sourceUrl`、NVR 绑定等字段不由 `list_cameras` 返回；需要时走 backend-lite 的 `/api/cameras` 接口。
 
 ---
 

@@ -14,6 +14,7 @@ def make_camera(**overrides) -> Camera:
         "streamApp": "live",
         "streamName": "cam-1",
         "status": "RUNNING",
+        "onlineStatus": "ONLINE",
         "playbackUrl": "/live/cam-1.live.flv",
         "createdAt": now,
         "updatedAt": now,
@@ -57,17 +58,44 @@ def test_list_cameras_returns_id_url_name_and_excludes_nvr_only(monkeypatch):
     assert result["page"] == 1
     assert len(result["data"]) == 1
     item = result["data"][0]
-    # 摄像头状态（拉流状态）不再对外返回，避免智能体/界面展示 STOPPED 造成误解
+    # status 取自设备在线状态（onlineStatus），不再取拉流状态
     assert item == {
         "id": "cam-1",
+        "status": "RUNNING",
         "url": "https://video.example/live/cam-1.live.flv",
         "name": "园区摄像头",
     }
-    assert "status" not in item
     assert "录像通道" not in result["xml"]
     assert 'id="cam-1"' in result["xml"]
     assert 'url="https://video.example/live/cam-1.live.flv"' in result["xml"]
-    assert "status" not in result["xml"]
+    assert 'status="RUNNING"' in result["xml"]
+
+
+def test_list_cameras_status_reflects_online_status(monkeypatch):
+    install_fake_cameras(
+        monkeypatch,
+        [
+            make_camera(id="cam-online", streamName="cam-online", onlineStatus="ONLINE"),
+            make_camera(id="cam-offline", streamName="cam-offline", onlineStatus="OFFLINE"),
+            make_camera(id="cam-unknown", streamName="cam-unknown", onlineStatus="UNKNOWN"),
+            make_camera(id="cam-missing", streamName="cam-missing", onlineStatus=None),
+            # 拉流状态为 STOPPED 但设备在线时，status 仍应为 RUNNING
+            make_camera(id="cam-stopped", streamName="cam-stopped", status="STOPPED", onlineStatus="ONLINE"),
+        ],
+    )
+
+    result = asyncio.run(server.list_cameras())
+
+    statuses = {item["id"]: item["status"] for item in result["data"]}
+    assert statuses == {
+        "cam-online": "RUNNING",
+        "cam-offline": "STOPPED",
+        "cam-unknown": "STOPPED",
+        "cam-missing": "STOPPED",
+        "cam-stopped": "RUNNING",
+    }
+    assert 'id="cam-offline"' in result["xml"]
+    assert 'status="STOPPED"' in result["xml"]
 
 
 def test_list_cameras_filters_by_name_fuzzy_case_insensitive(monkeypatch):

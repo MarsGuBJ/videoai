@@ -13,6 +13,7 @@ class Camera(BaseModel):
     ffmpegKey: str | None = None
     description: str | None = None
     status: str
+    onlineStatus: str | None = None
     playbackUrl: str
     createdAt: datetime
     updatedAt: datetime

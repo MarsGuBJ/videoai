@@ -12,7 +12,8 @@ MAX_CAMERA_PAGE_SIZE = 200
 async def list_cameras(name: str = "", page: int = 1, pageSize: int = DEFAULT_CAMERA_PAGE_SIZE) -> dict:
     """List live cameras configured in VideoAI, excluding NVR-only recording channels.
     name filters cameras by a case-insensitive substring of the camera name; page/pageSize
-    paginate the result (page starts at 1). Each item returns id, url and name.
+    paginate the result (page starts at 1). Each item returns id, status, url and name,
+    where status reflects device online status (RUNNING = online, STOPPED = offline).
     Returns JSON and XML output."""
     cameras = await videoai.list_cameras()
     live_cameras = [c for c in cameras if not _is_nvr_only_channel(c)]
@@ -26,6 +27,7 @@ async def list_cameras(name: str = "", page: int = 1, pageSize: int = DEFAULT_CA
     items = [
         {
             "id": camera.id,
+            "status": _online_status(camera),
             "url": _public_url(camera.playbackUrl),
             "name": camera.name,
         }
@@ -69,6 +71,11 @@ async def get_live_stream(cameraId: str, autoStart: bool = True) -> dict:
 def _is_nvr_only_channel(camera) -> bool:
     """Return True if this camera is an NVR recording channel only (no live source)."""
     return not (camera.sourceUrl or "").strip()
+
+
+def _online_status(camera) -> str:
+    """Map device online status to the public status enum: online = RUNNING, otherwise STOPPED."""
+    return "RUNNING" if (camera.onlineStatus or "").upper() == "ONLINE" else "STOPPED"
 
 
 def _public_url(url: str) -> str:

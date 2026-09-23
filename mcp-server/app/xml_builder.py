@@ -26,6 +26,7 @@ def build_camera_list_xml(cameras: list[dict]) -> str:
     for cam in cameras:
         c = SubElement(root, "camera")
         c.set("id", _attr(cam.get("id")))
+        c.set("status", _attr(cam.get("status")))
         c.set("url", _attr(cam.get("url")))
         c.set("name", _attr(cam.get("name")))
         c.text = "\n  "
