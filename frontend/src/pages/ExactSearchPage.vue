@@ -640,7 +640,7 @@ export default defineComponent({
       deployAlgorithmOptions: [] as any[],
       quickQuestions: [
         { label: "提问画面", placeholder: "请描述当前视频画面中的内容，包括人物、车辆、物体、场景以及正在发生的行为" },
-        { label: "查找目标", placeholder: "请输入目标特征，例如：穿红色上衣的人、白色轿车、背双肩包的人" },
+        { label: "查找目标", placeholder: "帮我找一下视频中出现的车" },
         { label: "重点事件摘要", placeholder: "这段视频发生了哪些重点事件？" }
       ],
       lastQuery: "",
@@ -1433,6 +1433,9 @@ export default defineComponent({
       }
     },
     submitVideoChat() {
+      // 输入框为空时，把当前 placeholder（含快捷提问按钮设置的提示语）作为提示词发送；
+      // queryPlaceholder 依赖 activeQuickPrompt，需在清空之前取值
+      if (!this.query.trim()) this.query = this.queryPlaceholder;
       this.activeQuickPrompt = "";
       if (this.analyzed) this.askVideoQuestion(this.query);
       else this.startAnalysis();
