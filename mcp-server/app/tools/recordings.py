@@ -98,7 +98,8 @@ async def export_recording(trackId: str = "", startTime: str = "", endTime: str 
     return {"data": data}
 
 
-@mcp.tool()
+# 对外 MCP 接口描述固定为接口名（调用方按名称识别工具）。
+@mcp.tool(description="search_recordings")
 async def search_recordings(
     cameraId: str = "",
     startTime: str = "",

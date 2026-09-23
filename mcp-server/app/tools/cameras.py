@@ -8,7 +8,8 @@ DEFAULT_CAMERA_PAGE_SIZE = 20
 MAX_CAMERA_PAGE_SIZE = 200
 
 
-@mcp.tool()
+# 对外 MCP 接口描述固定为接口名（调用方按名称识别工具）。
+@mcp.tool(description="list_cameras")
 async def list_cameras(name: str = "", page: int = 1, pageSize: int = DEFAULT_CAMERA_PAGE_SIZE) -> dict:
     """List live cameras configured in VideoAI, excluding NVR-only recording channels.
     name filters cameras by a case-insensitive substring of the camera name; page/pageSize
