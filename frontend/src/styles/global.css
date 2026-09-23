@@ -5632,19 +5632,6 @@
       box-shadow: 0 0 0 4px rgba(61, 213, 152, .18);
     }
 
-    .exact-event-marker {
-      position: absolute;
-      top: 50%;
-      width: 10px;
-      height: 10px;
-      border: 2px solid #fff;
-      border-radius: 50%;
-      background: #ffb020;
-      box-shadow: 0 0 0 4px rgba(255, 176, 32, .22);
-      transform: translate(-50%, -50%);
-      z-index: 2;
-    }
-
     .exact-player-controls {
       position: absolute;
       right: 12px;
