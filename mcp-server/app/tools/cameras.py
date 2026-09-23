@@ -90,14 +90,12 @@ def _public_url(url: str) -> str:
 
 def _playback_url(camera) -> str:
     """Build the list_cameras playback URL.
-    For ZLM-proxied live streams (relative /live/*.live.flv playback URLs, i.e. RTSP
-    sources), return the backend proxy endpoint /api/live/{streamName}.live.flv so
-    that playing the link auto-starts the stream on demand. Other sources (http(s)
-    passthrough, mjpeg fallback) keep the original playback URL."""
-    url = camera.playbackUrl or ""
-    if url.startswith("/live/") and url.endswith(".live.flv") and camera.streamName:
+    RTSP-source cameras get the backend proxy endpoint /api/live/{streamName}.live.flv
+    (the only source type that endpoint accepts), so playing the link auto-starts
+    the stream on demand. Everything else keeps the original playback URL."""
+    if camera.streamName and (camera.sourceUrl or "").lower().startswith("rtsp://"):
         return f"{settings.videoai_media_public_base_url}/api/live/{camera.streamName}.live.flv"
-    return _public_url(url)
+    return _public_url(camera.playbackUrl or "")
 
 
 def detect_format(url: str) -> str:
