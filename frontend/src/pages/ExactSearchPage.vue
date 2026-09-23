@@ -13,7 +13,7 @@
       <div v-else class="exact-last-video-panel">
         <input ref="exactVideoInput" class="hidden-file-input" type="file" accept="video/*,.mkv" @change="onFileChange" />
         <div v-if="localFileName" class="exact-last-video-card"><img :src="localVideoPoster || store.img.analyst" alt="已上传本地视频" /><div><div class="exact-last-video-title"><strong>{{ localFileName }}</strong><div class="exact-last-video-meta"><span class="tag blue">已上传</span><span v-if="localFileDuration" class="exact-last-video-duration">时长 {{ localFileDuration }}</span></div></div></div><button class="exact-video-delete-btn" type="button" aria-label="删除已上传视频" title="删除已上传视频" @click.stop="clearLocalVideo"><span aria-hidden="true"></span></button></div>
-        <div v-else class="exact-upload-drop" @click="triggerUpload" @dragover.prevent @drop.prevent="handleDrop"><div><span class="upload-mark">＋</span><strong>点击上传或拖拽视频到此处</strong><span class="hint-text">支持本地视频预览与时间定位</span></div></div>
+        <div v-else class="exact-upload-drop" @click="triggerUpload" @dragover.prevent @drop.prevent="handleDrop"><div><span class="upload-mark">＋</span><strong>点击上传或拖拽视频到此处</strong><span class="hint-text">支持本地视频预览与时间定位，单个文件最大 2GB</span></div></div>
       </div>
     </div>
 
@@ -312,6 +312,9 @@ function analysisUrlFor(camera: any): string {
 }
 
 const EVENT_TIME_KEYS = ["start_time", "start", "time", "timestamp", "begin_time", "begin"];
+
+// 本地视频上传上限：必须与后端 MAX_ANALYSIS_VIDEO_BYTES、前端 nginx client_max_body_size 保持一致（2 GB）
+const MAX_LOCAL_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
 
 // 视频理解结果缓存：同一视频 + 同一提问（含全量请求参数）直接命中，秒出结果
 // 模块级 Map：组件切走再回来仍然有效；LRU 淘汰，最多保留 20 条
@@ -1064,6 +1067,10 @@ export default defineComponent({
       const valid = file.type.startsWith("video/") || /\.(mp4|mov|avi|mkv)$/i.test(file.name);
       if (!valid) {
         this.showToast("请选择 mp4、mov、avi 或 mkv 视频文件");
+        return;
+      }
+      if (file.size > MAX_LOCAL_VIDEO_BYTES) {
+        this.showToast("视频文件不能超过 2 GB");
         return;
       }
       if (this.store.lastLocalVideo && this.store.lastLocalVideo.url) URL.revokeObjectURL(this.store.lastLocalVideo.url);
