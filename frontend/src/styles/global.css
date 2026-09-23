@@ -998,8 +998,16 @@
       margin-top: 12px;
     }
 
+    /*
+     * 文搜图（TextImagePage）/ 图搜图（ImageSearchPage）结果列表下方的翻页组件必须靠右对齐。
+     * 【请勿改回左对齐】这里的 justify-content: flex-end 只作用于分页组件内部按钮的排布，
+     * 分页组件本身是 .image-search-result-footer（justify-content: space-between）的 flex 子项，
+     * 只有一个子项时会被顶到最左侧；必须用 margin-left: auto 才能把它推到右侧。
+     * 窄屏（<=1040px）footer 改为纵向排列时，该 auto 外边距同样保证分页靠右。
+     */
     .image-search-result-footer .exact-pagination {
       justify-content: flex-end;
+      margin-left: auto;
       margin-top: 0;
     }
 
@@ -5257,6 +5265,9 @@
       display: flex;
       align-items: center;
       gap: 5px;
+      /* .exact-pagination > span 会给所有 span 子项 6px 右外边距；
+         .page-jump 是跳页控件容器而非文字标签，去掉后分页右缘才能与页脚贴齐 */
+      margin-right: 0;
     }
 
     .exact-pagination .page-jump-input {
