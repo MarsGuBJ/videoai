@@ -1562,12 +1562,12 @@ export default defineComponent({
       this.seekVideo(event.start);
       this.showToast(`已定位到 ${event.time} 事件画面`);
     },
-    // 分析结果列表显示绝对时间：搜索栏开始时间 + 事件相对偏移秒数；
+    // 分析结果列表显示绝对时间（HH:mm:ss）：搜索栏开始时间 + 事件相对偏移秒数；
     // 无开始时间（如本地上传视频未填区间）时回退为相对时间
     formatEventDisplayTime(event) {
       const baseMs = parseLocalMs(this.onlineStart);
       if (!baseMs || !event) return event && event.time ? event.time : "";
-      return toLocalDateTimeSeconds(baseMs + (Number(event.start) || 0) * 1000);
+      return toLocalDateTimeSeconds(baseMs + (Number(event.start) || 0) * 1000).slice(11);
     },
     // 分析结果事件卡片用真实截图：按事件起点从视频文件截帧；失败时回退到原占位图
     applyEventFrameImages(events, videoUrl) {
