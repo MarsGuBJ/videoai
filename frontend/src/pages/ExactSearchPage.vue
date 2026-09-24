@@ -6,7 +6,7 @@
       <div v-if="sourceMode === 'online'" class="exact-online-pane">
         <div class="exact-source-form" @click.stop>
           <div class="deploy-field"><label>区域 / 监控点</label><div class="exact-tree-select"><button class="exact-tree-trigger" :class="{ open: pointDropdownOpen }" @click="togglePointDropdown"><span>{{ selectedPointLabel }}</span><span>{{ pointDropdownOpen ? '收起' : '展开' }}⌄</span></button><div v-if="pointDropdownOpen" class="exact-tree-dropdown"><div class="exact-tree-search"><input v-model="pointSearchQuery" type="text" placeholder="输入关键字搜索监控点" @click.stop /></div><div v-for="entry in pointAreaEntries" :key="entry.area.name"><button class="exact-tree-area-row" :class="{ active: selectedArea && selectedArea.name === entry.area.name }" @click="toggleArea(entry.area)"><span>{{ expandedAreas[entry.area.name] || pointSearchActive ? '⌄' : '›' }} {{ entry.area.name }}</span><span>{{ entry.cameras.length }} 台设备</span></button><div v-if="expandedAreas[entry.area.name] || pointSearchActive" class="exact-tree-children"><button v-for="camera in entry.cameras" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, entry.area)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!pointAreaEntries.length" class="exact-tree-empty">未找到匹配的监控点</div></div></div></div>
-          <div class="deploy-field"><date-time-range-picker v-model:start="onlineStart" v-model:end="onlineEnd" @change="resetResultsBelowSearch" /></div>
+          <div class="deploy-field"><date-time-range-picker v-model:start="onlineStart" v-model:end="onlineEnd" /></div>
           <button class="btn primary" :disabled="searching" @click="searchOnlineSources">⌕ 搜索回放</button>
         </div>
       </div>
@@ -73,7 +73,7 @@
               <article v-for="(event, index) in events" :key="event.name" class="exact-event-card" :class="{ active: selectedEventIndex === index }" @click="selectEvent(index)">
                 <img :src="event.image" :alt="event.name" role="button" tabindex="0" :title="'点击放大：' + event.name" :aria-label="'放大查看 ' + event.name" @error="onEventImageError(event)" @click.stop="openEventImagePreview(event)" @keydown.enter.stop.prevent="openEventImagePreview(event)" @keydown.space.stop.prevent="openEventImagePreview(event)" />
                 <div>
-                  <div class="exact-event-meta"><strong>发生时间 {{ event.time }}</strong><span>回放定位</span></div>
+                  <div class="exact-event-meta"><strong>发生时间 {{ formatEventDisplayTime(event) }}</strong><span>回放定位</span></div>
                   <h4>{{ event.name }}</h4>
                   <div class="exact-markdown exact-event-detail" v-html="renderMarkdown(event.detail)"></div>
                   <div class="exact-event-actions"><button class="btn" @click.stop="openResultCrop('imageSearch', event, index)">以图搜图</button><button class="btn primary" @click.stop="openResultCrop('quickDeploy', event, index)">快速布防</button><button class="btn" @click.stop="openResultCrop('track', event, index)">轨迹还原</button></div>
@@ -806,8 +806,9 @@ export default defineComponent({
       this.pointDropdownOpen = false;
       if (cameraChanged || areaChanged) this.resetResultsBelowSearch();
     },
-    // 查询条件（区域 / 监控点 / 时间段）修改后：搜索栏下方立即回到初始空白态，
-    // 停止旧录像播放并清空上一轮问答与分析结果，待重新点击「搜索回放」再载入新录像
+    // 查询条件（区域 / 监控点）修改后：搜索栏下方立即回到初始空白态，
+    // 停止旧录像播放并清空上一轮问答与分析结果，待重新点击「搜索回放」再载入新录像；
+    // 仅修改时间区间不清空，保留已加载内容（用户重搜后自行刷新）
     resetResultsBelowSearch() {
       if (!this.sourceConfirmed && !this.selectedSource) return;
       this.stopSimulation();
@@ -1560,6 +1561,13 @@ export default defineComponent({
       this.selectedEventIndex = index;
       this.seekVideo(event.start);
       this.showToast(`已定位到 ${event.time} 事件画面`);
+    },
+    // 分析结果列表显示绝对时间：搜索栏开始时间 + 事件相对偏移秒数；
+    // 无开始时间（如本地上传视频未填区间）时回退为相对时间
+    formatEventDisplayTime(event) {
+      const baseMs = parseLocalMs(this.onlineStart);
+      if (!baseMs || !event) return event && event.time ? event.time : "";
+      return toLocalDateTimeSeconds(baseMs + (Number(event.start) || 0) * 1000);
     },
     // 分析结果事件卡片用真实截图：按事件起点从视频文件截帧；失败时回退到原占位图
     applyEventFrameImages(events, videoUrl) {
