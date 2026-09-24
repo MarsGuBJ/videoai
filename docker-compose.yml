@@ -301,21 +301,6 @@ services:
       backend:
         condition: service_started
 
-  frontend-search:
-    profiles:
-      - modular
-    build:
-      context: ./frontend
-      network: host
-      args:
-        BUILD_MODE: search
-    restart: unless-stopped
-    ports:
-      - "192.168.11.194:5174:5173"
-    depends_on:
-      backend:
-        condition: service_started
-
   frontend-media:
     profiles:
       - modular

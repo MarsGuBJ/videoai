@@ -11,22 +11,14 @@ import { overviewRoute, routes as shellRoutes } from "./shell/routes.ts";
 import * as shellNav from "./shell/nav.ts";
 
 // 单仓多模式装配：按 VITE_APP_MODULE 把各模块的路由/菜单/路由名拼成一套应用配置。
-// 缺省或 full → 全量应用（与改造前逐条一致）；search|media|control|review → 仅该模块。
+// 缺省或 full → 全量应用（与改造前逐条一致）；media|control|review → 仅该模块。
+// 文搜模块（search）不再单独出子包，只随全量应用提供。
 
 export interface ResolvedApp {
   routes: RouteRecordRaw[];
   navGroups: any[];
   routeNames: Record<string, string>;
   defaultRoute: string;
-}
-
-function searchApp(): ResolvedApp {
-  return {
-    routes: searchRoutes,
-    navGroups: [searchNav.navGroup],
-    routeNames: { ...searchNav.routeNames },
-    defaultRoute: "/home"
-  };
 }
 
 function mediaApp(): ResolvedApp {
@@ -91,7 +83,6 @@ function fullApp(): ResolvedApp {
 }
 
 export const MODULES: Record<string, ResolvedApp> = {
-  search: searchApp(),
   media: mediaApp(),
   control: controlApp(),
   review: reviewApp()
@@ -111,7 +102,6 @@ const MODE: string = import.meta.env.VITE_APP_MODULE || "full";
 
 // 本次构建的装配结果单例，store 与 router 共用
 export const appModules: ResolvedApp =
-  MODE === "search" ? searchApp() :
   MODE === "media" ? mediaApp() :
   MODE === "control" ? controlApp() :
   MODE === "review" ? reviewApp() :
