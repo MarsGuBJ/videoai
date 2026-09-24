@@ -79,6 +79,8 @@
 - MCP tools 的匿名 HTTP JSON 接口与 MCP 服务运行在同一端口，路径为 `/<mcp接口>-http`。录像动态播放链接 `GET /recording-live` 同样挂在该端口。这些接口无需认证，但仍只能内网访问，禁止因为 HTTP 匿名接口而把 `8097` 暴露到公网。
 - SXin 助手 iframe 不要直接指向 `192.168.11.192:9997`。必须通过本项目 `sxin-proxy` 的 `192.168.11.194:10997` 访问，避免跨站 iframe 下浏览器拒绝 `Set-Cookie`。远程服务器已有非本项目服务占用 `0.0.0.0:9997`，禁止复用该端口。`sxin-proxy` 必须剥离 `Origin`、`Referer` 和 `X-Forwarded-*`，否则 SXin 登录接口会返回 `Cross-site auth request denied`。
 
+- 设备管理页「区域管理 → 同步空间区域」（2026-09-24 新增）：backend-media 走 Feign 调空间服务 `GET /spatialServer/spatialInfo/tree?hasOther=true`，把园区/区域/楼栋/楼层按「同级同名」判重后**只新增**到 `regions` 表，已有区域结构（名称/排序/父子关系）一律不改动。空间服务基址可在区域管理弹窗里改，落库 `spatial_config` 单行表（迁移 V20）；`VIDEOAI_SPATIAL_BASE_URL` 只在库中未配置时兜底，默认 `http://172.17.2.131:8080`。接口不可访问/返回失败时后端只记 WARN 日志并返回 `success=false`（HTTP 200），不影响区域管理的其它操作。
+
 ### 录像回放页（对接现场 NVR，2026-09-04 新增）
 
 - 前端录像回放页 → backend-lite `POST /api/recordings/search|stream|download`（body 均为 `{cameraId, startTime, endTime}`，北京时间）→ MCP `search_recordings-http` / `download_recording-http`（均支持 `cameraId`）；`/api/recordings/stream` 只调 `search_recordings-http`（autoProxy=true）取 `/recording-live` 动态链接并追加 `&speed=` 倍速参数。MCP 侧 `get_recording_stream` **不再作为 MCP tool**，但仍保留 `POST /get_recording_stream-http` 兼容入口：对缓存过的 `recordingId` 返回 **H.265 直通**流，只支持等速（`speed=1`）。

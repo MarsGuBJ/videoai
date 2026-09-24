@@ -114,6 +114,9 @@ export default {
       regionDragId: "",
       regionDropTargetId: "",
       regionDropPosition: "" as "" | "before" | "after",
+      regionSpatialBaseUrl: "",
+      regionSpatialSaving: false,
+      regionSpatialSyncing: false,
       reviewLlmId: "",
       reviewLlmConfigs: [] as LlmConfig[],
       reviewTypeId: "",
@@ -374,6 +377,10 @@ export default {
         this.regionDragId = "";
         this.regionDropTargetId = "";
         this.regionDropPosition = "";
+        this.regionSpatialBaseUrl = "";
+        this.regionSpatialSaving = false;
+        this.regionSpatialSyncing = false;
+        this.loadSpatialConfig();
         this.loadRegionTreeData();
       } else if (this.modal.type === "recordDownload") {
         this.initRecordDownloadForm();
@@ -753,6 +760,53 @@ export default {
       this.regionSelectedId = "";
       this.regionRenameValue = "";
       await this.reloadRegions("区域已删除");
+    },
+    // 空间服务地址（同步区域树的基址）：读取失败不阻塞区域管理，仅保留空输入框
+    async loadSpatialConfig() {
+      try {
+        const config = await api.spatialConfig();
+        this.regionSpatialBaseUrl = config.baseUrl || "";
+      } catch {
+        this.regionSpatialBaseUrl = "";
+      }
+    },
+    async saveSpatialConfig() {
+      if (this.regionSpatialSaving) return;
+      const baseUrl = (this.regionSpatialBaseUrl || "").trim();
+      if (!baseUrl) {
+        this.showToast("请输入空间服务地址");
+        return;
+      }
+      this.regionSpatialSaving = true;
+      try {
+        const config = await api.saveSpatialConfig(baseUrl);
+        this.regionSpatialBaseUrl = config.baseUrl;
+        this.showToast("空间服务地址已保存");
+      } catch (error) {
+        this.showToast(`空间服务地址保存失败：${error instanceof Error ? error.message : error}`);
+      } finally {
+        this.regionSpatialSaving = false;
+      }
+    },
+    // 从界面配置的空间服务同步区域树：后端只新增缺失的园区/区域/楼栋/楼层，
+    // 已有区域结构不动；接口不可访问时后端只记日志、返回 success=false，这里仅提示不当作错误
+    async syncSpatialRegions() {
+      if (this.regionSpatialSyncing) return;
+      this.regionSpatialSyncing = true;
+      try {
+        const result = await api.syncSpatialRegions();
+        await this.loadRegionTreeData();
+        this.refreshCameras();
+        if (result.success) {
+          this.showToast(`空间区域同步完成：新增 ${result.created} 个，已存在跳过 ${result.skipped} 个`);
+        } else {
+          this.showToast(result.message || "空间区域同步未完成");
+        }
+      } catch (error) {
+        this.showToast(`空间区域同步失败：${error instanceof Error ? error.message : error}`);
+      } finally {
+        this.regionSpatialSyncing = false;
+      }
     },
     // 同级拖拽排序：仅允许同一 parentId 的节点间拖拽，落点上半部分插到目标前、下半部分插到目标后
     onRegionDragStart(event: DragEvent, row: { node: RegionTreeNode }) {
@@ -1655,6 +1709,20 @@ export default {
         </template>
         <template v-if="modal.type === 'mediaRegion'">
           <p class="modal-hint">区域树与「所在区域」下拉框数据一致，支持多级区域；拖拽同级节点可调整显示顺序，重命名会同步更新占用该区域的设备（含下级区域）。</p>
+          <div class="modal-form-row">
+            <label>空间服务地址：</label>
+            <div style="display:flex;gap:8px;flex:1;">
+              <input class="input" style="flex:1;" v-model.trim="regionSpatialBaseUrl" placeholder="http://172.17.2.131:8080" @keyup.enter="saveSpatialConfig" />
+              <button class="btn" :disabled="regionSpatialSaving" @click="saveSpatialConfig">{{ regionSpatialSaving ? '保存中…' : '保存' }}</button>
+            </div>
+          </div>
+          <div class="modal-form-row">
+            <label>同步空间区域：</label>
+            <div style="display:flex;gap:10px;align-items:center;flex:1;">
+              <button class="btn" :disabled="regionSpatialSyncing" @click="syncSpatialRegions">{{ regionSpatialSyncing ? '同步中…' : '⤓ 从空间服务同步' }}</button>
+              <span class="hint-text">按上方地址同步，只新增空间树中缺失的园区 / 区域 / 楼栋 / 楼层，已有区域不改动</span>
+            </div>
+          </div>
           <div class="modal-form-row">
             <label>添加根区域：</label>
             <div style="display:flex;gap:8px;flex:1;">

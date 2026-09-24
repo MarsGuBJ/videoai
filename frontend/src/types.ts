@@ -552,6 +552,21 @@ export type CloudSyncResult = {
   skipped: number;
 };
 
+/** 空间区域同步结果：success=false 表示空间服务不可访问/返回失败（后端只记日志，不报错） */
+export type SpatialRegionSyncResult = {
+  success: boolean;
+  message: string;
+  created: number;
+  skipped: number;
+  total: number;
+};
+
+/** 空间服务配置（/api/regions/spatial-config）：同步区域树时调用的空间服务基址 */
+export type SpatialConfig = {
+  baseUrl: string;
+  updatedAt: string | null;
+};
+
 export type NvrImportItem = {
   name: string;
   ip: string | null;

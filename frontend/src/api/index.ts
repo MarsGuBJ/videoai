@@ -1,4 +1,4 @@
-import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, NvrImportItem, NvrImportPrecheck, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, WindowsCameraStatus, WorkerNode } from '../types';
+import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, NvrImportItem, NvrImportPrecheck, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, SpatialConfig, SpatialRegionSyncResult, WindowsCameraStatus, WorkerNode } from '../types';
 
 export type {
   AccessCertificate,
@@ -411,6 +411,16 @@ export const api = {
     }),
   deleteRegion: (id: string) =>
     request<void>(`/api/regions/${encodeURIComponent(id)}`, { method: 'DELETE' }).then((result) => {
+      invalidateRegions();
+      return result;
+    }),
+  // 从空间服务同步区域树：后端只新增缺失节点，已存在的区域结构不动；
+  // 空间接口不可访问时后端只记日志并返回 success=false（HTTP 仍为 200）
+  spatialConfig: () => request<SpatialConfig>('/api/regions/spatial-config'),
+  saveSpatialConfig: (baseUrl: string) =>
+    request<SpatialConfig>('/api/regions/spatial-config', { method: 'PUT', body: JSON.stringify({ baseUrl }) }),
+  syncSpatialRegions: () =>
+    request<SpatialRegionSyncResult>('/api/regions/sync-spatial', { method: 'POST' }).then((result) => {
       invalidateRegions();
       return result;
     }),

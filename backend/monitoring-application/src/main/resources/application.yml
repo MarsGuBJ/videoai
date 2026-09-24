@@ -21,6 +21,14 @@ spring:
     async:
       # Long-lived stream proxies (FLV/MJPEG) must not be cut by the async request timeout.
       request-timeout: -1
+  cloud:
+    openfeign:
+      client:
+        config:
+          # 空间服务接口不可达时不长时间挂住「同步空间区域」请求
+          spatial-info:
+            connect-timeout: 3000
+            read-timeout: 10000
 
 videoai:
   zlm:
@@ -52,6 +60,9 @@ videoai:
     nvr-base-url: ${HIKVISION_NVR_BASE_URL:}
     nvr-username: ${HIKVISION_NVR_USERNAME:}
     nvr-password: ${HIKVISION_NVR_PASSWORD:}
+  # 空间服务（spatialServer）基址兜底默认值：界面保存的 spatial_config 优先，仅当库中未配置时使用
+  spatial-info:
+    base-url: ${VIDEOAI_SPATIAL_BASE_URL:http://172.17.2.131:8080}
 
 mybatis-plus:
   mapper-locations: classpath*:mybatis/**/*.xml
