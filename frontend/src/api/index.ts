@@ -706,6 +706,15 @@ export function videoAnalysisFrameUrl(videoUrl?: string | null, seconds = 0): st
   return `${baseUrlForPath('/api/video-analysis/frame')}/api/video-analysis/frame?videoUrl=${encodeURIComponent(videoUrl)}&seconds=${offset}`;
 }
 
+// 文搜视频分析视频的浏览器播放地址：经 backend-lite 同源代理拉流（Range 透传），
+// 避免浏览器直连 MinIO 被现场客户端链路限速；blob: 等非 http(s) 地址原样返回
+export function videoAnalysisStreamUrl(videoUrl?: string | null): string {
+  if (!videoUrl || !/^https?:\/\//i.test(videoUrl)) {
+    return videoUrl || '';
+  }
+  return `${baseUrlForPath('/api/video-analysis/video')}/api/video-analysis/video?videoUrl=${encodeURIComponent(videoUrl)}`;
+}
+
 export function streamUrl(path?: string | null): string | undefined {
   if (!path) {
     return undefined;

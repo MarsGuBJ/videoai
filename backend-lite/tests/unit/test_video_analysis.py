@@ -342,3 +342,84 @@ def test_frame_endpoint_502_when_ffmpeg_fails(client: TestClient, monkeypatch: p
     )
 
     assert response.status_code == 502
+
+
+class FakeStreamResponse:
+    def __init__(self, chunks=(b"ab", b"cd"), status_code=206, headers=None):
+        self._chunks = chunks
+        self.status_code = status_code
+        self.headers = headers or {}
+        self.closed = False
+
+    def iter_content(self, chunk_size):
+        return iter(self._chunks)
+
+    def close(self):
+        self.closed = True
+
+
+def test_video_proxy_forwards_range_and_streams(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """Range 头透传上游，206 状态与内容头原样返回，响应体流式输出。"""
+    captured = {}
+    upstream = FakeStreamResponse(
+        status_code=206,
+        headers={
+            "Content-Type": "video/mp4",
+            "Content-Length": "4",
+            "Content-Range": "bytes 100-103/1000",
+            "Accept-Ranges": "bytes",
+            "Transfer-Encoding": "chunked",
+        },
+    )
+
+    def fake_get(url, headers, stream, timeout):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["stream"] = stream
+        captured["timeout"] = timeout
+        return upstream
+
+    monkeypatch.setattr(video_analysis.requests, "get", fake_get)
+
+    response = client.get(
+        "/api/video-analysis/video",
+        params={"videoUrl": "http://192.168.11.194:9000/public/a.mp4"},
+        headers={"Range": "bytes=100-103"},
+    )
+
+    assert response.status_code == 206
+    assert response.content == b"abcd"
+    assert response.headers["content-range"] == "bytes 100-103/1000"
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-type"] == "video/mp4"
+    # 透传白名单之外的头（如 Transfer-Encoding）不带出，避免与代理自身编码冲突
+    assert "transfer-encoding" not in response.headers
+    assert captured["url"] == "http://192.168.11.194:9000/public/a.mp4"
+    assert captured["headers"] == {"Range": "bytes=100-103"}
+    assert captured["stream"] is True
+    assert upstream.closed is True
+
+
+def test_video_proxy_rejects_non_http_url(client: TestClient):
+    """非 http(s) 地址返回 400。"""
+    response = client.get(
+        "/api/video-analysis/video",
+        params={"videoUrl": "file:///etc/passwd"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_video_proxy_502_when_upstream_unreachable(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """上游连接失败时返回 502。"""
+    def fake_get(*args, **kwargs):
+        raise requests.ConnectionError("refused")
+
+    monkeypatch.setattr(video_analysis.requests, "get", fake_get)
+
+    response = client.get(
+        "/api/video-analysis/video",
+        params={"videoUrl": "http://192.168.11.194:9000/public/a.mp4"},
+    )
+
+    assert response.status_code == 502

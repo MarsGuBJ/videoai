@@ -1,18 +1,22 @@
 """MinIO 视频智能分析代理路由。"""
 
+from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response, StreamingResponse
 
 from app.schemas.video_analysis import RecordingFileRequest, VideoAnalysisRequest
 from app.services import camera_cache
 from app.services.person_search import required_text
 from app.services.search_keywords import SEARCH_TYPE_TEXT_VIDEO, record_search_keyword
-from app.services.video_analysis import extract_video_frame, mcp_recording_export, video_analysis_api_post
+from app.services.video_analysis import extract_video_frame, mcp_recording_export, open_video_stream, video_analysis_api_post
 from app.services.video_storage import save_analysis_video
 
 router = APIRouter()
+
+# 代理播放时透传给客户端的上游响应头
+VIDEO_STREAM_PASSTHROUGH_HEADERS = ("content-length", "content-range", "accept-ranges", "content-type", "etag", "last-modified")
 
 
 @router.post("/api/video-analysis/analyze")
@@ -44,6 +48,22 @@ def video_analysis_frame(video_url: Annotated[str, Query(alias="videoUrl")], sec
     """按时间点截取视频一帧 JPEG，供分析结果事件卡片直接作为 <img> 地址。"""
     frame = extract_video_frame(required_text(video_url, "videoUrl"), seconds)
     return Response(content=frame, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.get("/api/video-analysis/video")
+def video_analysis_video_proxy(request: Request, video_url: Annotated[str, Query(alias="videoUrl")]) -> StreamingResponse:
+    """代理播放分析视频文件：Range 透传支持 seek；同源反代避免浏览器直连 MinIO 被现场链路限速。"""
+    upstream = open_video_stream(required_text(video_url, "videoUrl"), request.headers.get("range"))
+    headers = {key: value for key, value in upstream.headers.items() if key.lower() in VIDEO_STREAM_PASSTHROUGH_HEADERS}
+    headers["X-Accel-Buffering"] = "no"
+
+    def body() -> Iterator[bytes]:
+        try:
+            yield from upstream.iter_content(chunk_size=256 * 1024)
+        finally:
+            upstream.close()
+
+    return StreamingResponse(body(), status_code=upstream.status_code, headers=headers)
 
 
 @router.post("/api/video-analysis/recording-file")

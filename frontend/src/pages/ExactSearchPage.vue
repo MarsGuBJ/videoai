@@ -202,7 +202,7 @@
     </div>
     </div>
   </section>
-  <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeResultCrop" @confirm="confirmResultCrop"></image-crop-dialog>
+  <video-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" :video-url="cropVideoUrl" :video-start="cropVideoStart" @close="closeResultCrop" @confirm="confirmResultCrop"></video-crop-dialog>
   <!-- 以图搜图 tab 结果大图灯箱（同文搜图页 .image-lightbox） -->
   <div v-if="previewImage" class="image-lightbox" @click.self="closeImagePreview">
     <button class="image-lightbox-close" type="button" aria-label="关闭" @click="closeImagePreview">×</button>
@@ -278,12 +278,12 @@
 
 <script lang="ts">
 import { defineComponent } from "vue";
-import ImageCropDialog from "../components/ImageCropDialog.vue";
+import VideoCropDialog from "../components/VideoCropDialog.vue";
 import ImageResults from "../components/ImageResults.vue";
 import DateTimeRangePicker from "../components/DateTimeRangePicker.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 import emptyBg from "../assets/empty_bg.png";
-import { api, assetUrl, videoAnalysisFrameUrl } from "../api";
+import { api, assetUrl, videoAnalysisFrameUrl, videoAnalysisStreamUrl } from "../api";
 import type { PersonSearchBboxPoint, SimilarPersonResult } from "../api";
 import type { DeploymentTaskCreate } from "../types";
 import { deviceStatusLabel } from "../utils/device-status";
@@ -544,7 +544,7 @@ declare module "vue" {
 export default defineComponent({
   name: "ExactSearchPage",
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
-  components: { ImageCropDialog, ImageResults, DateTimeRangePicker, VideoPlayer },
+  components: { VideoCropDialog, ImageResults, DateTimeRangePicker, VideoPlayer },
   inject: {
     showToast: { from: "showToast", default: (m: string) => {} },
     openResult: { from: "openResult", default: (index: number, item?: any) => {} },
@@ -612,6 +612,8 @@ export default defineComponent({
       cropAction: "",
       cropTarget: null,
       cropTargetIndex: -1,
+      cropVideoUrl: "",
+      cropVideoStart: 0,
       previewImage: "",
       activeQuickPrompt: "",
       query: "查找视频中出现的白色车辆，以及人员进入限制区域的情况",
@@ -935,7 +937,7 @@ export default defineComponent({
           image: selectedCamera.image,
           sourceType: "在线监控",
           analysisUrl,
-          videoUrl: isPlayableFileUrl(analysisUrl) ? analysisUrl : undefined,
+          videoUrl: isPlayableFileUrl(analysisUrl) ? videoAnalysisStreamUrl(analysisUrl) : undefined,
           streamUrl: streamUrl || undefined,
           recordingParams
         };
@@ -1361,7 +1363,7 @@ export default defineComponent({
           if (exported.videoUrl && isPlayableFileUrl(exported.videoUrl)) {
             this.stopSimulation();
             selectedSource.streamUrl = undefined;
-            selectedSource.videoUrl = exported.videoUrl;
+            selectedSource.videoUrl = videoAnalysisStreamUrl(exported.videoUrl);
             this.currentTime = 0;
             if (exported.durationSeconds) this.playerDuration = exported.durationSeconds;
           }
@@ -1673,6 +1675,11 @@ export default defineComponent({
         date: event.date || (event.time ? `2026-07-24 ${event.time}` : "")
       };
       this.cropTargetIndex = index;
+      // 以图搜图/快速布防弹窗播放被分析的视频文件（经后端同源代理拉流，避免浏览器直连 MinIO 被限速），
+      // 起点为事件相对偏移秒数；轨迹还原保持图片框选；无视频地址时弹窗降级为图片框选
+      const selectedSource = this.selectedSource as any;
+      this.cropVideoUrl = action === "imageSearch" || action === "quickDeploy" ? videoAnalysisStreamUrl((selectedSource && selectedSource.analysisUrl) || "") : "";
+      this.cropVideoStart = Number(event.start) || 0;
       this.cropDialogOpen = true;
     },
     closeResultCrop() {
@@ -1680,6 +1687,8 @@ export default defineComponent({
       this.cropAction = "";
       this.cropTarget = null;
       this.cropTargetIndex = -1;
+      this.cropVideoUrl = "";
+      this.cropVideoStart = 0;
     },
     // 以图搜图 tab：点击结果卡片放大显示图片（同文搜图页灯箱）
     openImagePreview(payload: any) {
@@ -1691,13 +1700,17 @@ export default defineComponent({
     async confirmResultCrop(payload) {
       const { action, item, index, crop: selection } = payload;
       const crop = selection ? { ...selection, sourceName: item.title, sourceTime: item.date, sourceIndex: index } : null;
+      // 视频模式的兜底帧按暂停时刻从原始视频地址截帧（弹窗播放地址是代理地址，不能直接截帧）；图片模式用原图
+      const rawAnalysisUrl = (this.selectedSource as any)?.analysisUrl || "";
+      const frame = payload.frameTime != null && rawAnalysisUrl ? videoAnalysisFrameUrl(rawAnalysisUrl, payload.frameTime) || item.image : item.image;
       this.closeResultCrop();
       // 裁图确认后不再跨页跳转，改为在右侧栏打开对应的页内 tab
-      if (action === "imageSearch" && crop) {
-        // 裁剪后的图片直接作为以图搜图 tab 的图片参数：本地裁出像素图并上传，
-        // 页签上传框展示裁剪图，检索时无需再次框选；失败时退回原图 + 框选参数（搜索时再裁剪）
+      // 三个动作的页签都直接使用框选出的图片：视频模式优先用弹窗从定格帧 canvas 裁好的文件
+      // （无需再请求截帧/读图），否则本地裁出像素图并上传；页签上传框展示裁剪图本身（不带框选参数），
+      // 检索/布控时无需再次框选；失败时退回原图 + 框选参数
+      if ((action === "imageSearch" || action === "quickDeploy" || action === "track") && crop) {
         try {
-          const file = await cropImageToFile(item.image, crop, "exact-crop.jpg");
+          const file = payload.cropFile || (await cropImageToFile(frame, crop, "exact-crop.jpg"));
           const uploaded = await api.uploadPersonSearchImage(file);
           this.openResultTab(action, { image: assetUrl(uploaded.imageUrl), crop: null, sourceName: item.title });
           return;
@@ -1706,7 +1719,7 @@ export default defineComponent({
         }
       }
       if (action === "imageSearch" || action === "quickDeploy" || action === "track") {
-        this.openResultTab(action, { image: item.image, crop, sourceName: item.title });
+        this.openResultTab(action, { image: frame, crop, sourceName: item.title });
       }
     },
     // 页签默认值：以图搜图/轨迹图带检索表单状态，快速布防带布控表单与已存任务

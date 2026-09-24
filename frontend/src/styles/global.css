@@ -3657,6 +3657,43 @@
       bottom: -5px;
     }
 
+    .image-crop-stage video,
+    .image-crop-stage canvas {
+      display: block;
+      width: 100%;
+      max-height: 460px;
+      object-fit: contain;
+      pointer-events: none;
+    }
+
+    .video-crop-hint {
+      margin-top: 8px;
+      color: #b42318;
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .video-crop-time {
+      align-self: center;
+      color: #475467;
+      font-size: 13px;
+      line-height: 20px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .video-crop-loading {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(16, 24, 40, .72);
+      color: #cbd5e1;
+      font-size: 14px;
+      pointer-events: none;
+    }
+
     .modal-head {
       display: flex;
       align-items: center;

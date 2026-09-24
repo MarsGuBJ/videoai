@@ -14,6 +14,9 @@ VIDEO_ANALYSIS_API_TIMEOUT_SECONDS = 600
 MCP_EXPORT_TIMEOUT_SECONDS = 1980
 # 单帧截图：含远程视频寻址，给足网络与解码余量
 VIDEO_FRAME_TIMEOUT_SECONDS = 60
+# 代理播放：上游连接与读块超时（读块指两次收到数据之间的间隔，不是总时长）
+VIDEO_STREAM_CONNECT_TIMEOUT_SECONDS = 10
+VIDEO_STREAM_READ_TIMEOUT_SECONDS = 120
 
 
 def video_analysis_api_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -115,3 +118,34 @@ def extract_video_frame(video_url: str, seconds: float) -> bytes:
     if process.returncode != 0 or not process.stdout:
         raise HTTPException(status_code=502, detail="Frame extraction returned no image")
     return process.stdout
+
+
+def open_video_stream(video_url: str, range_header: str | None) -> requests.Response:
+    """打开分析视频文件的上游流式响应（供代理播放）。
+
+    浏览器经 backend-lite 同源代理拉流，避免直连 MinIO 被现场链路限速；
+    Range 头原样透传，播放器可正常 seek。
+
+    Args:
+        video_url: 视频文件 URL（MinIO 等 HTTP 地址）。
+        range_header: 客户端 Range 请求头（无则 None）。
+
+    Returns:
+        上游流式响应（调用方负责 close）。
+
+    Raises:
+        HTTPException: 地址不合法（400）或上游不可达（502）。
+    """
+    url = video_url.strip()
+    if not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="videoUrl 必须是 http(s) 视频文件地址")
+    headers = {"Range": range_header} if range_header else {}
+    try:
+        return requests.get(
+            url,
+            headers=headers,
+            stream=True,
+            timeout=(VIDEO_STREAM_CONNECT_TIMEOUT_SECONDS, VIDEO_STREAM_READ_TIMEOUT_SECONDS),
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Video fetch failed: {exc}") from exc
