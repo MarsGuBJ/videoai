@@ -86,7 +86,8 @@ PLAYBACK_QUEUE_HIGH_WATERMARK = 192
 PLAYBACK_QUEUE_LOW_WATERMARK = 64
 
 # 起播 primer 缓冲上限：SDK 按请求时刻起播，起点可能落在 GOP 中间，首个 IDR 之前的
-# 数据先缓冲不喂 ffmpeg（解码器对无参考的 P 帧只能输出掩盖花屏）。正常关键帧间隔
+# 帧数据先缓冲不喂 ffmpeg（解码器对无参考的 P 帧只能输出掩盖花屏）；但 IDR 前独立 PES
+# 中的参数集（VPS/SPS/PPS）必须保留，否则 ffmpeg 解析不出码流。正常关键帧间隔
 # 下首个 IDR 在数百 KB 内；超过上限仍找不到时兜底全量喂入，避免异常流阻塞起播。
 PLAYBACK_PRIME_MAX_BYTES = 16 * 1024 * 1024
 
@@ -97,22 +98,30 @@ def find_first_video_idr(buffer: bytes | bytearray) -> int | None:
     供起播前丢弃 GOP 中间数据：从首个 IDR 开始喂 ffmpeg，首帧即为干净画面。
     同时识别 H.264（NAL type 5）与 H.265（NAL type 19/20/21）；字节流格式下
     00 00 01 只作起始码出现（载荷有竞争字节转义），跨编码误判可忽略。
+    若参数集（VPS/SPS/PPS）在 IDR 前的独立 PES 中，起点回溯到参数集 PES，
+    否则 ffmpeg 拿不到参数集无法解析码流。
     """
     n = len(buffer)
     i = 0
     while i + 9 <= n:
         if buffer[i] == 0 and buffer[i + 1] == 0 and buffer[i + 2] == 1:
             code = buffer[i + 3]
-            if 0xE0 <= code <= 0xEF and _pes_contains_idr(buffer, i, n):
-                return i
+            if 0xE0 <= code <= 0xEF:
+                codec = _pes_idr_codec(buffer, i, n)
+                if codec:
+                    return _backtrack_to_parameter_sets(buffer, i, codec)
             i += 4
             continue
         i += 1
     return None
 
 
-def _pes_contains_idr(buffer: bytes | bytearray, start: int, limit: int) -> bool:
-    """判断 start 处的视频 PES 包载荷内是否含 IDR/CRA NAL。"""
+def _pes_idr_codec(buffer: bytes | bytearray, start: int, limit: int) -> str | None:
+    """判断 start 处的视频 PES 包载荷内是否含 IDR/CRA NAL，命中返回编码类型。
+
+    返回 "h264"（NAL type 5）或 "h265"（NAL type 19/20/21），无 IDR 返回 None；
+    编码类型供回溯参数集时区分 VCL NAL 用。
+    """
     header_len = buffer[start + 8]
     payload = start + 9 + header_len
     end = limit
@@ -131,14 +140,62 @@ def _pes_contains_idr(buffer: bytes | bytearray, start: int, limit: int) -> bool
             b0 = buffer[j + 3]
             # H.264：type = b0 & 0x1F，IDR = 5
             if (b0 & 0x1F) == 5:
-                return True
+                return "h264"
             # H.265：type = (b0 & 0x7E) >> 1，IDR_W_RADL=19 / IDR_N_LP=20 / CRA=21
             if ((b0 & 0x7E) >> 1) in (19, 20, 21):
+                return "h265"
+            j += 4
+            continue
+        j += 1
+    return None
+
+
+def _pes_contains_vcl(buffer: bytes | bytearray, start: int, limit: int, codec: str) -> bool:
+    """判断 start 处的视频 PES 包载荷内是否含 VCL NAL（图像帧数据）。"""
+    header_len = buffer[start + 8]
+    payload = start + 9 + header_len
+    end = limit
+    pkt_len = (buffer[start + 4] << 8) | buffer[start + 5]
+    if pkt_len:
+        end = min(limit, start + 6 + pkt_len)
+    j = payload
+    while j + 4 <= end:
+        if buffer[j] == 0 and buffer[j + 1] == 0 and buffer[j + 2] == 1:
+            b0 = buffer[j + 3]
+            if codec == "h265":
+                # H.265 VCL：type 0-31；参数集 VPS/SPS/PPS 为 32/33/34
+                if ((b0 & 0x7E) >> 1) <= 31:
+                    return True
+            # H.264 VCL：type 1-5；参数集 SPS/PPS 为 7/8
+            elif 1 <= (b0 & 0x1F) <= 5:
                 return True
             j += 4
             continue
         j += 1
     return False
+
+
+def _backtrack_to_parameter_sets(buffer: bytes | bytearray, idr_start: int, codec: str) -> int:
+    """从 IDR PES 向前回溯，把紧邻的不含 VCL 的视频 PES（VPS/SPS/PPS/SEI/AUD）一并纳入。
+
+    部分设备把参数集放在 IDR 前的独立 PES 中（现场 10.10.7.253 实测 VPS/SPS/PPS
+    各占一个 PES）；从 IDR PES 起喂会丢参数集，ffmpeg 解析不出码流
+    （PPS id out of range / dimensions not set）。遇到含 VCL 的 PES 即停止，
+    不回溯进上一 GOP 的帧数据。
+    """
+    start = idr_start
+    cursor = idr_start
+    while cursor > 3:
+        p = buffer.rfind(b"\x00\x00\x01", 0, cursor)
+        while p != -1 and p + 4 <= len(buffer) and not (0xE0 <= buffer[p + 3] <= 0xEF):
+            p = buffer.rfind(b"\x00\x00\x01", 0, p)
+        if p == -1 or p + 4 > len(buffer):
+            break
+        if _pes_contains_vcl(buffer, p, cursor, codec):
+            break
+        start = p
+        cursor = p
+    return start
 
 
 class HcNetSdkError(RuntimeError):

@@ -71,3 +71,31 @@ def test_pes_with_extension_header() -> None:
 def test_empty_and_garbage() -> None:
     assert find_first_video_idr(b"") is None
     assert find_first_video_idr(b"\x00\x00\x01\xba" + b"\xff" * 100) is None
+
+
+def test_h265_param_pes_before_idr_included() -> None:
+    """VPS/SPS/PPS 各占 IDR 前一个独立 PES（现场 smart265 设备实测布局）时，起点回溯到 VPS。"""
+    vps = pes(0xE0, nal(0x40))  # H.265 VPS type=32
+    sps = pes(0xE0, nal(0x42))  # H.265 SPS type=33
+    pps = pes(0xE0, nal(0x44))  # H.265 PPS type=34
+    idr = pes(0xE0, nal(0x26))  # H.265 IDR_W_RADL type=19
+    buf = pack(vps + sps + pps + idr)
+    assert find_first_video_idr(buf) == 12
+
+
+def test_h264_sps_pps_before_idr_included() -> None:
+    """H.264 的 SPS/PPS 在 IDR 前的独立 PES 时同样回溯保留。"""
+    sps = pes(0xE0, nal(0x67))  # H.264 SPS type=7
+    pps = pes(0xE0, nal(0x68))  # H.264 PPS type=8
+    idr = pes(0xE0, nal(0x65))  # H.264 IDR type=5
+    buf = sps + pps + idr
+    assert find_first_video_idr(buf) == 0
+
+
+def test_backtrack_stops_at_vcl_pes() -> None:
+    """参数集 PES 之前还有上一 GOP 的帧数据时，不回溯越过含 VCL 的 PES。"""
+    vcl = pes(0xE0, nal(0x02))  # H.265 非 IDR 帧 type=1
+    sps = pes(0xE0, nal(0x42))
+    idr = pes(0xE0, nal(0x26))
+    buf = vcl + sps + idr
+    assert find_first_video_idr(buf) == len(vcl)

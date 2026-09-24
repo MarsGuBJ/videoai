@@ -356,6 +356,8 @@ MCP Server 依赖以下服务：
 
 H.265 直通把设备原码流（现场 NVR 多为 smart265/HEVC）直接封进 FLV，不做 libx264 实时转码，省去转码开销并保留设备原画质。代价是直通无法改写时间戳，因此**只支持等速**（`speed=1`），其它倍速档位返回 `400` 而不是静默降级成转码。播放端必须支持 HEVC（前端用 mpegts.js + 浏览器 HEVC MSE；flv.js 不支持 H.265）。非 SDK 源（RTSP 转发）同样走直通，因此不叠加回放水印。
 
+起播起点处理：SDK 按请求时刻起播，起点可能落在 GOP 中间，首个 IDR 之前的帧数据会被丢弃（避免无参考帧花屏）；但 IDR 前**独立 PES** 中的参数集（VPS/SPS/PPS）会一并保留——部分设备（如现场 10.10.7.253 的 smart265 码流）把 VPS/SPS/PPS 各放在一个独立 PES 里，缺了它们 ffmpeg 无法解析码流（报 `PPS id out of range` / `dimensions not set`）。该行为已覆盖单测（`tests/unit/test_playback_prime.py`），并已在 10.10.3.100 环境对真实 NVR 端到端验证通过。
+
 #### 请求体
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
