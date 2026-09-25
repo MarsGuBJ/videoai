@@ -301,6 +301,22 @@ services:
       backend:
         condition: service_started
 
+  frontend-search:
+    # 子包不随默认部署启动，仅在明确需要时构建部署：docker compose --profile modular up frontend-search
+    profiles:
+      - modular
+    build:
+      context: ./frontend
+      network: host
+      args:
+        BUILD_MODE: search
+    restart: unless-stopped
+    ports:
+      - "192.168.11.194:5178:5173"
+    depends_on:
+      backend:
+        condition: service_started
+
   frontend-media:
     profiles:
       - modular

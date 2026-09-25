@@ -1,6 +1,6 @@
 # 本地预构建部署覆盖：与 docker-compose.yml 叠加使用
 #   docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml build frontend ...
-# 前端 4 个服务改用 frontend/Dockerfile.prebuilt，直接打包本地 vite 构建产物，
+# 前端 5 个服务改用 frontend/Dockerfile.prebuilt，直接打包本地 vite 构建产物，
 # 避免在远程服务器上重复执行 npm ci + vite 构建
 services:
   frontend:
@@ -8,6 +8,12 @@ services:
       dockerfile: Dockerfile.prebuilt
       args:
         DIST_DIR: dist
+
+  frontend-search:
+    build:
+      dockerfile: Dockerfile.prebuilt
+      args:
+        DIST_DIR: dist-search
 
   frontend-media:
     build:

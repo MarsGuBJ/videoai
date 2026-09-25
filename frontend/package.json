@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:search": "vue-tsc --noEmit && vite build --mode search",
     "build:media": "vue-tsc --noEmit && vite build --mode media",
     "build:control": "vue-tsc --noEmit && vite build --mode control",
     "build:review": "vue-tsc --noEmit && vite build --mode review",
-    "build:modules": "npm run build:media && npm run build:control && npm run build:review",
+    "build:modules": "npm run build:search && npm run build:media && npm run build:control && npm run build:review",
     "preview": "vite preview"
   },
   "dependencies": {
