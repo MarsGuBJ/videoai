@@ -7674,11 +7674,20 @@
 
     .gpu-metric {
       display: grid;
-      grid-template-columns: 72px 1fr 72px;
+      /* 第三列原来是固定 72px，装不下「1299.1GB/1832.2GB」这种无空格长数值，
+         会溢出到卡片外；留够宽度并允许省略，超出部分不再跑到 div 外面 */
+      grid-template-columns: 72px minmax(0, 1fr) 148px;
       gap: 10px;
       align-items: center;
       color: #667085;
       font-size: 12px;
+    }
+
+    .gpu-metric > b {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .sync-line {

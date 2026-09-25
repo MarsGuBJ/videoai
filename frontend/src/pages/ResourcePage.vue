@@ -19,15 +19,15 @@
                     <div class="gpu-head"><h4>系统资源</h4><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></div>
                     <div class="gpu-metrics" v-if="hasSystem(row)">
                       <div class="gpu-metric"><span>CPU</span><span class="progress-track"><span class="progress-fill" :style="{ width: clampPct(row.system.cpuPercent) + '%' }"></span></span><b>{{ row.system.cpuPercent.toFixed(1) }}%</b></div>
-                      <div class="gpu-metric"><span>内存</span><span class="progress-track"><span class="progress-fill" :style="{ width: sysMemoryPct(row) + '%' }"></span></span><b>{{ sysMemoryText(row) }}</b></div>
-                      <div class="gpu-metric"><span>磁盘</span><span class="progress-track"><span class="progress-fill" :style="{ width: sysDiskPct(row) + '%' }"></span></span><b>{{ sysDiskText(row) }}</b></div>
+                      <div class="gpu-metric"><span>内存</span><span class="progress-track"><span class="progress-fill" :style="{ width: sysMemoryPct(row) + '%' }"></span></span><b :title="sysMemoryText(row)">{{ sysMemoryText(row) }}</b></div>
+                      <div class="gpu-metric"><span>磁盘</span><span class="progress-track"><span class="progress-fill" :style="{ width: sysDiskPct(row) + '%' }"></span></span><b :title="sysDiskText(row)">{{ sysDiskText(row) }}</b></div>
                     </div>
                     <div class="gpu-metrics" v-else><div class="gpu-metric"><span>该节点未上报系统指标</span><b></b></div></div>
                   </article>
                   <article class="gpu-card" v-for="gpu in row.gpus" :key="gpu.index">
                     <div class="gpu-head"><h4>{{ gpu.name }} GPU-{{ gpu.index }}</h4><span class="status-pill" :class="statusClass(gpu.status)">{{ gpu.status }}</span></div>
                     <div class="gpu-metrics">
-                      <div class="gpu-metric"><span>显存</span><span class="progress-track"><span class="progress-fill" :style="{ width: memoryPct(gpu) + '%' }"></span></span><b>{{ memoryText(gpu) }}</b></div>
+                      <div class="gpu-metric"><span>显存</span><span class="progress-track"><span class="progress-fill" :style="{ width: memoryPct(gpu) + '%' }"></span></span><b :title="memoryText(gpu)">{{ memoryText(gpu) }}</b></div>
                       <div class="gpu-metric"><span>温度</span><span>{{ gpu.temperatureC }}°C</span><b></b></div>
                       <div class="gpu-metric"><span>功耗</span><span>{{ gpu.powerW.toFixed(1) }}W</span><b></b></div>
                       <div class="gpu-metric"><span>算力利用率</span><span>{{ gpu.utilizationPct }}%</span><b></b></div>
