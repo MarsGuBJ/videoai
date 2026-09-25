@@ -6875,6 +6875,15 @@
 
     .event-config-rule-card p { margin: 0; color: #74879c; font-size: 12px; line-height: 1.5; }
 
+    /* 卡片上也显示适用范围，保存后能直接看到勾选的摄像头 */
+    .event-config-rule-card .event-config-rule-cameras {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      word-break: break-all;
+    }
+
     .event-config-rule-card em {
       display: inline-flex;
       align-items: center;
