@@ -2803,6 +2803,24 @@
       opacity: .72;
     }
 
+    /* 轨迹结果详情「视频」页签：播放后端 video_url 的真实片段 */
+    .drawer-video-preview .drawer-video-player {
+      display: block;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      object-fit: contain;
+    }
+
+    .drawer-video-preview .drawer-video-empty {
+      display: grid;
+      place-items: center;
+      height: 100%;
+      margin: 0;
+      color: #98a2b3;
+      font-size: 13px;
+    }
+
     .video-control-line {
       position: absolute;
       left: 12px;

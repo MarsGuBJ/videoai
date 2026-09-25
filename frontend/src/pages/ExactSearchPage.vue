@@ -227,9 +227,8 @@
           <button class="drawer-hero-switch" type="button" aria-label="切换图片" @click="cycleTrackResultModal">切换图片</button>
         </div>
         <div v-else class="drawer-video-preview">
-          <img :src="trackResultModalItem.image" :alt="trackResultModalItem.title + '监控视频画面'" />
-          <span class="play-dot">▶</span>
-          <div class="video-control-line"><span>00:08</span><span class="video-progress"><i></i></span><span>00:30</span></div>
+          <video v-if="trackResultVideoUrl" class="drawer-video-player" :src="trackResultVideoUrl" controls autoplay muted loop playsinline></video>
+          <p v-else class="drawer-video-empty">该结果没有关联视频，无法播放</p>
         </div>
         <dl class="detail-list">
           <dt>结果名称</dt><dd>{{ trackResultModalItem.title }}</dd>
@@ -529,6 +528,8 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
   return {
     title: `相似人员 ${index + 1}`,
     image: assetUrl(result.image_url),
+    // 后端 similar_persons 的 video_url：轨迹结果详情弹窗「视频」页签播放（图搜图页同款字段）
+    video: assetUrl(result.video_url),
     location: result.camera_locate || result.camera_id || "未知摄像头",
     date: formatCreateTime(result.create_time),
     score,
@@ -701,6 +702,12 @@ export default defineComponent({
     },
     activeResultTabObj(): any {
       return this.resultTabs.find(item => item.id === this.activeResultTab) || null;
+    },
+    // 轨迹结果详情的视频地址：经 backend-lite 同源代理播放（与页内分析视频同一条链路，
+    // 避免现场客户端直连 MinIO 被限速）
+    trackResultVideoUrl(): string {
+      const item = this.trackResultModalItem;
+      return item && item.video ? videoAnalysisStreamUrl(item.video) : "";
     },
     processText() {
       if (this.analyzed) return "已完成视频分析，可点击事件卡片定位视频画面";
@@ -1751,9 +1758,12 @@ export default defineComponent({
       if (type === "quickDeploy" && payload && payload.sourceName) tab.deployTaskName = `布控-${payload.sourceName}`;
       this.resultTabs.push(tab);
       this.activeResultTab = tab.id;
-      if (type === "imageSearch") this.runImageSearchTab(tab);
+      // push 进响应式数组后必须用数组里的响应式代理继续跑，直接改局部原始对象不会触发重渲染
+      // （之前靠分析视频的 timeupdate 反复重渲染掩盖，视频未播放时页签会一直停在「正在搜索…」）
+      const liveTab: any = this.resultTabs.find(item => item.id === tab.id) || tab;
+      if (type === "imageSearch") this.runImageSearchTab(liveTab);
       else if (type === "quickDeploy") this.prepareQuickDeployTab();
-      else if (type === "track") this.runTrackSearch(tab);
+      else if (type === "track") this.runTrackSearch(liveTab);
     },
     closeResultTab(id) {
       const closing = this.resultTabs.find(tab => tab.id === id);
