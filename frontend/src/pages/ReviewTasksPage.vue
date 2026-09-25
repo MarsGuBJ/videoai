@@ -6,8 +6,7 @@
         <div class="review-task-filter-actions"><button class="btn primary" @click="openModal('reviewTask')">上传复核任务</button><button class="btn" @click="applyFilters">查询</button><button class="btn" @click="resetFilters">重置</button></div>
         <div class="filter-item"><span>搜索：</span><input class="input" v-model="keyword" placeholder="搜索任务ID、事件类型" /></div>
         <div class="filter-item"><span>状态：</span><select class="select" v-model="statusFilter"><option value="">全部</option><option>进行中</option><option>已完成</option><option>失败</option></select></div>
-        <div class="filter-item"><span>开始时间：</span><input class="input" type="datetime-local" v-model="startTime" aria-label="开始时间" /></div>
-        <div class="filter-item"><span>结束时间：</span><input class="input" type="datetime-local" v-model="endTime" aria-label="结束时间" /></div>
+        <div class="filter-item"><span>时间范围：</span><date-time-range-picker v-model:start="startTime" v-model:end="endTime" /></div>
       </div>
       <table class="prototype-table">
         <colgroup><col style="width:46px;" /><col style="width:90px;" /><col style="width:200px;" /><col style="width:170px;" /><col style="width:150px;" /><col style="width:110px;" /><col style="width:110px;" /><col style="width:80px;" /></colgroup>
@@ -44,9 +43,11 @@ import { defineComponent } from "vue";
 import { api } from "../api";
 import type { ReviewTask } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
+import DateTimeRangePicker from "../components/DateTimeRangePicker.vue";
 
 export default defineComponent({
   name: "ReviewTasksPage",
+  components: { DateTimeRangePicker },
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
   inject: {
     openModal: { from: "openModal", default: (type: string, item?: any) => {} },
