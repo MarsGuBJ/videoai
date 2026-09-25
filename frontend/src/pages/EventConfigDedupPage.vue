@@ -29,7 +29,7 @@
         <h4 class="event-config-section-title">备注说明</h4>
         <textarea v-model="form.remark" placeholder="请填写说明，最多不超过200字" style="width:100%;min-height:86px;padding:8px 10px;border:1px solid #cbd5df;border-radius:6px;font:inherit;resize:vertical;"></textarea>
       </div>
-      <div class="event-config-modal-actions"><button class="btn" @click="resetForm">重置</button><button class="btn primary" :disabled="saving" @click="submit">提交</button><button class="btn" @click="view = 'cards'">返回</button></div>
+      <div class="event-config-modal-actions"><button class="btn" @click="resetForm">重置</button><button class="btn primary" :disabled="saving" title="保存" @click="submit">提交</button><button class="btn" @click="view = 'cards'">返回</button></div>
     </template>
     <div v-if="modal === 'logs'" class="event-config-modal-mask" @click.self="modal = null">
       <section class="event-config-modal" role="dialog" aria-modal="true" aria-label="规则日志">
