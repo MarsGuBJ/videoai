@@ -14,12 +14,12 @@
           <label class="event-config-field"><span><span class="required">*</span>名称</span><input v-model="form.name" class="input" /></label>
           <label class="event-config-field"><span><span class="required">*</span>关联算法</span><select v-model="form.algorithm" class="select"><option>区域入侵</option><option>车辆违停</option><option>垃圾识别</option></select></label>
           <label class="event-config-field"><span><span class="required">*</span>摄像头</span><span class="event-config-input-group"><input v-model="form.camera" class="input" :placeholder="camerasFailed ? '输入摄像头名称' : '搜索摄像头'" /><button v-if="camerasFailed" class="event-config-input-button" type="button" @click="addManualCamera">添加</button></span></label>
-          <div class="event-config-field"><span>摄像头范围</span><div class="event-config-radio-row"><label><input type="checkbox" v-model="form.allCameras" @change="onAllCamerasChange" /> 全选</label><label v-for="name in cameraChoices" :key="name"><input type="checkbox" :value="name" v-model="form.cameras" @change="onCameraSelectionChange" /> {{ name }}</label><span v-if="!camerasFailed && !camerasLoading && !cameraChoices.length" style="color:#98a2b3;font-size:12px;">无匹配摄像头</span><span v-if="camerasLoading" style="color:#98a2b3;font-size:12px;">摄像头加载中...</span></div></div>
+          <div class="event-config-field"><span>摄像头范围</span><div class="event-config-radio-row event-config-camera-choices"><label><input type="checkbox" v-model="form.allCameras" @change="onAllCamerasChange" /> 全选</label><label v-for="name in cameraChoices" :key="name"><input type="checkbox" :value="name" v-model="form.cameras" @change="onCameraSelectionChange" /><span class="event-config-camera-name">{{ name }}</span></label><span v-if="!camerasFailed && !camerasLoading && !cameraChoices.length" style="color:#98a2b3;font-size:12px;">无匹配摄像头</span><span v-if="camerasLoading" style="color:#98a2b3;font-size:12px;">摄像头加载中...</span></div></div>
         </div>
       </div>
       <div class="event-config-page-board" style="min-height:0;margin-bottom:14px;">
         <h4 class="event-config-section-title">执行策略</h4>
-        <div class="event-config-tabs"><button v-for="tab in tabs" :key="tab" type="button" :class="{ active: form.tab === tab }" @click="form.tab = tab">{{ tab }}</button></div>
+        <div class="event-config-radio-row"><label v-for="tab in tabs" :key="tab"><input type="radio" name="event-config-dedup-strategy" :value="tab" v-model="form.tab" /> {{ tab }}</label></div>
         <div class="event-config-form-grid">
           <label class="event-config-field"><span><span class="required">*</span>时间长度</span><span class="event-config-input-group"><input v-model="form.duration" class="input" /><em class="event-config-input-addon">分钟</em></span></label>
           <label class="event-config-field"><span><span class="required">*</span>相似度</span><input v-model="form.similarity" class="input" /></label>
