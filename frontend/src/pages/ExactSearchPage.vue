@@ -110,10 +110,35 @@
         <div v-else-if="activeResultTabObj && activeResultTabObj.type === 'quickDeploy'" class="exact-dialog-body exact-quick-deploy-tab" role="tabpanel" aria-label="快速布防">
           <template v-if="activeResultTabObj.savedTask">
             <div class="detail-header-card exact-deploy-detail-header"><div><h2>{{ activeResultTabObj.savedTask.name }}</h2><p>{{ activeResultTabObj.savedTask.desc }}</p><div class="tags"><span class="tag blue">{{ activeResultTabObj.savedTask.algorithm }}</span><span class="status-pill pass">{{ activeResultTabObj.savedTask.status }}</span><span class="tag">{{ activeResultTabObj.savedTask.area }}</span></div></div></div>
-            <div class="panel search-panel exact-deploy-task-info"><h3 class="form-section-title">任务信息</h3><dl class="info-list"><dt>任务ID</dt><dd>{{ activeResultTabObj.savedTask.id }}</dd><dt>算法类型</dt><dd>{{ activeResultTabObj.savedTask.algorithm }}</dd><dt>布控区域</dt><dd>{{ activeResultTabObj.savedTask.area }}</dd><dt>监控点位</dt><dd>{{ activeResultTabObj.savedTask.points }}</dd><dt>生效时间</dt><dd>{{ activeResultTabObj.savedTask.time }}</dd><dt>相似度</dt><dd>{{ activeResultTabObj.savedTask.threshold }}%</dd><dt>创建人</dt><dd>{{ activeResultTabObj.savedTask.owner }}</dd><dt>创建时间</dt><dd>{{ activeResultTabObj.savedTask.created }}</dd></dl></div>
+            <div class="panel search-panel exact-deploy-task-info"><h3 class="form-section-title">任务信息</h3><dl class="info-list"><dt>任务ID</dt><dd>{{ activeResultTabObj.savedTask.id }}</dd><dt>算法编号</dt><dd>{{ activeResultTabObj.savedTask.algorithmCode || "—" }}</dd><dt>绑定算法</dt><dd>{{ activeResultTabObj.savedTask.algorithm || "未绑定" }}</dd><dt>布控区域</dt><dd>{{ activeResultTabObj.savedTask.area }}</dd><dt>监控点位</dt><dd>{{ activeResultTabObj.savedTask.points }}</dd><dt>识别频次</dt><dd>{{ activeResultTabObj.savedTask.perMinute }} 次/分钟</dd><dt>任务状态</dt><dd>{{ activeResultTabObj.savedTask.status }}</dd><dt>创建时间</dt><dd>{{ activeResultTabObj.savedTask.created }}</dd></dl></div>
           </template>
           <div v-else class="exact-quick-deploy-form">
+            <div class="modal-form-row"><label><span class="required">*</span>布控目标：</label>
+              <div class="deploy-target-field">
+                <input ref="deployTargetInput" class="hidden-file-input" type="file" accept="image/*" @change="handleDeployTargetUpload" />
+                <div v-if="deployTargetSource(activeResultTabObj)" class="deploy-target-preview"><img :src="deployTargetSource(activeResultTabObj)" :alt="activeResultTabObj.deployTargetName || activeResultTabObj.payload.sourceName || '已框选布控目标'" /><span v-if="!activeResultTabObj.deployTargetUrl && activeResultTabObj.payload.crop" class="transferred-crop-box" :style="cropStyleOf(activeResultTabObj.payload.crop)"></span></div>
+                <button v-else class="file-upload-tile" style="height:96px;" type="button" @click="triggerDeployTargetUpload"><span><b>＋ 点击上传布控图像</b><br />支持 jpg / png / jpeg</span></button>
+                <button v-if="deployTargetSource(activeResultTabObj)" class="btn deploy-target-clear" type="button" @click="clearDeployTarget(activeResultTabObj)">清空</button>
+              </div>
+            </div>
+            <div class="modal-form-row"><label>从人脸库选取：</label>
+              <div class="face-combo">
+                <input class="input" v-model="activeResultTabObj.deployFaceFilter" placeholder="输入姓名筛选人脸库" @focus="activeResultTabObj.deployFaceDropdownOpen = true" @input="activeResultTabObj.deployFaceDropdownOpen = true" @blur="closeDeployFaceDropdownSoon(activeResultTabObj)" />
+                <button v-if="activeResultTabObj.deployFaceProfileId" class="face-combo-clear" type="button" aria-label="清除人脸库选择" @mousedown.prevent="clearDeployFace(activeResultTabObj)">×</button>
+                <div v-if="activeResultTabObj.deployFaceDropdownOpen" class="face-combo-list">
+                  <button v-for="face in filteredDeployFaces(activeResultTabObj)" :key="face.id" class="face-combo-item" :class="{ active: face.id === activeResultTabObj.deployFaceProfileId }" type="button" @mousedown.prevent="selectDeployFace(activeResultTabObj, face)"><img v-if="face.photoUrl" :src="face.photoUrl" :alt="face.name" /><span>{{ face.name }}</span></button>
+                  <div v-if="!filteredDeployFaces(activeResultTabObj).length" class="face-combo-empty">无匹配人脸</div>
+                </div>
+              </div>
+            </div>
             <div class="modal-form-row"><label><span class="required">*</span>任务名称：</label><input class="input" v-model="activeResultTabObj.deployTaskName" placeholder="请输入任务名称" /></div>
+            <div class="modal-form-row"><label><span class="required">*</span>算法编号：</label>
+              <div>
+                <select class="select" v-model="activeResultTabObj.deployAlgorithmCode" aria-label="算法编号"><option value="">请选择算法编号</option><option v-for="item in deployEventInfos" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option></select>
+                <span v-if="!deployEventInfos.length" class="hint-text">暂无事件信息，请先在「事件配置 → 事件信息配置」新增事件</span>
+                <span v-else-if="activeResultTabObj.deployAlgorithmCode && !deployAlgorithmFor(activeResultTabObj)" class="hint-text">该事件未绑定可布控算法：任务会照常创建，但 worker 不会启动算法</span>
+              </div>
+            </div>
             <div class="modal-form-row"><label><span class="required">*</span>布控区域：</label>
               <div class="exact-tree-select" @click.stop>
                 <button class="exact-tree-trigger" :class="{ open: activeResultTabObj.deployAreaOpen }" type="button" @click="activeResultTabObj.deployAreaOpen = !activeResultTabObj.deployAreaOpen"><span>{{ deployAreaLabel(activeResultTabObj) }}</span><span>{{ activeResultTabObj.deployAreaOpen ? '收起' : '展开' }}⌄</span></button>
@@ -128,26 +153,7 @@
                 </div>
               </div>
             </div>
-            <div class="modal-form-row"><label>布控目标：</label>
-              <div class="deploy-target-field">
-                <input ref="deployTargetInput" class="hidden-file-input" type="file" accept="image/*" @change="handleDeployTargetUpload" />
-                <div v-if="deployTargetSource(activeResultTabObj)" class="deploy-target-preview"><img :src="deployTargetSource(activeResultTabObj)" :alt="activeResultTabObj.deployTargetName || activeResultTabObj.payload.sourceName || '已框选布控目标'" /><span v-if="!activeResultTabObj.deployTargetUrl && activeResultTabObj.payload.crop" class="transferred-crop-box" :style="cropStyleOf(activeResultTabObj.payload.crop)"></span></div>
-                <button v-else class="file-upload-tile" style="height:96px;" type="button" @click="triggerDeployTargetUpload"><span><b>＋ 点击上传布控图像</b><br />支持 jpg / png / jpeg</span></button>
-                <button v-if="deployTargetSource(activeResultTabObj)" class="btn deploy-target-clear" type="button" @click="clearDeployTarget(activeResultTabObj)">清空</button>
-              </div>
-            </div>
-            <div class="modal-form-row"><label><span class="required">*</span>布控算法：</label>
-              <select class="select" v-model="activeResultTabObj.deployAlgorithmId"><option value="">请选择布控算法</option><option v-for="item in deployAlgorithmOptions" :key="item.id" :value="item.id">{{ item.name }}</option></select>
-            </div>
-            <div class="modal-form-row"><label><span class="required">*</span>生效时间：</label>
-              <div class="effective-range"><input class="input" type="date" v-model="activeResultTabObj.deployEffectiveStart" aria-label="生效开始日期" /><span class="range-arrow">→</span><input class="input" type="date" v-model="activeResultTabObj.deployEffectiveEnd" aria-label="生效结束日期" /></div>
-            </div>
-            <div class="modal-form-row"><label><span class="required">*</span>循环周期：</label>
-              <div class="effective-range"><input class="input" type="time" v-model="activeResultTabObj.deployCycleStart" aria-label="循环开始时间" /><span class="range-arrow">→</span><input class="input" type="time" v-model="activeResultTabObj.deployCycleEnd" aria-label="循环结束时间" /></div>
-            </div>
-            <div class="modal-form-row"><label><span class="required">*</span>置信度：</label>
-              <div class="deploy-similarity-field"><input type="range" min="0" max="100" step="1" v-model.number="activeResultTabObj.deploySimilarity" aria-label="置信度" /><output>{{ activeResultTabObj.deploySimilarity }}%</output></div>
-            </div>
+            <div class="modal-form-row"><label>识别频次：</label><input class="input" type="number" min="1" v-model.number="activeResultTabObj.deployRecognitionPerMinute" placeholder="每分钟识别次数" /></div>
             <div class="modal-form-row"><label>任务描述：</label><textarea class="textarea" style="height:96px;" v-model="activeResultTabObj.deployDescription" placeholder="请输入任务描述"></textarea></div>
             <div class="exact-quick-deploy-actions"><button class="btn" type="button" @click="closeResultTab(activeResultTabObj.id)">取消</button><button class="btn primary" type="button" :disabled="activeResultTabObj.deploySaving" @click="saveQuickDeploy(activeResultTabObj)">保存</button></div>
           </div>
@@ -641,7 +647,9 @@ export default defineComponent({
       resultTabs: [] as any[],
       activeResultTab: "summary",
       resultTabSeq: 0,
-      deployAlgorithmOptions: [] as any[],
+      deployAlgorithms: [] as any[],
+      deployEventInfos: [] as any[],
+      deployFaceProfiles: [] as any[],
       quickQuestions: [
         { label: "提问画面", placeholder: "请描述当前视频画面中的内容，包括人物、车辆、物体、场景以及正在发生的行为" },
         { label: "查找目标", placeholder: "帮我找一下视频中出现的车" },
@@ -1728,7 +1736,7 @@ export default defineComponent({
         return { items: [] as any[], loading: false, runId: 0, fileName: "", start: this.onlineStart || "", end: this.onlineEnd || "", place: "全部区域", similarity: 50 };
       }
       if (type === "quickDeploy") {
-        return { savedTask: null, deployTaskName: "", deployAlgorithmId: "", deployCameraSelections: [] as string[], deployAreaOpen: false, deployAreaExpanded: {} as Record<string, boolean>, deployEffectiveStart: "", deployEffectiveEnd: "", deployCycleStart: "00:00", deployCycleEnd: "23:59", deploySimilarity: 50, deployDescription: "", deploySaving: false, deployTargetUrl: "", deployTargetName: "", deployTargetCleared: false };
+        return { savedTask: null, deployTaskName: "", deployAlgorithmCode: "", deployCameraSelections: [] as string[], deployAreaOpen: false, deployAreaExpanded: {} as Record<string, boolean>, deployRecognitionPerMinute: 10, deployDescription: "", deploySaving: false, deployTargetFile: null as File | null, deployTargetUrl: "", deployTargetName: "", deployTargetCleared: false, deployFaceProfileId: "", deployFaceFilter: "", deployFaceDropdownOpen: false };
       }
       const expandedAreas: Record<string, boolean> = {};
       (this.areas as any[]).forEach((area, index) => { expandedAreas[area.name] = index === 0; });
@@ -1890,12 +1898,44 @@ export default defineComponent({
       this.handleResultTabImageUpload(event, "track");
     },
     prepareQuickDeployTab() {
-      if (this.deployAlgorithmOptions.length) return;
-      api.algorithms().then(list => {
-        this.deployAlgorithmOptions = (list || []) as any;
+      if (this.deployAlgorithms.length && this.deployEventInfos.length) return;
+      Promise.all([api.algorithms(), api.eventInfos(), api.faces()]).then(([algorithms, eventInfos, faces]) => {
+        this.deployAlgorithms = (algorithms || []) as any;
+        this.deployEventInfos = (eventInfos || []) as any;
+        this.deployFaceProfiles = (faces || []) as any;
       }).catch(() => {
-        this.showToast("算法列表加载失败");
+        this.showToast("算法 / 事件信息 / 人脸库加载失败");
       });
+    },
+    // 从人脸库选取：与「新建布控任务」弹窗同款组合框
+    filteredDeployFaces(tab) {
+      const keyword = String(tab.deployFaceFilter || "").trim().toLowerCase();
+      const selected = (this.deployFaceProfiles as any[]).find(face => face.id === tab.deployFaceProfileId);
+      const list = !keyword || (selected && String(selected.name).toLowerCase() === keyword)
+        ? this.deployFaceProfiles
+        : (this.deployFaceProfiles as any[]).filter(face => String(face.name || "").toLowerCase().includes(keyword));
+      return list.slice(0, 50);
+    },
+    selectDeployFace(tab, face) {
+      tab.deployFaceProfileId = face.id;
+      tab.deployFaceFilter = face.name;
+      tab.deployFaceDropdownOpen = false;
+    },
+    clearDeployFace(tab) {
+      tab.deployFaceProfileId = "";
+      tab.deployFaceFilter = "";
+    },
+    closeDeployFaceDropdownSoon(tab) {
+      window.setTimeout(() => { tab.deployFaceDropdownOpen = false; }, 150);
+    },
+    // 与「新建布控任务」弹窗、快速布防页同口径：事件编码 → 事件的算法编码 → 算法
+    deployEventInfoFor(tab) {
+      return (this.deployEventInfos as any[]).find(item => item.code === tab.deployAlgorithmCode);
+    },
+    deployAlgorithmFor(tab) {
+      const eventInfo = this.deployEventInfoFor(tab);
+      if (!eventInfo || !eventInfo.algorithmCode) return undefined;
+      return (this.deployAlgorithms as any[]).find(item => item.code === eventInfo.algorithmCode);
     },
     // 布控目标：优先显示本地上传图，否则显示页签带入的框选图；清空后显示上传入口（参照原型 ExactQuickDeployPanel）
     deployTargetSource(tab) {
@@ -1906,6 +1946,7 @@ export default defineComponent({
       if (tab.deployTargetUrl) URL.revokeObjectURL(tab.deployTargetUrl);
       tab.deployTargetUrl = "";
       tab.deployTargetName = "";
+      tab.deployTargetFile = null;
       const input = this.$refs.deployTargetInput as HTMLInputElement | undefined;
       if (input) input.value = "";
     },
@@ -1924,6 +1965,7 @@ export default defineComponent({
         return;
       }
       if (tab.deployTargetUrl) URL.revokeObjectURL(tab.deployTargetUrl);
+      tab.deployTargetFile = file;
       tab.deployTargetUrl = URL.createObjectURL(file);
       tab.deployTargetName = file.name;
       tab.deployTargetCleared = false;
@@ -1953,6 +1995,8 @@ export default defineComponent({
       }
     },
     // 保存布控任务：payload 字段映射参照 App.vue submitDeployTask；成功后页签切换为任务详情视图（参照原型 handleQuickDeploySaved）
+    // 字段、校验与 payload 全部对齐「布控任务 → 新建布控任务」弹窗（ModalHost.handleSubmit）；
+    // 唯一差别是成功后不跳转列表，而是在本页签内展示任务信息（页签处在文搜分析弹窗里，跳走会丢失上下文）
     async saveQuickDeploy(tab) {
       if (!tab.deployTaskName.trim()) {
         this.showToast("请输入任务名称");
@@ -1962,54 +2006,63 @@ export default defineComponent({
         this.showToast("请选择布控区域");
         return;
       }
-      if (!tab.deployAlgorithmId) {
-        this.showToast("请选择布控算法");
-        return;
-      }
-      if (!tab.deployEffectiveStart || !tab.deployEffectiveEnd) {
-        this.showToast("请选择生效时间");
-        return;
-      }
       if (tab.deploySaving) return;
-      const algorithm = this.deployAlgorithmOptions.find(item => item.id === tab.deployAlgorithmId);
-      const areaNames: string[] = [];
-      const pointNames: string[] = [];
-      (this.areas as any[]).forEach(area => area.cameras.forEach((camera: any) => {
-        if (tab.deployCameraSelections.includes(camera.code)) {
-          if (!areaNames.includes(area.name)) areaNames.push(area.name);
-          pointNames.push(camera.name);
-        }
-      }));
-      const body: DeploymentTaskCreate = {
-        name: tab.deployTaskName.trim(),
-        pipeline: algorithm ? algorithm.name : "",
-        algorithmId: algorithm ? algorithm.id : null,
-        algorithmName: algorithm ? algorithm.name : null,
-        algorithmCode: algorithm ? algorithm.code : null,
-        engineType: algorithm ? algorithm.engineType : null,
-        cameraIds: [...tab.deployCameraSelections],
-        desc: tab.deployDescription.trim(),
-        area: areaNames.length ? areaNames.join("、") : null,
-        areaCount: tab.deployCameraSelections.length
-      };
       tab.deploySaving = true;
       try {
+        // 布控目标：本地上传的图先换成可访问 URL，其次页签带入的框选图，最后人脸库选取的照片
+        const face = (this.deployFaceProfiles as any[]).find(item => item.id === tab.deployFaceProfileId);
+        const targetPreview = this.deployTargetSource(tab);
+        let photoUrl = targetPreview || "";
+        if (tab.deployTargetFile) {
+          const uploaded = await api.uploadPersonSearchImage(tab.deployTargetFile);
+          photoUrl = uploaded.imageUrl;
+        }
+        if (!photoUrl && face) photoUrl = face.photoUrl || "";
+        if (!photoUrl) {
+          this.showToast("请上传布控图像或从人脸库选取");
+          return;
+        }
+        if (!tab.deployAlgorithmCode) {
+          this.showToast("请选择算法编号");
+          return;
+        }
+        const algorithm = this.deployAlgorithmFor(tab);
+        const areaNames: string[] = [];
+        const pointNames: string[] = [];
+        (this.areas as any[]).forEach(area => area.cameras.forEach((camera: any) => {
+          if (tab.deployCameraSelections.includes(camera.code)) {
+            if (!areaNames.includes(area.name)) areaNames.push(area.name);
+            pointNames.push(camera.name);
+          }
+        }));
+        const body: DeploymentTaskCreate = {
+          name: tab.deployTaskName.trim(),
+          pipeline: algorithm ? algorithm.name : "",
+          algorithmId: algorithm ? algorithm.id : null,
+          algorithmName: algorithm ? algorithm.name : null,
+          algorithmCode: tab.deployAlgorithmCode,
+          engineType: algorithm ? algorithm.engineType : null,
+          cameraIds: [...tab.deployCameraSelections],
+          faceProfileId: targetPreview ? null : (face ? face.id : null),
+          faceProfilePhotoUrl: photoUrl || null,
+          recognitionPerMinute: Math.max(1, Math.floor(Number(tab.deployRecognitionPerMinute) || 10)),
+          desc: tab.deployDescription.trim(),
+          area: areaNames.length ? areaNames.join("、") : null,
+          areaCount: tab.deployCameraSelections.length
+        };
         const created = await api.createDeploymentTask(body);
         const now = new Date();
         const createdText = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
-        const effectiveDates = `${tab.deployEffectiveStart} ~ ${tab.deployEffectiveEnd}`;
-        const cycle = `${tab.deployCycleStart}~${tab.deployCycleEnd}`;
         tab.savedTask = {
           id: (created && (created as any).id) || "-",
           name: body.name,
           desc: body.desc || "暂无任务描述",
-          algorithm: algorithm ? algorithm.name : "未选择算法",
-          status: "运行中",
-          area: areaNames.length ? areaNames.join("、") : "全部区域",
+          algorithm: algorithm ? algorithm.name : "未绑定算法",
+          algorithmCode: tab.deployAlgorithmCode,
+          status: (created && (created as any).taskStatus === "stopped") ? "已停止" : "运行中",
+          area: areaNames.length ? areaNames.join("、") : "默认区域",
           points: pointNames.length ? pointNames.join("、") : "全部点位",
-          time: [effectiveDates, cycle].filter(Boolean).join(" "),
-          threshold: tab.deploySimilarity,
-          owner: (created && (created as any).owner) || "—",
+          perMinute: body.recognitionPerMinute,
           created: createdText
         };
         this.showToast("布控任务已创建");
