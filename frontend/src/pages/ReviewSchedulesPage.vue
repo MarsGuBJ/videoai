@@ -4,15 +4,15 @@
     <div class="review-board">
       <div class="algorithm-toolbar"><button class="btn primary" @click="openCreate">新建</button></div>
       <table class="prototype-table">
-        <colgroup><col style="width:48px;" /><col style="width:180px;" /><col style="width:200px;" /><col style="width:150px;" /><col style="width:90px;" /><col style="width:80px;" /><col style="width:150px;" /><col /><col style="width:230px;" /></colgroup>
-        <thead><tr><th>ID</th><th class="left">任务名称</th><th class="left">复核类型</th><th class="left">cron 表达式</th><th>每批条数</th><th>状态</th><th>上次执行时间</th><th class="left">上次执行结果</th><th>操作</th></tr></thead>
+        <colgroup><col style="width:180px;" /><col style="width:200px;" /><col style="width:150px;" /><col style="width:90px;" /><col style="width:80px;" /><col style="width:150px;" /><col /><col style="width:230px;" /></colgroup>
+        <thead><tr><th class="left">任务名称</th><th class="left">复核类型</th><th class="left">cron 表达式</th><th>每批条数</th><th>状态</th><th>上次执行时间</th><th class="left">上次执行结果</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
-            <td :title="row.id">{{ row.id.slice(0, 8) }}</td><td class="left">{{ row.name }}</td><td class="left">{{ row.reviewTypeName }}（{{ row.reviewTypeCode }}）</td><td class="left">{{ row.cron }}</td><td>{{ row.batchSize }}</td><td><span class="mini-tag">{{ row.enabled ? "启用" : "停用" }}</span></td><td>{{ formatTime(row.lastRunAt) }}</td><td class="left ellipsis">{{ row.lastResult || "-" }}</td>
+            <td class="left">{{ row.name }}</td><td class="left">{{ row.reviewTypeName }}（{{ row.reviewTypeCode }}）</td><td class="left">{{ row.cron }}</td><td>{{ row.batchSize }}</td><td><span class="mini-tag">{{ row.enabled ? "启用" : "停用" }}</span></td><td>{{ formatTime(row.lastRunAt) }}</td><td class="left ellipsis">{{ row.lastResult || "-" }}</td>
             <td><button class="link-blue" @click="openEdit(row)">编辑</button><button class="link-blue" @click="toggle(row)">{{ row.enabled ? "停用" : "启用" }}</button><button class="link-blue" @click="runNow(row)">立即执行</button><button class="link-red" @click="remove(row)">删除</button></td>
           </tr>
-          <tr v-if="!loading && !rows.length"><td colspan="9" class="empty-cell">暂无定时任务</td></tr>
-          <tr v-if="loading"><td colspan="9" class="empty-cell">加载中...</td></tr>
+          <tr v-if="!loading && !rows.length"><td colspan="8" class="empty-cell">暂无定时任务</td></tr>
+          <tr v-if="loading"><td colspan="8" class="empty-cell">加载中...</td></tr>
         </tbody>
       </table>
     </div>
