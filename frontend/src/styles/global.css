@@ -4290,6 +4290,14 @@
       gap: 12px;
     }
 
+    /* 只读展示（编辑算法时的算法包信息）：与上传位同尺寸，但不可点击 */
+    .file-upload-tile.is-readonly {
+      cursor: default;
+      border-style: solid;
+      background: #f7f9fc;
+      color: #667085;
+    }
+
     .file-upload-tile {
       display: grid;
       place-items: center;

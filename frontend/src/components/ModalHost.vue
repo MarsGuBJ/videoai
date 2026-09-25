@@ -906,12 +906,15 @@ export default {
     },
     initAlgorithmForm() {
       const item = this.modal.item;
+      const editing = !!(item && item.id);
       this.algorithmName = (item && item.name) || "";
       this.algorithmCode = (item && item.code) || "";
       this.algorithmEngineType = (item && item.engineType) || "";
-      this.algorithmVersion = "v1.0.0";
+      // 编辑时这几项是只读的当前版本信息，新增时是初始版本输入
+      this.algorithmVersion = editing ? ((item && item.currentVersion) || "") : "v1.0.0";
       this.algorithmVersionName = "";
       this.algorithmNotes = "";
+      if (editing) this.loadAlgorithmVersionInfo(item.id);
       this.algorithmDesc = (item && item.description) || "";
       this.algorithmScene = (item && item.scene) || "";
       this.algorithmOwner = (item && item.owner) || "";
@@ -1114,6 +1117,23 @@ export default {
     handleVersionFile(event: any) {
       const file = event.target.files && event.target.files[0];
       this.versionFileName = file ? file.name : "";
+    },
+    // 编辑算法时展示当前版本的只读信息（版本名称、说明、算法包文件清单）
+    async loadAlgorithmVersionInfo(algorithmId: string) {
+      try {
+        const versions = await api.algorithmVersions(algorithmId);
+        const active = (versions || []).find(version => version.active) || (versions || [])[0];
+        if (!active) return;
+        if (!this.algorithmVersion) this.algorithmVersion = active.version || "";
+        this.algorithmVersionName = active.versionName || "";
+        this.algorithmNotes = active.notes || "";
+        const files = Object.keys(active.fileManifest || {});
+        this.algorithmPackageName = files.length
+          ? `${files.length} 个文件：${files.slice(0, 3).join("、")}${files.length > 3 ? " 等" : ""}`
+          : (active.status === "MISSING_FILES" ? "算法包文件缺失" : "");
+      } catch {
+        // 版本信息拉取失败时保持空值，不影响其它字段编辑
+      }
     },
     triggerAlgorithmPackage() {
       const input: any = this.$refs.algorithmPackageInput;
@@ -1490,6 +1510,7 @@ export default {
           </div>
         </template>
         <template v-if="modal.type === 'algorithm'">
+          <p v-if="isAlgorithmEdit" class="modal-hint">算法编号、算法引擎与版本信息创建后不可修改；新版本请在列表的「版本号」中上传。</p>
           <div class="modal-form-row">
             <label><span class="required">*</span>算法名称：</label>
             <input class="input" v-model="algorithmName" placeholder="请输入算法名称" />
@@ -1501,9 +1522,9 @@ export default {
               <option v-for="row in algorithmEventInfos" :key="row.code" :value="row.code">{{ row.code }}（{{ row.name }}）</option>
             </select>
           </div>
-          <div class="modal-form-row" v-if="!isAlgorithmEdit">
+          <div class="modal-form-row">
             <label><span class="required">*</span>算法引擎：</label>
-            <select class="select" v-model="algorithmEngineType">
+            <select class="select" v-model="algorithmEngineType" :disabled="isAlgorithmEdit">
               <option value="">请选择算法引擎</option>
               <option v-for="engine in algorithmEngines" :key="engine.engineType" :value="engine.engineType">{{ engine.label }}（{{ engine.engineType }}）</option>
             </select>
@@ -1516,24 +1537,25 @@ export default {
             <label>负责人：</label>
             <input class="input" v-model="algorithmOwner" placeholder="请输入负责人" />
           </div>
-          <div class="modal-form-row" v-if="!isAlgorithmEdit">
-            <label><span class="required">*</span>初始版本：</label>
-            <input class="input" v-model="algorithmVersion" placeholder="请输入初始版本，如 v1.0.0" />
+          <div class="modal-form-row">
+            <label><span class="required">*</span>{{ isAlgorithmEdit ? '当前版本：' : '初始版本：' }}</label>
+            <input class="input" v-model="algorithmVersion" :disabled="isAlgorithmEdit" :placeholder="isAlgorithmEdit ? '' : '请输入初始版本，如 v1.0.0'" />
           </div>
-          <div class="modal-form-row" v-if="!isAlgorithmEdit">
+          <div class="modal-form-row">
             <label>版本名称：</label>
-            <input class="input" v-model="algorithmVersionName" placeholder="请输入版本名称" />
+            <input class="input" v-model="algorithmVersionName" :disabled="isAlgorithmEdit" placeholder="请输入版本名称" />
           </div>
-          <div class="modal-form-row" v-if="!isAlgorithmEdit">
+          <div class="modal-form-row">
             <label><span class="required">*</span>算法包文件：</label>
             <div class="deploy-target-field">
-              <input ref="algorithmPackageInput" class="hidden-file-input" type="file" accept=".zip" @change="handleAlgorithmPackage" />
-              <button class="file-upload-tile version-upload-single" type="button" @click="triggerAlgorithmPackage"><span><b>{{ algorithmPackageName || '＋ 上传算法包文件' }}</b><br />仅支持 zip</span></button>
+              <input v-if="!isAlgorithmEdit" ref="algorithmPackageInput" class="hidden-file-input" type="file" accept=".zip" @change="handleAlgorithmPackage" />
+              <button v-if="!isAlgorithmEdit" class="file-upload-tile version-upload-single" type="button" @click="triggerAlgorithmPackage"><span><b>{{ algorithmPackageName || '＋ 上传算法包文件' }}</b><br />仅支持 zip</span></button>
+              <div v-else class="file-upload-tile version-upload-single is-readonly"><span><b>{{ algorithmPackageName || '暂无算法包信息' }}</b><br />算法包按版本上传，请在「版本号」中管理</span></div>
             </div>
           </div>
-          <div class="modal-form-row" v-if="!isAlgorithmEdit">
+          <div class="modal-form-row">
             <label>版本说明：</label>
-            <textarea class="textarea" style="height:82px;" v-model="algorithmNotes" placeholder="请输入版本说明"></textarea>
+            <textarea class="textarea" style="height:82px;" v-model="algorithmNotes" :disabled="isAlgorithmEdit" placeholder="请输入版本说明"></textarea>
           </div>
           <div class="modal-form-row">
             <label>算法描述：</label>
