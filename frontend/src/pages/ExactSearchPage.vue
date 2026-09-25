@@ -2189,43 +2189,74 @@ export default defineComponent({
       if (menu) menu.open = false;
       this.exportReport(type);
     },
-    reportContent() {
-      return `文搜视频分析报告\n\n视频源：${this.selectedSource ? (this.selectedSource as any).name : "-"}\n来源：${this.selectedSource ? this.sourceTypeLabel : "-"}\n检索内容：${this.lastQuery || this.query || "-"}\n\n事件摘要：\n${this.summary.overview || "-"}\n\n分析事件：\n${this.events.map(item => `${item.time} ${item.name}：${item.detail}`).join("\n")}\n\n分析结果：\n${this.results.map(item => `${item.title}：${item.value}。${item.detail}`).join("\n")}`;
-    },
     exportReport(type) {
       if (!this.analyzed) {
         this.showToast("请先完成文搜分析");
         return;
       }
-      const labels = { pdf: "PDF", word: "Word", md: "Markdown" };
-      if (type === "pdf") {
-        this.exportPdfReport();
-        return;
-      }
-      const content = type === "word" ? `<html><meta charset="utf-8"><body><h1>文搜视频分析报告</h1><pre>${this.reportContent()}</pre></body></html>` : `# 文搜视频分析报告\n\n${this.reportContent()}`;
-      const blob = new Blob([content], { type: type === "word" ? "application/msword" : "text/markdown;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `文搜视频分析报告.${type === "word" ? "doc" : "md"}`;
-      link.click();
-      URL.revokeObjectURL(url);
-      this.showToast(`${labels[type]} 报告已下载`);
+      if (type === "pdf") { this.exportPdfReport(); return; }
+      if (type === "word") { this.exportWordReport(); return; }
+      this.exportMarkdownReport();
     },
     escapeHtml(value: any) {
       return String(value == null ? "" : value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] as string));
     },
-    // 导出 PDF：把报告渲染成独立打印页并唤起浏览器打印，「另存为 PDF」即得到带中文的 PDF 文件。
-    // 前端没有 PDF 库，浏览器打印是唯一能正确嵌入中文字体的方式。
-    pdfReportHtml() {
+    downloadBlob(content: string, mime: string, filename: string) {
+      const url = URL.createObjectURL(new Blob([content], { type: mime }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+    // 报告里的截图统一换成绝对地址：打印窗口是 about:blank，相对路径解析不到
+    reportImageSrc(src: any) {
+      const value = String(src == null ? "" : src).trim();
+      if (!value) return "";
+      if (/^(data:|blob:|https?:)/i.test(value)) return value;
+      try { return new URL(value, window.location.href).href; } catch { return value; }
+    },
+    reportMeta() {
       const source: any = this.selectedSource;
       const now = new Date();
       const pad = (value: number) => String(value).padStart(2, "0");
-      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-      const events = this.events.map((item: any, index: number) => `<section class="event"><h3>${index + 1}. ${this.escapeHtml(item.name || "-")}</h3><p class="meta">发生时间：${this.escapeHtml(this.formatEventDisplayTime(item))}</p><div class="md">${this.renderMarkdown(item.detail || "")}</div></section>`).join("");
-      const results = this.results.map((item: any) => `<tr><td>${this.escapeHtml(item.title || "-")}</td><td>${this.escapeHtml(item.value == null || item.value === "" ? "-" : item.value)}</td><td>${this.escapeHtml(item.detail || "-")}</td></tr>`).join("");
+      return {
+        sourceName: source ? source.name : "-",
+        sourceType: source ? this.sourceTypeLabel : "-",
+        query: this.lastQuery || this.query || "-",
+        stamp: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+      };
+    },
+    // 分析结果条目（含后端按时间点截出的画面），三种报告共用
+    reportEvents() {
+      return this.events.map((item: any, index: number) => ({
+        index,
+        title: item.name || `事件 ${index + 1}`,
+        time: this.formatEventDisplayTime(item),
+        detail: item.detail || "",
+        src: this.reportImageSrc(item.image)
+      }));
+    },
+    reportEventsHtml() {
+      return this.reportEvents().map(item => {
+        const shot = item.src ? `<img class="shot" src="${this.escapeHtml(item.src)}" alt="${this.escapeHtml(item.title)}" />` : "";
+        return `<section class="event"><h3>${item.index + 1}. ${this.escapeHtml(item.title)}</h3><p class="meta">发生时间：${this.escapeHtml(item.time)}</p><div class="event-body">${shot}<div class="md">${this.renderMarkdown(item.detail)}</div></div></section>`;
+      }).join("");
+    },
+    reportResultsHtml() {
+      const rows = this.results.map((item: any) => `<tr><td>${this.escapeHtml(item.title || "-")}</td><td>${this.escapeHtml(item.value == null || item.value === "" ? "-" : item.value)}</td><td>${this.escapeHtml(item.detail || "-")}</td></tr>`).join("");
+      return `<table><thead><tr><th style="width:22%;">项目</th><th style="width:22%;">数值</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>`;
+    },
+    // 导出 PDF：把报告渲染成独立打印页并唤起浏览器打印，「另存为 PDF」即得到带中文与截图的 PDF。
+    // 前端没有 PDF 库，浏览器打印是唯一能正确嵌入中文字体的方式。
+    pdfReportHtml() {
+      const meta = this.reportMeta();
       const overview = this.summary.overview ? `<div class="md">${this.renderMarkdown(this.summary.overview)}</div>` : `<p class="empty">暂无事件摘要</p>`;
-      return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /><title>文搜视频分析报告 ${this.escapeHtml(stamp)}</title><style>
+      const events = this.reportEventsHtml();
+      const summarySection = `<h2>一、事件摘要</h2>${overview}`;
+      const resultSection = `<h2>二、分析结果（共 ${this.events.length} 个关键事件）</h2>${events || `<p class="empty">暂无分析事件</p>`}`;
+      const statsSection = this.results.length ? `<h2>三、统计结果</h2>${this.reportResultsHtml()}` : "";
+      return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /><title>文搜视频分析报告 ${this.escapeHtml(meta.stamp)}</title><style>
         @page { size: A4 portrait; margin: 16mm 14mm; }
         * { box-sizing: border-box; }
         body { margin: 0; color: #1f2d3d; font: 12px/1.75 "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
@@ -2235,6 +2266,9 @@ export default defineComponent({
         .meta { margin: 0 0 4px; color: #657689; font-size: 11px; }
         .md p { margin: 4px 0; }
         .md ul { margin: 4px 0; padding-left: 20px; }
+        .event-body { display: flex; gap: 12px; align-items: flex-start; }
+        .event-body .md { flex: 1; min-width: 0; }
+        .shot { width: 250px; max-width: 42%; border: 1px solid #d9e2ef; border-radius: 4px; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; }
         th, td { padding: 7px 9px; border: 1px solid #d9e2ef; text-align: left; vertical-align: top; }
         th { background: #f2f7ff; font-weight: 600; }
@@ -2242,10 +2276,8 @@ export default defineComponent({
         .empty { color: #98a2b3; }
         header { padding-bottom: 12px; margin-bottom: 4px; border-bottom: 2px solid #2087e6; }
       </style></head><body>
-        <header><h1>文搜视频分析报告</h1><p class="meta">视频源：${this.escapeHtml(source ? source.name : "-")} ｜ 来源：${this.escapeHtml(source ? this.sourceTypeLabel : "-")}</p><p class="meta">检索内容：${this.escapeHtml(this.lastQuery || this.query || "-")} ｜ 生成时间：${this.escapeHtml(stamp)}</p></header>
-        <h2>一、事件摘要</h2>${overview}
-        <h2>二、分析事件（共 ${this.events.length} 个）</h2>${events || `<p class="empty">暂无分析事件</p>`}
-        <h2>三、分析结果</h2>${this.results.length ? `<table><thead><tr><th style="width:22%;">项目</th><th style="width:22%;">数值</th><th>说明</th></tr></thead><tbody>${results}</tbody></table>` : `<p class="empty">暂无分析结果</p>`}
+        <header><h1>文搜视频分析报告</h1><p class="meta">视频源：${this.escapeHtml(meta.sourceName)} ｜ 来源：${this.escapeHtml(meta.sourceType)}</p><p class="meta">检索内容：${this.escapeHtml(meta.query)} ｜ 生成时间：${this.escapeHtml(meta.stamp)}</p></header>
+        ${summarySection}${resultSection}${statsSection}
       </body></html>`;
     },
     exportPdfReport() {
@@ -2257,7 +2289,11 @@ export default defineComponent({
       win.document.open();
       win.document.write(this.pdfReportHtml());
       win.document.close();
+      let fired = false;
       const fire = () => {
+        // 截图没加载完就打印会印出空白图，这里等图片就绪（或超时兜底）再唤起打印
+        if (fired || win.closed) return;
+        fired = true;
         try {
           win.focus();
           win.print();
@@ -2265,9 +2301,63 @@ export default defineComponent({
           // 用户可能在打印前关闭了窗口，忽略
         }
       };
-      if (win.document.readyState === "complete") window.setTimeout(fire, 350);
-      else win.addEventListener("load", () => window.setTimeout(fire, 350), { once: true });
-      this.showToast("已打开 PDF 打印预览，选择「另存为 PDF」即可导出");
+      const waitImages = () => {
+        const pending = Array.from(win.document.images || []).filter(img => !img.complete);
+        if (!pending.length) { window.setTimeout(fire, 350); return; }
+        let left = pending.length;
+        const step = () => { left -= 1; if (left <= 0) window.setTimeout(fire, 250); };
+        pending.forEach(img => {
+          img.addEventListener("load", step, { once: true });
+          img.addEventListener("error", step, { once: true });
+        });
+        window.setTimeout(fire, 6000);
+      };
+      if (win.document.readyState === "complete") waitImages();
+      else win.addEventListener("load", waitImages, { once: true });
+      this.showToast("已打开 PDF 打印预览（含分析结果截图），选择「另存为 PDF」即可导出");
+    },
+    exportWordReport() {
+      const meta = this.reportMeta();
+      const overview = this.summary.overview ? `<div class="md">${this.renderMarkdown(this.summary.overview)}</div>` : `<p class="empty">暂无事件摘要</p>`;
+      const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8" /><title>文搜视频分析报告</title><style>
+        body { font: 12pt "PingFang SC", "Microsoft YaHei", Arial, sans-serif; line-height: 1.7; color: #1f2d3d; }
+        h1 { font-size: 18pt; } h2 { font-size: 14pt; } h3 { font-size: 12pt; }
+        .meta { color: #657689; font-size: 9pt; }
+        .shot { width: 320px; border: 1px solid #d9e2ef; }
+        table { border-collapse: collapse; } th, td { border: 1px solid #999999; padding: 4px 8px; }
+      </style></head><body>
+        <h1>文搜视频分析报告</h1>
+        <p class="meta">视频源：${this.escapeHtml(meta.sourceName)} ｜ 来源：${this.escapeHtml(meta.sourceType)}</p>
+        <p class="meta">检索内容：${this.escapeHtml(meta.query)} ｜ 生成时间：${this.escapeHtml(meta.stamp)}</p>
+        <h2>一、事件摘要</h2>${overview}
+        <h2>二、分析结果（共 ${this.events.length} 个关键事件）</h2>${this.reportEventsHtml() || `<p class="empty">暂无分析事件</p>`}
+        ${this.results.length ? `<h2>三、统计结果</h2>${this.reportResultsHtml()}` : ""}
+      </body></html>`;
+      this.downloadBlob(html, "application/msword", "文搜视频分析报告.doc");
+      this.showToast("Word 报告已下载（含分析结果截图）");
+    },
+    exportMarkdownReport() {
+      const meta = this.reportMeta();
+      const lines = [
+        "# 文搜视频分析报告", "",
+        `- 视频源：${meta.sourceName}`, `- 来源：${meta.sourceType}`,
+        `- 检索内容：${meta.query}`, `- 生成时间：${meta.stamp}`, "",
+        "## 一、事件摘要", "", this.summary.overview || "暂无事件摘要", "",
+        `## 二、分析结果（共 ${this.events.length} 个关键事件）`, ""
+      ];
+      const events = this.reportEvents();
+      if (!events.length) lines.push("暂无分析事件");
+      events.forEach(item => {
+        lines.push(`### ${item.index + 1}. ${item.title}`, "", `发生时间：${item.time}`, "");
+        if (item.src) lines.push(`![${item.title}](${item.src})`, "");
+        lines.push(item.detail || "-", "");
+      });
+      if (this.results.length) {
+        lines.push("## 三、统计结果", "", "| 项目 | 数值 | 说明 |", "| --- | --- | --- |");
+        this.results.forEach((item: any) => lines.push(`| ${item.title || "-"} | ${item.value == null || item.value === "" ? "-" : item.value} | ${item.detail || "-"} |`));
+      }
+      this.downloadBlob(lines.join("\n"), "text/markdown;charset=utf-8", "文搜视频分析报告.md");
+      this.showToast("Markdown 报告已下载（含分析结果截图）");
     }
   },
   beforeUnmount() {
