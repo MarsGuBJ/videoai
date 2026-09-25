@@ -9920,6 +9920,29 @@
       color: #22a06b;
     }
 
+    /* 收藏星标（监控点行与收藏列表统一）：未收藏为灰色，已收藏为黄色；
+       放在设备名左侧，名称仍保持单行省略 */
+    .exact-tree-device .media-fav-star,
+    .media-resource-list .media-fav-star {
+      flex: 0 0 auto;
+      margin-right: 6px;
+      color: #98a2b3;
+      cursor: pointer;
+    }
+
+    .exact-tree-device .media-fav-star.is-favorite,
+    .media-resource-list .media-fav-star.is-favorite {
+      color: var(--orange);
+    }
+
+    .exact-tree-device .media-device-name {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .media-resource-list .offline-dot {
       color: #98a2b3;
     }
