@@ -196,7 +196,7 @@
             <div class="metric-row"><span class="metric">总时长：<b>{{ trackDurationOf(activeResultTabObj.items) }}</b></span><span class="metric">经过点位：<b>{{ trackPointCountOf(activeResultTabObj.items) }}</b></span><span class="metric">轨迹置信：<b>{{ trackConfidenceOf(activeResultTabObj.items) }}%</b></span></div>
             <div class="timeline">
               <article class="timeline-card" v-for="(item, index) in activeResultTabObj.items" :key="item.title + item.date">
-                <div><h4>{{ item.title }}</h4><p>{{ item.desc }}</p><div class="tags"><span class="tag blue">{{ item.location }}</span><span class="tag">相似度 {{ item.score }}%</span></div></div>
+                <div><h4>{{ item.title }}</h4><div v-if="item.attributes && item.attributes.length" class="result-attrs"><span v-for="attr in item.attributes" :key="attr.label"><span class="attr-label">{{ attr.label }}：</span>{{ attr.value }}</span></div><div class="tags"><span class="tag blue">{{ item.location }}</span><span class="tag">相似度 {{ item.score }}%</span></div></div>
                 <div class="timeline-card-controls"><span class="hint-text timeline-card-date">{{ item.date }}</span></div>
                 <button class="timeline-image-button" type="button" title="查看图片详情" @click="openTrackResultModal(activeResultTabObj, index)"><img :src="item.image" :alt="item.title" /></button>
               </article>
@@ -292,6 +292,7 @@ import { api, assetUrl, videoAnalysisFrameUrl, videoAnalysisStreamUrl } from "..
 import type { PersonSearchBboxPoint, SimilarPersonResult } from "../api";
 import type { DeploymentTaskCreate } from "../types";
 import { deviceStatusLabel } from "../utils/device-status";
+import { attributeText } from "../utils/attributes";
 import { cropImageToFile, cropToPixelBbox } from "../utils/person-search";
 import type { ImageCropSelection } from "../utils/person-search";
 
@@ -533,7 +534,14 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
     location: result.camera_locate || result.camera_id || "未知摄像头",
     date: formatCreateTime(result.create_time),
     score,
-    desc: result.es_doc_id || ""
+    desc: result.es_doc_id || "",
+    // 人员特征（图搜图结果列表图片下方同一组字段，值为空的字段连同字段名一起隐藏）
+    attributes: [
+      { label: "年龄", value: attributeText(result.age) },
+      { label: "配饰", value: attributeText(result.accessory) },
+      { label: "衣服颜色", value: attributeText(result.top_color) },
+      { label: "行为", value: attributeText(result.action) }
+    ].filter(attr => attr.value)
   };
 }
 
