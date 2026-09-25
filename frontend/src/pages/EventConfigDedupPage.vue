@@ -14,7 +14,7 @@
           <label class="event-config-field"><span><span class="required">*</span>名称</span><input v-model="form.name" class="input" /></label>
           <label class="event-config-field"><span><span class="required">*</span>关联算法</span><select v-model="form.algorithm" class="select"><option>区域入侵</option><option>车辆违停</option><option>垃圾识别</option></select></label>
           <label class="event-config-field"><span><span class="required">*</span>摄像头</span><span class="event-config-input-group"><input v-model="form.camera" class="input" :placeholder="camerasFailed ? '输入摄像头名称' : '搜索摄像头'" /><button v-if="camerasFailed" class="event-config-input-button" type="button" @click="addManualCamera">添加</button></span></label>
-          <div class="event-config-field"><span>摄像头范围</span><div class="event-config-radio-row"><label><input type="checkbox" v-model="form.allCameras" /> 全选</label><label v-for="name in cameraChoices" :key="name"><input type="checkbox" :value="name" v-model="form.cameras" /> {{ name }}</label><span v-if="!camerasFailed && !camerasLoading && !cameraChoices.length" style="color:#98a2b3;font-size:12px;">无匹配摄像头</span><span v-if="camerasLoading" style="color:#98a2b3;font-size:12px;">摄像头加载中...</span></div></div>
+          <div class="event-config-field"><span>摄像头范围</span><div class="event-config-radio-row"><label><input type="checkbox" v-model="form.allCameras" @change="onAllCamerasChange" /> 全选</label><label v-for="name in cameraChoices" :key="name"><input type="checkbox" :value="name" v-model="form.cameras" @change="onCameraSelectionChange" /> {{ name }}</label><span v-if="!camerasFailed && !camerasLoading && !cameraChoices.length" style="color:#98a2b3;font-size:12px;">无匹配摄像头</span><span v-if="camerasLoading" style="color:#98a2b3;font-size:12px;">摄像头加载中...</span></div></div>
         </div>
       </div>
       <div class="event-config-page-board" style="min-height:0;margin-bottom:14px;">
@@ -150,6 +150,14 @@ export default defineComponent({
       this.form.camera = "";
     },
     resetForm() { const editingId = this.editingId; this.form = this.blankForm(); this.editingId = editingId; },
+    // 「全选」与具体摄像头互斥：勾了具体摄像头就自动取消全选，勾全选则清空已选摄像头，
+    // 否则 allCameras 为 true 时 buildPayload 会把 cameras 丢掉，勾选等于没生效
+    onAllCamerasChange() {
+      if (this.form.allCameras) this.form.cameras = [];
+    },
+    onCameraSelectionChange() {
+      if (this.form.cameras.length) this.form.allCameras = false;
+    },
     buildPayload(enabled: boolean): DedupRulePayload {
       // 时间维度只送时长，实时图像只送相似度，区间图像两者都需要
       const needsDuration = this.form.tab !== "实时重叠图像去重";
