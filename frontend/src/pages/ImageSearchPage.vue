@@ -13,7 +13,7 @@
         <div class="deploy-field"><date-time-range-picker v-model:start="start" v-model:end="end" /></div>
         <div class="deploy-field"><area-camera-picker v-model="place" aria-label="地点" /></div>
         <div class="deploy-field similarity-field"><label>相似度：<b>{{ similarity }}%</b></label><input type="range" min="0" max="100" v-model.number="similarity" /></div>
-        <button class="btn primary" :disabled="searching" @click="searchSimilar">⌕ 搜索</button>
+        <button class="btn primary" :disabled="searching" title="搜索图片" @click="searchSimilar">⌕ 搜索</button>
       </div>
     </div>
     <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div></div>
