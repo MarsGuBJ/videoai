@@ -45,7 +45,8 @@
         <template v-else>
           <div class="event-config-filter" style="justify-content:flex-start;"><div class="event-config-filter-left"><select v-model="historyFilters.result" class="select" style="width:140px;"><option value="">推送结果</option><option>成功</option><option>失败</option></select><input v-model="historyFilters.range" class="input" style="width:220px;" placeholder="开始日期  至  结束日期" /><button class="btn primary" @click="showToast('已按当前条件查询')">查询</button></div></div>
           <div class="table-wrap"><table class="prototype-table"><thead><tr><th>序号</th><th class="left">推送任务名称</th><th>推送结果</th><th>失败信息</th><th>推送内容</th><th>推送时间</th></tr></thead><tbody><tr><td colspan="6" class="empty-cell">暂无数据</td></tr></tbody></table></div>
-          <div class="event-config-pagination"><button type="button" aria-label="上一页" :disabled="historyPage === 1" @click="historyPage--">‹</button><button v-for="page in [1, 2, 3]" :key="page" type="button" :class="{ active: historyPage === page }" @click="historyPage = page">{{ page }}</button><span>…</span><button type="button" :class="{ active: historyPage === 9 }" @click="historyPage = 9">9</button><select class="select" aria-label="每页条数"><option>10条/页</option><option>20条/页</option></select><span>跳至</span><input class="input" type="number" min="1" value="5" aria-label="跳至页码" /><span>页</span></div>
+          <!-- 历史日志暂无数据源：没有数据时不渲染分页条 -->
+
         </template>
       </section>
     </div>
@@ -73,7 +74,6 @@ export default defineComponent({
       activePage: 1,
       pageSize: 10,
       jumpTarget: "",
-      historyPage: 1,
       modal: null as string | null,
       logTab: "latest",
       logTask: null as PushTask | null,
@@ -260,7 +260,7 @@ export default defineComponent({
         this.saving = false;
       }
     },
-    openLogs(row: PushTask) { this.logTask = row; this.logTab = "latest"; this.historyPage = 1; this.modal = "logs"; },
+    openLogs(row: PushTask) { this.logTask = row; this.logTab = "latest"; this.modal = "logs"; },
     copySample() {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(this.sampleJson).then(() => this.showToast("推送内容示例已复制"), () => this.showToast("复制失败，请手动选择复制"));
