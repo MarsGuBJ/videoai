@@ -1475,6 +1475,18 @@
       color: #d92d20;
     }
 
+    /* 布控任务详情：布控目标字段（图片 + 来源说明），与新建弹窗的字段一一对应 */
+    .deploy-detail-target {
+      display: grid;
+      gap: 6px;
+      justify-items: start;
+    }
+
+    .deploy-detail-target .hint-text {
+      color: #98a2b3;
+      font-size: 12px;
+    }
+
     .face-combo {
       position: relative;
       width: 100%;

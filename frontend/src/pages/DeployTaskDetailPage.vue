@@ -12,17 +12,25 @@
         <div class="panel search-panel">
           <h3 class="form-section-title">任务信息</h3>
           <dl class="info-list">
-            <dt>任务ID</dt><dd class="ellipsis" :title="task.id">{{ task.id }}</dd>
+            <dt>布控目标</dt>
+            <dd class="deploy-detail-target">
+              <div v-if="targetPhoto" class="deploy-target-preview"><img :src="targetPhoto" alt="布控目标" /></div>
+              <span v-else class="hint-text">未上传布控目标图像</span>
+              <span class="hint-text">来源：{{ targetSourceText }}</span>
+            </dd>
+            <dt>人脸库</dt><dd>{{ targetFaceName || "未使用" }}</dd>
+            <dt>任务名称</dt><dd>{{ task.name }}</dd>
+            <dt>任务描述</dt><dd>{{ task.desc || "—" }}</dd>
             <dt>算法名称</dt><dd>{{ algorithmName }}</dd>
             <dt>算法编号</dt><dd>{{ task.algorithmCode || "—" }}</dd>
             <dt>布控区域</dt><dd>{{ task.area || "默认区域" }}</dd>
             <dt>监控点位</dt><dd>{{ cameraNames }}</dd>
             <dt>识别频次</dt><dd>{{ task.recognitionPerMinute }} 次/分钟</dd>
             <dt>任务状态</dt><dd><span class="status-pill" :class="statusClass(task.enabled ? '运行中' : '已停止')">{{ task.enabled ? "运行中" : "已停止" }}</span></dd>
+            <dt>任务ID</dt><dd class="ellipsis" :title="task.id">{{ task.id }}</dd>
             <dt>创建时间</dt><dd>{{ formatTime(task.createdAt) }}</dd>
             <dt>更新时间</dt><dd>{{ formatTime(task.updatedAt) }}</dd>
           </dl>
-          <div v-if="targetPhoto" class="deploy-target-preview" style="margin-top:12px;"><img :src="targetPhoto" alt="布控目标" /></div>
         </div>
 
         <div class="panel search-panel">
@@ -59,7 +67,7 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api, sameOriginAssetUrl } from "../api";
-import type { Algorithm, Camera, DeploymentEvent, DeploymentTask } from "../types";
+import type { Algorithm, Camera, DeploymentEvent, DeploymentTask, FaceProfile } from "../types";
 import { algorithmNameOfTask } from "../utils/algorithm-binding";
 
 function pad2(value: number): string {
@@ -112,6 +120,7 @@ export default defineComponent({
       task: null as DeploymentTask | null,
       cameras: [] as Camera[],
       algorithms: [] as Algorithm[],
+      faces: [] as FaceProfile[],
       events: [] as DeploymentEvent[],
       eventTotal: 0,
       page: 1,
@@ -127,6 +136,19 @@ export default defineComponent({
     // algorithmCode 反查算法清单，避免详情页算法名称空白
     algorithmName(): string {
       return algorithmNameOfTask(this.task, this.algorithms);
+    },
+    // 从人脸库选取的布控目标：优先用任务落库的 faceProfileName，缺失时按 ID 回查人脸库
+    targetFaceName(): string {
+      if (!this.task || !this.task.faceProfileId) return "";
+      if (this.task.faceProfileName) return this.task.faceProfileName;
+      const profile = this.faces.find(item => item.id === this.task.faceProfileId);
+      return profile ? profile.name : String(this.task.faceProfileId);
+    },
+    // 布控目标来源：与新增弹窗的「布控目标 / 从人脸库选取」两个字段对应
+    targetSourceText(): string {
+      if (this.task && this.task.faceProfileId) return `人脸库「${this.targetFaceName}」`;
+      if (this.targetPhoto) return "本地上传或搜索页带入的图像";
+      return "—";
     },
     // 后端存的布控目标图是 backend 端口的绝对地址，改成同源路径走 nginx 反代
     targetPhoto(): string {
@@ -165,15 +187,17 @@ export default defineComponent({
       if (this.loading || !this.taskId) return;
       this.loading = true;
       try {
-        const [tasks, cameras, page, algorithms] = await Promise.all([
+        const [tasks, cameras, page, algorithms, faces] = await Promise.all([
           api.deploymentTasks(),
           api.cameras(),
           api.deploymentEvents({ taskId: this.taskId, page: this.page, size: this.size }),
-          api.algorithms().catch(() => [] as Algorithm[])
+          api.algorithms().catch(() => [] as Algorithm[]),
+          api.faces().catch(() => [] as FaceProfile[])
         ]);
         this.task = (tasks || []).find(item => item.id === this.taskId) || this.task;
         this.cameras = cameras || [];
         this.algorithms = algorithms || [];
+        this.faces = faces || [];
         this.events = page.items || [];
         this.eventTotal = page.total || 0;
         await this.loadCounts();
