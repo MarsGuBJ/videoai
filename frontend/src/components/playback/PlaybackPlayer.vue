@@ -59,9 +59,6 @@
 
     <div class="playback-player-toolbar">
       <div class="playback-toolbar-left">
-        <button class="playback-toolbar-btn" type="button" :title="showSidebar ? '隐藏侧边栏' : '显示侧边栏'" @click="$emit('toggle-sidebar')">
-          <playback-icon :name="showSidebar ? 'siderLeft' : 'siderRight'"></playback-icon>
-        </button>
         <label class="playback-time-picker" title="定位回放时间">
           <input type="datetime-local" step="1" :value="pickerValue" @change="onPickerChange" />
           <playback-icon name="clock" class="playback-time-picker-icon"></playback-icon>
@@ -128,7 +125,6 @@ export default defineComponent({
     rangeEndMs: { type: Number, default: 0 },
     segments: { type: Array as () => TimelineSegment[], default: () => [] },
     muted: { type: Boolean, default: true },
-    showSidebar: { type: Boolean, default: true },
     maskText: { type: String, default: '' },
   },
   data() {

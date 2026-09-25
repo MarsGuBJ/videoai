@@ -2,7 +2,7 @@
   <section class="content review-wide media-playback-page">
     <div class="review-titlebar"><div><h1>录像回放</h1><p>按空间、设备与时间快速检索历史录像，支持时间轴定位、同步回放、分段回放和录像下载</p></div><div class="segmented"><button class="btn" @click="openRecordDownload">录像下载</button><button class="btn primary" @click="goLivePreview">切换实况</button></div></div>
     <div class="media-console-grid playback">
-      <aside v-show="showSider" class="panel media-resource-panel">
+      <aside class="panel media-resource-panel">
         <input class="input" placeholder="搜索监控点名称/IP" aria-label="搜索监控点名称或IP" v-model="searchKeyword" />
         <div class="media-playback-tree"><div class="media-panel-head"><b>录像资源</b><span class="hint-text">区域 / 监控点 · 共 {{ totalCameraCount }} 台设备</span></div><div class="media-playback-tree-list exact-tree-list"><div v-for="region in displayRegions" :key="region.fullPath"><button class="exact-tree-area-row" :class="{ active: selectedRegion && selectedRegion.fullPath === region.fullPath }" :style="{ paddingLeft: (8 + region.depth * 16) + 'px' }" @click="toggleRegion(region)"><span>{{ isRegionExpanded(region) ? '⌄' : '›' }} {{ region.name }}</span><span>{{ regionCount(region) }} 台设备</span></button><div v-if="isRegionExpanded(region)" class="exact-tree-children" :style="{ marginLeft: (18 + region.depth * 16) + 'px' }"><button v-for="camera in camerasForRegion(region)" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, region)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!displayRegions.length" style="padding:12px;color:#888;">{{ searchKeyword ? '无匹配监控点' : '暂无录像资源，请先在设备管理中添加设备' }}</div></div></div>
         <div class="media-record-query"><div class="media-resource-tabs" style="margin-bottom:0;"></div><label>开始时间<input class="input" type="datetime-local" v-model="queryStart" /></label><label>结束时间<input class="input" type="datetime-local" v-model="queryEnd" /></label><button class="btn primary" :disabled="searching" @click="searchRecordings">{{ searching ? '查询中…' : '录像查询' }}</button><p v-if="searchError" class="hint-text">{{ searchError }}</p></div>
@@ -20,7 +20,6 @@
             :range-end-ms="rangeEndMs"
             :segments="timelineSegments"
             :muted="muted"
-            :show-sidebar="showSider"
             :mask-text="playbackMaskText"
             @seek="onPlayerSeek"
             @toggle-play="togglePlayback"
@@ -29,7 +28,6 @@
             @mute-toggle="toggleMute"
             @capture="capturePlayback"
             @close="closePlayback"
-            @toggle-sidebar="showSider = !showSider"
           ></playback-player>
         </div>
       </section>
@@ -143,7 +141,6 @@ export default defineComponent({
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     return {
       speed: 1 as number,
-      showSider: true,
       muted: true,
       queryStart: toLocalDateTimeValue(today),
       queryEnd: toLocalDateTimeValue(now),
