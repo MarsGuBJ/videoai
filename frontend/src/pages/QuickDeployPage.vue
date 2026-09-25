@@ -27,12 +27,12 @@
         <div class="deploy-field"><label><span class="required">*</span>任务名称</label><input class="input" v-model="form.name" placeholder="请输入任务名称" /></div>
         <div class="deploy-field">
           <label><span class="required">*</span>算法编号</label>
-          <select class="select" v-model="form.algorithmId" aria-label="算法编号">
+          <select class="select" v-model="form.algorithmCode" aria-label="算法编号">
             <option value="">请选择算法编号</option>
-            <option v-for="item in algorithms" :key="item.id" :value="item.id" :disabled="!isBindable(item)">{{ item.code }}（{{ item.name }}）{{ isBindable(item) ? "" : "不可布控" }}</option>
+            <option v-for="item in eventInfos" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option>
           </select>
-          <span v-if="!algorithms.length" class="hint-text">暂无算法，请先在算法管理中新增算法并加载版本</span>
-          <span v-else-if="!hasBindableAlgorithm" class="hint-text">暂无可用算法：需算法未停用且当前版本已就绪</span>
+          <span v-if="!eventInfos.length" class="hint-text">暂无事件信息，请先在「事件配置 → 事件信息配置」新增事件</span>
+          <span v-else-if="form.algorithmCode && !eventBoundAlgorithm" class="hint-text">该事件未绑定可布控算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法编码</span>
         </div>
         <div class="deploy-field quick-deploy-wide">
           <label><span class="required">*</span>布控区域</label>
@@ -71,14 +71,14 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
-import type { Algorithm, Camera, DeploymentTaskCreate } from "../types";
+import type { Algorithm, Camera, DeploymentTaskCreate, EventInfo } from "../types";
 import { deviceStatusLabel } from "../utils/device-status";
 
 type CameraArea = { name: string; cameras: Camera[] };
 
-// 快速布防：与「布控任务 → 新建布控任务」写同一张表（POST /api/deployment-tasks）。
-// 目标图先传 /api/person-search/images 换成可访问 imageUrl；算法必须选可布控（未停用且当前版本 READY）
-// 的算法，这样 worker 才会按该任务起流并跑算法。
+// 快速布防：与「布控任务 → 新建布控任务」写同一张表（POST /api/deployment-tasks），字段口径与弹窗一致。
+// 算法编号取「事件信息配置」的事件编码，再按事件信息的「算法编码」反查算法；算法编码为空时
+// 任务仍会创建，但 algorithmId 为空、worker 不会启动算法（与新建布控任务弹窗行为一致）。
 export default defineComponent({
   name: "QuickDeployPage",
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
@@ -91,6 +91,7 @@ export default defineComponent({
       loading: false,
       saving: false,
       algorithms: [] as Algorithm[],
+      eventInfos: [] as EventInfo[],
       cameras: [] as Camera[],
       cameraTreeOpen: false,
       areaExpanded: {} as Record<string, boolean>,
@@ -101,7 +102,7 @@ export default defineComponent({
       form: {
         name: "",
         desc: "",
-        algorithmId: "",
+        algorithmCode: "",
         cameraIds: [] as string[],
         recognitionPerMinute: 60,
         enabled: true
@@ -137,8 +138,14 @@ export default defineComponent({
     selectedCameras(): Camera[] {
       return this.cameras.filter(camera => this.form.cameraIds.includes(camera.id));
     },
-    hasBindableAlgorithm(): boolean {
-      return this.algorithms.some(item => item.status !== "DISABLED" && item.currentVersionStatus === "READY");
+    // 与「新建布控任务」弹窗同口径：事件编码 → 事件信息的算法编码 → 算法列表里的可布控算法
+    selectedEventInfo(): EventInfo | undefined {
+      return this.eventInfos.find(item => item.code === this.form.algorithmCode);
+    },
+    eventBoundAlgorithm(): Algorithm | undefined {
+      const eventInfo = this.selectedEventInfo;
+      if (!eventInfo || !eventInfo.algorithmCode) return undefined;
+      return this.algorithms.find(item => item.code === eventInfo.algorithmCode);
     },
     selectedAreas(): string[] {
       const names = this.selectedCameras.map(camera => String(camera.area || "").trim() || "未分配");
@@ -171,8 +178,9 @@ export default defineComponent({
       if (this.loading) return;
       this.loading = true;
       try {
-        const [algorithms, cameras] = await Promise.all([api.algorithms(), api.cameras()]);
+        const [algorithms, eventInfos, cameras] = await Promise.all([api.algorithms(), api.eventInfos(), api.cameras()]);
         this.algorithms = algorithms || [];
+        this.eventInfos = eventInfos || [];
         this.cameras = cameras || [];
         const first = this.cameraAreas[0];
         if (first) this.areaExpanded = { [first.name]: true };
@@ -183,7 +191,6 @@ export default defineComponent({
       }
     },
     cameraStatusText(camera: Camera) { return deviceStatusLabel(camera); },
-    isBindable(item: Algorithm) { return item.status !== "DISABLED" && item.currentVersionStatus === "READY"; },
     toggleArea(name: string) { this.areaExpanded = { ...this.areaExpanded, [name]: !this.areaExpanded[name] }; },
     toggleCamera(id: string) {
       this.form.cameraIds = this.form.cameraIds.includes(id)
@@ -224,7 +231,7 @@ export default defineComponent({
     async submit() {
       const name = this.form.name.trim();
       if (!name) { this.notify("请输入任务名称"); return; }
-      if (!this.form.algorithmId) { this.notify("请选择算法编号"); return; }
+      if (!this.form.algorithmCode) { this.notify("请选择算法编号"); return; }
       if (!this.form.cameraIds.length) { this.notify("请选择布控区域（至少一台摄像机）"); return; }
       if (!this.targetPreview) { this.notify("请上传布控目标图像"); return; }
       if (this.saving) return;
@@ -236,13 +243,13 @@ export default defineComponent({
           const uploaded = await api.uploadPersonSearchImage(this.targetFile);
           photoUrl = uploaded.imageUrl;
         }
-        const algorithm = this.algorithms.find(item => item.id === this.form.algorithmId);
+        const algorithm = this.eventBoundAlgorithm;
         const body: DeploymentTaskCreate = {
           name,
           pipeline: algorithm ? algorithm.name : "",
           algorithmId: algorithm ? algorithm.id : null,
           algorithmName: algorithm ? algorithm.name : null,
-          algorithmCode: algorithm ? algorithm.code : null,
+          algorithmCode: this.form.algorithmCode,
           engineType: algorithm ? algorithm.engineType : null,
           cameraIds: [...this.form.cameraIds],
           faceProfileId: null,

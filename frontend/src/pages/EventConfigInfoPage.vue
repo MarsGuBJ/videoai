@@ -13,6 +13,7 @@
           <div class="event-config-field"><span>事件来源</span><div ref="sourceBox" class="event-config-source"><input v-model="form.source" class="input event-config-source-input" role="combobox" aria-label="事件来源" aria-haspopup="listbox" :aria-expanded="sourceOpen ? 'true' : 'false'" aria-controls="event-source-options" placeholder="请选择或输入事件来源" @focus="openSourceMenu" @click="openSourceMenu" @input="openSourceMenu" @keydown.down.prevent="moveSource(1)" @keydown.up.prevent="moveSource(-1)" @keydown.enter.prevent="commitSource" @keydown.esc="closeSourceMenu" /><span class="event-config-source-caret" :class="{ open: sourceOpen }" aria-hidden="true"></span><ul v-if="sourceOpen && sourceSuggestions.length" id="event-source-options" class="event-config-source-menu" role="listbox"><li v-for="(option, index) in sourceSuggestions" :key="option" role="option" :aria-selected="form.source === option ? 'true' : 'false'" :class="{ active: index === sourceActiveIndex, selected: form.source === option }" @mouseenter="sourceActiveIndex = index" @mousedown.prevent="pickSource(option)">{{ option }}</li></ul></div></div>
           <label class="event-config-field"><span><span class="required">*</span>事件名称</span><input v-model="form.name" class="input" placeholder="请输入内容" /></label>
           <label class="event-config-field"><span><span class="required">*</span>事件编码</span><input v-model="form.code" class="input" placeholder="请输入内容" /></label>
+          <label class="event-config-field"><span>算法编码</span><select v-model="form.algorithmCode" class="select" aria-label="算法编码"><option value="">不绑定算法</option><option v-for="item in algorithmOptions" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option></select></label>
           <label class="event-config-field"><span>事件等级</span><select v-model="form.level" class="select"><option>低</option><option>中</option><option>高</option></select></label>
           <label class="event-config-field"><span>事件分类</span><select v-model="form.category" class="select"><option>安防事件</option><option>消防事件</option><option>环境事件</option><option>行为事件</option><option>交通事件</option></select></label>
           <label class="event-config-field"><span>标注方式</span><select v-model="form.mark" class="select"><option>多边形</option><option>关键点</option></select></label>
@@ -31,7 +32,7 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
-import type { EventInfo, EventInfoPayload } from "../types";
+import type { Algorithm, EventInfo, EventInfoPayload } from "../types";
 
 export default defineComponent({
   name: "EventConfigInfoPage",
@@ -53,6 +54,7 @@ export default defineComponent({
       sourceOpen: false,
       sourceActiveIndex: -1,
       sourceOptions: ["中心推理平台", "云边协同平台"] as string[],
+      algorithmOptions: [] as Algorithm[],
       editing: null as EventInfo | null,
       form: { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "", eventSource: "", algorithmCode: "", attrs: [] as { key: string; value: string }[] }
     };
@@ -83,6 +85,7 @@ export default defineComponent({
   },
   mounted() {
     this.loadRows();
+    this.loadAlgorithmOptions();
     document.addEventListener("click", this.onSourceDocumentClick);
   },
   unmounted() {
@@ -104,6 +107,13 @@ export default defineComponent({
         this.showToast(error instanceof Error ? error.message : "事件信息加载失败");
       } finally {
         this.loading = false;
+      }
+    },
+    async loadAlgorithmOptions() {
+      try {
+        this.algorithmOptions = await api.algorithms();
+      } catch {
+        // 算法列表不可用时算法编码下拉只保留「不绑定算法」
       }
     },
     blankForm() {

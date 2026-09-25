@@ -2199,7 +2199,7 @@ export default defineComponent({
       }
       const labels = { pdf: "PDF", word: "Word", md: "Markdown" };
       if (type === "pdf") {
-        this.showToast("PDF 报告已生成，可通过浏览器打印保存");
+        this.exportPdfReport();
         return;
       }
       const content = type === "word" ? `<html><meta charset="utf-8"><body><h1>文搜视频分析报告</h1><pre>${this.reportContent()}</pre></body></html>` : `# 文搜视频分析报告\n\n${this.reportContent()}`;
@@ -2211,6 +2211,63 @@ export default defineComponent({
       link.click();
       URL.revokeObjectURL(url);
       this.showToast(`${labels[type]} 报告已下载`);
+    },
+    escapeHtml(value: any) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] as string));
+    },
+    // 导出 PDF：把报告渲染成独立打印页并唤起浏览器打印，「另存为 PDF」即得到带中文的 PDF 文件。
+    // 前端没有 PDF 库，浏览器打印是唯一能正确嵌入中文字体的方式。
+    pdfReportHtml() {
+      const source: any = this.selectedSource;
+      const now = new Date();
+      const pad = (value: number) => String(value).padStart(2, "0");
+      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      const events = this.events.map((item: any, index: number) => `<section class="event"><h3>${index + 1}. ${this.escapeHtml(item.name || "-")}</h3><p class="meta">发生时间：${this.escapeHtml(this.formatEventDisplayTime(item))}</p><div class="md">${this.renderMarkdown(item.detail || "")}</div></section>`).join("");
+      const results = this.results.map((item: any) => `<tr><td>${this.escapeHtml(item.title || "-")}</td><td>${this.escapeHtml(item.value == null || item.value === "" ? "-" : item.value)}</td><td>${this.escapeHtml(item.detail || "-")}</td></tr>`).join("");
+      const overview = this.summary.overview ? `<div class="md">${this.renderMarkdown(this.summary.overview)}</div>` : `<p class="empty">暂无事件摘要</p>`;
+      return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /><title>文搜视频分析报告 ${this.escapeHtml(stamp)}</title><style>
+        @page { size: A4 portrait; margin: 16mm 14mm; }
+        * { box-sizing: border-box; }
+        body { margin: 0; color: #1f2d3d; font: 12px/1.75 "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+        h1 { margin: 0 0 6px; font-size: 20px; }
+        h2 { margin: 22px 0 10px; padding-left: 9px; border-left: 4px solid #2087e6; font-size: 15px; }
+        h3 { margin: 14px 0 6px; font-size: 13px; }
+        .meta { margin: 0 0 4px; color: #657689; font-size: 11px; }
+        .md p { margin: 4px 0; }
+        .md ul { margin: 4px 0; padding-left: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { padding: 7px 9px; border: 1px solid #d9e2ef; text-align: left; vertical-align: top; }
+        th { background: #f2f7ff; font-weight: 600; }
+        .event { break-inside: avoid; page-break-inside: avoid; }
+        .empty { color: #98a2b3; }
+        header { padding-bottom: 12px; margin-bottom: 4px; border-bottom: 2px solid #2087e6; }
+      </style></head><body>
+        <header><h1>文搜视频分析报告</h1><p class="meta">视频源：${this.escapeHtml(source ? source.name : "-")} ｜ 来源：${this.escapeHtml(source ? this.sourceTypeLabel : "-")}</p><p class="meta">检索内容：${this.escapeHtml(this.lastQuery || this.query || "-")} ｜ 生成时间：${this.escapeHtml(stamp)}</p></header>
+        <h2>一、事件摘要</h2>${overview}
+        <h2>二、分析事件（共 ${this.events.length} 个）</h2>${events || `<p class="empty">暂无分析事件</p>`}
+        <h2>三、分析结果</h2>${this.results.length ? `<table><thead><tr><th style="width:22%;">项目</th><th style="width:22%;">数值</th><th>说明</th></tr></thead><tbody>${results}</tbody></table>` : `<p class="empty">暂无分析结果</p>`}
+      </body></html>`;
+    },
+    exportPdfReport() {
+      const win = window.open("", "_blank");
+      if (!win) {
+        this.showToast("浏览器拦截了导出窗口，请允许本站弹出窗口后重试");
+        return;
+      }
+      win.document.open();
+      win.document.write(this.pdfReportHtml());
+      win.document.close();
+      const fire = () => {
+        try {
+          win.focus();
+          win.print();
+        } catch {
+          // 用户可能在打印前关闭了窗口，忽略
+        }
+      };
+      if (win.document.readyState === "complete") window.setTimeout(fire, 350);
+      else win.addEventListener("load", () => window.setTimeout(fire, 350), { once: true });
+      this.showToast("已打开 PDF 打印预览，选择「另存为 PDF」即可导出");
     }
   },
   beforeUnmount() {
