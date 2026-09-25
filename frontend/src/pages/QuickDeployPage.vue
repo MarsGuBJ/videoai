@@ -32,7 +32,8 @@
             <option v-for="item in eventInfos" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option>
           </select>
           <span v-if="!eventInfos.length" class="hint-text">暂无事件信息，请先在「事件配置 → 事件信息配置」新增事件</span>
-          <span v-else-if="form.algorithmCode && !eventBoundAlgorithm" class="hint-text">该事件未绑定可布控算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法编码</span>
+          <span v-else-if="eventBoundAlgorithm" class="hint-text">已绑定算法：{{ eventBoundAlgorithm.name }}（{{ eventBoundAlgorithm.code }}）</span>
+          <span v-else-if="form.algorithmCode" class="hint-text">未匹配到可布控算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法编码</span>
         </div>
         <div class="deploy-field quick-deploy-wide">
           <label><span class="required">*</span>布控区域</label>
@@ -73,6 +74,7 @@ import { defineComponent } from "vue";
 import { api } from "../api";
 import type { Algorithm, Camera, DeploymentTaskCreate, EventInfo } from "../types";
 import { deviceStatusLabel } from "../utils/device-status";
+import { resolveEventAlgorithm } from "../utils/algorithm-binding";
 
 type CameraArea = { name: string; cameras: Camera[] };
 
@@ -139,13 +141,12 @@ export default defineComponent({
       return this.cameras.filter(camera => this.form.cameraIds.includes(camera.id));
     },
     // 与「新建布控任务」弹窗同口径：事件编码 → 事件信息的算法编码 → 算法列表里的可布控算法
+    // （事件未绑定算法编码时回落到同编码算法，见 utils/algorithm-binding）
     selectedEventInfo(): EventInfo | undefined {
       return this.eventInfos.find(item => item.code === this.form.algorithmCode);
     },
     eventBoundAlgorithm(): Algorithm | undefined {
-      const eventInfo = this.selectedEventInfo;
-      if (!eventInfo || !eventInfo.algorithmCode) return undefined;
-      return this.algorithms.find(item => item.code === eventInfo.algorithmCode);
+      return resolveEventAlgorithm(this.algorithms, this.eventInfos, this.form.algorithmCode).algorithm;
     },
     selectedAreas(): string[] {
       const names = this.selectedCameras.map(camera => String(camera.area || "").trim() || "未分配");

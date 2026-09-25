@@ -22,6 +22,7 @@ import { defineComponent } from "vue";
 import SummaryCards from "../components/SummaryCards.vue";
 import { api } from "../api";
 import type { Algorithm, DeploymentTask } from "../types";
+import { algorithmNameOfTask, algorithmOfTask } from "../utils/algorithm-binding";
 
 function formatCreatedAt(iso?: string | null): string {
   if (!iso) return "—";
@@ -31,17 +32,21 @@ function formatCreatedAt(iso?: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function mapTaskToRow(task: DeploymentTask) {
+function mapTaskToRow(task: DeploymentTask, algorithms: Algorithm[], alerts: Record<string, number>) {
+  // 算法名称优先取算法清单里的真实名称：历史任务没落库 algorithmName（事件未绑定算法时
+  // algorithmId/algorithmName 都是空），只靠 task.algorithmName 会让列表算法名称空白。
+  const algorithm = algorithmOfTask(task, algorithms);
   return {
     id: task.id,
     name: task.name,
-    algorithm: task.algorithmName || task.pipeline || "—",
+    algorithm: algorithmNameOfTask(task, algorithms),
+    algorithmId: (algorithm && algorithm.id) || task.algorithmId || "",
     area: task.area || "—",
     areaCount: task.areaCount ?? (task.cameraIds || []).length,
     points: (task.cameraIds || []).length ? `${task.cameraIds.length} 个点位` : "—",
     status: task.enabled ? "运行中" : "已停止",
     // 告警数由 loadTasks 逐个任务查 /api/deployment-events 的 total 填充（真实计数）
-    alerts: 0,
+    alerts: alerts[task.id] || 0,
     created: formatCreatedAt(task.createdAt),
     desc: task.desc || "",
     recognitionPerMinute: task.recognitionPerMinute || 0,
@@ -61,7 +66,10 @@ export default defineComponent({
   },
   data() {
     return {
+      rawTasks: [] as DeploymentTask[],
       rows: [] as ReturnType<typeof mapTaskToRow>[],
+      // 告警数按任务 ID 缓存：算法清单/任务清单任一刷新后重建行对象时都不丢
+      alerts: {} as Record<string, number>,
       algorithms: [] as Algorithm[],
       loading: false,
       keyword: "",
@@ -85,7 +93,7 @@ export default defineComponent({
         if (keyword && !`${row.name}${row.id}`.toLowerCase().includes(keyword)) return false;
         if (this.statusFilter === "running" && row.status !== "运行中") return false;
         if (this.statusFilter === "stopped" && row.status !== "已停止") return false;
-        if (this.algorithmFilter && row.raw.algorithmId !== this.algorithmFilter) return false;
+        if (this.algorithmFilter && row.algorithmId !== this.algorithmFilter) return false;
         if (this.areaFilter && row.area !== this.areaFilter) return false;
         return true;
       });
@@ -124,17 +132,19 @@ export default defineComponent({
       this.loading = true;
       try {
         const tasks = await api.deploymentTasks();
-        this.rows = tasks.map(mapTaskToRow);
+        this.rawTasks = tasks;
+        this.rebuildRows();
         await Promise.all(
-          this.rows.map(async (row) => {
+          this.rawTasks.map(async (task) => {
             try {
-              const page = await api.deploymentEvents({ taskId: row.id, size: 1 });
-              row.alerts = page.total;
+              const page = await api.deploymentEvents({ taskId: task.id, size: 1 });
+              this.alerts[task.id] = page.total;
             } catch {
               // 告警数加载失败时保持 0
             }
           })
         );
+        this.rebuildRows();
       } catch (e) {
         this.showToast(e instanceof Error ? e.message : "布控任务加载失败");
       } finally {
@@ -151,9 +161,14 @@ export default defineComponent({
     async loadAlgorithms() {
       try {
         this.algorithms = await api.algorithms();
+        // 算法清单到达后重建行：算法名称按 algorithmCode 反查算法清单
+        this.rebuildRows();
       } catch (e) {
         console.error("load algorithms failed", e);
       }
+    },
+    rebuildRows() {
+      this.rows = this.rawTasks.map((task) => mapTaskToRow(task, this.algorithms, this.alerts));
     },
     async toggleTask(row: any) {
       const enabled = row.status !== "运行中";

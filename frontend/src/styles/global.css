@@ -1448,6 +1448,22 @@
       gap: 8px;
     }
 
+    /* 新建/编辑布控任务：算法编号 + 绑定结果提示（选完就能看清绑到了哪个算法） */
+    .deploy-algorithm-field {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .deploy-algorithm-field .hint-text {
+      line-height: 1.5;
+      word-break: break-all;
+    }
+
+    .hint-text.hint-warn {
+      color: #d46b08;
+    }
+
     .deploy-target-field .deploy-target-preview {
       width: 100%;
       max-width: 168px;

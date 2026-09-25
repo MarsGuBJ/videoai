@@ -136,7 +136,8 @@
               <div>
                 <select class="select" v-model="activeResultTabObj.deployAlgorithmCode" aria-label="算法编号"><option value="">请选择算法编号</option><option v-for="item in deployEventInfos" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option></select>
                 <span v-if="!deployEventInfos.length" class="hint-text">暂无事件信息，请先在「事件配置 → 事件信息配置」新增事件</span>
-                <span v-else-if="activeResultTabObj.deployAlgorithmCode && !deployAlgorithmFor(activeResultTabObj)" class="hint-text">该事件未绑定可布控算法：任务会照常创建，但 worker 不会启动算法</span>
+                <span v-else-if="deployAlgorithmFor(activeResultTabObj)" class="hint-text">已绑定算法：{{ deployAlgorithmFor(activeResultTabObj).name }}（{{ deployAlgorithmFor(activeResultTabObj).code }}）</span>
+                <span v-else-if="activeResultTabObj.deployAlgorithmCode" class="hint-text">未匹配到可布控算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法编码</span>
               </div>
             </div>
             <div class="modal-form-row"><label><span class="required">*</span>布控区域：</label>
@@ -295,6 +296,7 @@ import { deviceStatusLabel } from "../utils/device-status";
 import { attributeText } from "../utils/attributes";
 import { cropImageToFile, cropToPixelBbox } from "../utils/person-search";
 import type { ImageCropSelection } from "../utils/person-search";
+import { resolveEventAlgorithm } from "../utils/algorithm-binding";
 
 function isHttpUrl(url?: string | null): boolean {
   return !!url && /^https?:\/\//i.test(url);
@@ -1947,13 +1949,12 @@ export default defineComponent({
       window.setTimeout(() => { tab.deployFaceDropdownOpen = false; }, 150);
     },
     // 与「新建布控任务」弹窗、快速布防页同口径：事件编码 → 事件的算法编码 → 算法
+    // （事件未绑定算法编码时回落到同编码算法，见 utils/algorithm-binding）
     deployEventInfoFor(tab) {
       return (this.deployEventInfos as any[]).find(item => item.code === tab.deployAlgorithmCode);
     },
     deployAlgorithmFor(tab) {
-      const eventInfo = this.deployEventInfoFor(tab);
-      if (!eventInfo || !eventInfo.algorithmCode) return undefined;
-      return (this.deployAlgorithms as any[]).find(item => item.code === eventInfo.algorithmCode);
+      return resolveEventAlgorithm(this.deployAlgorithms as any[], this.deployEventInfos as any[], tab.deployAlgorithmCode).algorithm;
     },
     // 布控目标：优先显示本地上传图，否则显示页签带入的框选图；清空后显示上传入口（参照原型 ExactQuickDeployPanel）
     deployTargetSource(tab) {

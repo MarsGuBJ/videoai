@@ -4,7 +4,7 @@
 
     <template v-if="task">
       <div class="detail-header-card">
-        <div><h2>{{ task.name }}</h2><p>{{ task.desc || "—" }}</p><div class="tags"><span class="tag blue">{{ task.algorithmName || task.pipeline || "未绑定算法" }}</span><span class="status-pill" :class="statusClass(task.enabled ? '运行中' : '已停止')">{{ task.enabled ? "运行中" : "已停止" }}</span><span class="tag">{{ task.area || "默认区域" }}</span></div></div>
+        <div><h2>{{ task.name }}</h2><p>{{ task.desc || "—" }}</p><div class="tags"><span class="tag blue">{{ algorithmName }}</span><span class="status-pill" :class="statusClass(task.enabled ? '运行中' : '已停止')">{{ task.enabled ? "运行中" : "已停止" }}</span><span class="tag">{{ task.area || "默认区域" }}</span></div></div>
         <div class="segmented"><button class="btn" :disabled="toggling" @click="toggleTask">{{ toggling ? "处理中…" : (task.enabled ? "停止任务" : "启动任务") }}</button><button class="btn primary" :disabled="loading" @click="loadAll">{{ loading ? "刷新中…" : "刷新状态" }}</button></div>
       </div>
 
@@ -13,7 +13,7 @@
           <h3 class="form-section-title">任务信息</h3>
           <dl class="info-list">
             <dt>任务ID</dt><dd class="ellipsis" :title="task.id">{{ task.id }}</dd>
-            <dt>算法名称</dt><dd>{{ task.algorithmName || "—" }}</dd>
+            <dt>算法名称</dt><dd>{{ algorithmName }}</dd>
             <dt>算法编号</dt><dd>{{ task.algorithmCode || "—" }}</dd>
             <dt>布控区域</dt><dd>{{ task.area || "默认区域" }}</dd>
             <dt>监控点位</dt><dd>{{ cameraNames }}</dd>
@@ -59,7 +59,8 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api, sameOriginAssetUrl } from "../api";
-import type { Camera, DeploymentEvent, DeploymentTask } from "../types";
+import type { Algorithm, Camera, DeploymentEvent, DeploymentTask } from "../types";
+import { algorithmNameOfTask } from "../utils/algorithm-binding";
 
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
@@ -110,6 +111,7 @@ export default defineComponent({
       taskId: "",
       task: null as DeploymentTask | null,
       cameras: [] as Camera[],
+      algorithms: [] as Algorithm[],
       events: [] as DeploymentEvent[],
       eventTotal: 0,
       page: 1,
@@ -121,6 +123,11 @@ export default defineComponent({
     };
   },
   computed: {
+    // 算法名称优先取算法清单里的真实名称：历史任务没落库 algorithmName 时按
+    // algorithmCode 反查算法清单，避免详情页算法名称空白
+    algorithmName(): string {
+      return algorithmNameOfTask(this.task, this.algorithms);
+    },
     // 后端存的布控目标图是 backend 端口的绝对地址，改成同源路径走 nginx 反代
     targetPhoto(): string {
       return this.task && this.task.faceProfilePhotoUrl ? sameOriginAssetUrl(this.task.faceProfilePhotoUrl) : "";
@@ -158,13 +165,15 @@ export default defineComponent({
       if (this.loading || !this.taskId) return;
       this.loading = true;
       try {
-        const [tasks, cameras, page] = await Promise.all([
+        const [tasks, cameras, page, algorithms] = await Promise.all([
           api.deploymentTasks(),
           api.cameras(),
-          api.deploymentEvents({ taskId: this.taskId, page: this.page, size: this.size })
+          api.deploymentEvents({ taskId: this.taskId, page: this.page, size: this.size }),
+          api.algorithms().catch(() => [] as Algorithm[])
         ]);
         this.task = (tasks || []).find(item => item.id === this.taskId) || this.task;
         this.cameras = cameras || [];
+        this.algorithms = algorithms || [];
         this.events = page.items || [];
         this.eventTotal = page.total || 0;
         await this.loadCounts();
