@@ -105,6 +105,15 @@ export default {
       capabilityPtz: false,
       capabilityStrategy: "overwrite",
       capabilitySaving: false,
+      // 云台能力探测进度与结果（不支持的设备会被跳过并在弹窗里列出明细）
+      capabilityProbing: false,
+      capabilityProgress: { done: 0, total: 0 },
+      capabilityReport: null as null | {
+        applied: number;
+        ptzOn: boolean;
+        total: number;
+        skipped: { name: string; reason: string }[];
+      },
       // 区域管理弹窗：后端区域树（/api/regions）树形编辑器
       regionTree: [] as RegionTreeNode[],
       regionSelectedId: "",
@@ -608,6 +617,49 @@ export default {
       this.capabilityPtz = every("ptzEnabled", false);
       this.capabilityStrategy = "overwrite";
       this.capabilitySaving = false;
+      this.capabilityProbing = false;
+      this.capabilityProgress = { done: 0, total: 0 };
+      this.capabilityReport = null;
+    },
+    // 批量开启云台控制前的能力探测：与设备新增/编辑页同口径（POST /api/cameras/probe-source），
+    // 只有探测到明确支持云台的设备才下发；离线/不可达/探测失败的都算「无法确认」，一律跳过。
+    async probePtzSupport(targets: any[]) {
+      const results: { raw: any; supported: boolean; reason: string }[] = [];
+      const queue = [...targets];
+      const total = queue.length;
+      this.capabilityProgress = { done: 0, total };
+      const worker = async () => {
+        for (;;) {
+          const raw = queue.shift();
+          if (!raw) return;
+          let supported = false;
+          let reason = "未能确认云台能力";
+          if (onlineStatusOf(raw) !== "ONLINE") {
+            reason = "设备离线，未确认云台能力";
+          } else if (!raw.sourceUrl) {
+            reason = "缺少拉流地址，无法探测云台能力";
+          } else {
+            try {
+              const probe = await api.probeCameraSource(raw.sourceUrl);
+              if (probe.reachable && probe.ptzSupported === true) {
+                supported = true;
+                reason = "";
+              } else if (!probe.reachable) {
+                reason = "设备不可达，未确认云台能力";
+              } else if (probe.ptzSupported === false) {
+                reason = "设备不支持云台控制";
+              }
+            } catch (error) {
+              reason = "云台能力探测失败";
+            }
+          }
+          results.push({ raw, supported, reason });
+          this.capabilityProgress = { done: this.capabilityProgress.done + 1, total };
+        }
+      };
+      // 限并发 4：设备视频网探测单次最长 4s，避免大批量时把弹窗卡太久
+      await Promise.all(Array.from({ length: Math.min(4, total) }, () => worker()));
+      return results;
     },
     async submitCapability() {
       const rows = ((this.modal.item && this.modal.item.rows) || []).map((row: any) => row.raw || row);
@@ -617,6 +669,7 @@ export default {
       }
       if (this.capabilitySaving) return;
       this.capabilitySaving = true;
+      this.capabilityReport = null;
       // 弹窗只保留云台控制一项：只下发 ptzEnabled，设备其余能力配置保持不变
       const desired: Record<string, boolean> = {
         ptzEnabled: this.capabilityPtz
@@ -631,33 +684,61 @@ export default {
           return;
         }
       }
-      let succeeded = 0;
-      const failures: string[] = [];
-      for (const raw of targets) {
-        // 覆盖：下发云台控制开关（其余能力不动）；追加：仅勾选为开时才下发，否则保持原值
-        const payload: Record<string, boolean> = {};
-        Object.keys(desired).forEach((key) => {
-          if (this.capabilityStrategy !== "append" || desired[key]) payload[key] = desired[key];
-        });
-        if (!Object.keys(payload).length) {
-          succeeded += 1;
-          continue;
+      // 追加策略下未勾选的项不下发（云台未勾选时等于不改动）
+      const payloadKeys = Object.keys(desired).filter(
+        (key) => this.capabilityStrategy !== "append" || desired[key]
+      );
+      if (!payloadKeys.length) {
+        this.capabilitySaving = false;
+        this.showToast(`无需变更：所选 ${targets.length} 台设备保持原能力配置`);
+        return;
+      }
+      // 开启云台控制前先探测能力：不支持的设备不下发，保存后列出明细
+      const skipped: { name: string; reason: string }[] = [];
+      let writable = targets;
+      if (this.capabilityPtz) {
+        this.capabilityProbing = true;
+        try {
+          const probed = await this.probePtzSupport(targets);
+          writable = [];
+          probed.forEach((item) => {
+            if (item.supported) writable.push(item.raw);
+            else skipped.push({ name: item.raw.name || item.raw.id, reason: item.reason });
+          });
+        } finally {
+          this.capabilityProbing = false;
         }
+      }
+      let succeeded = 0;
+      const failures = new Set<string>();
+      for (const raw of writable) {
+        const payload: Record<string, boolean> = {};
+        payloadKeys.forEach((key) => {
+          payload[key] = desired[key];
+        });
         try {
           await api.updateCamera(raw.id, payload);
           succeeded += 1;
         } catch (error) {
-          failures.push(raw.name || raw.id);
+          failures.add(raw.name || raw.id);
         }
       }
       this.capabilitySaving = false;
       if (succeeded > 0) this.refreshCameras();
-      if (!failures.length) {
+      const failed = Array.from(failures);
+      if (!skipped.length && !failed.length) {
         this.showToast(`能力配置已应用到 ${succeeded} 台设备`);
         this.$emit("close");
-      } else {
-        this.showToast(`能力配置完成：成功 ${succeeded} 台，失败 ${failures.length} 台（${failures.join("、")}）`);
+        return;
       }
+      // 有设备被跳过或保存失败：留在弹窗里给出明细，避免「部分成功」被一条 toast 带过
+      failed.forEach((name) => skipped.push({ name, reason: "能力配置保存失败" }));
+      this.capabilityReport = {
+        applied: succeeded,
+        ptzOn: this.capabilityPtz,
+        total: targets.length,
+        skipped
+      };
     },
     toggleDeployArea(name: string) {
       this.deployAreaExpanded[name] = !this.deployAreaExpanded[name];
@@ -1740,11 +1821,26 @@ export default {
           <div class="modal-form-row"><label><span class="required">*</span>目标区域：</label><select class="select" v-model="moveArea"><option v-for="area in ((modal.item && modal.item.areas) || [])" :key="area" :value="area">{{ area }}</option></select></div>
         </template>
         <template v-if="modal.type === 'mediaCapability'">
-          <p class="modal-hint">将为已选择的 {{ (modal.item && modal.item.rows ? modal.item.rows.length : 0) }} 台设备设置能力参数；勾选项已按设备当前配置回填，可直接编辑修改。</p>
-          <div class="modal-check-grid">
-            <label class="video-device-include"><input type="checkbox" v-model="capabilityPtz" />云台控制</label>
-          </div>
-          <div class="modal-form-row"><label>配置策略：</label><select class="select" v-model="capabilityStrategy"><option value="overwrite">覆盖原能力配置</option><option value="append">仅追加新增能力</option><option value="onlineOnly">仅应用到在线设备</option></select></div>
+          <template v-if="!capabilityReport">
+            <p class="modal-hint">将为已选择的 {{ (modal.item && modal.item.rows ? modal.item.rows.length : 0) }} 台设备设置能力参数；勾选项已按设备当前配置回填，可直接编辑修改。</p>
+            <div class="modal-check-grid">
+              <label class="video-device-include"><input type="checkbox" v-model="capabilityPtz" />云台控制</label>
+            </div>
+            <div class="modal-form-row"><label>配置策略：</label><select class="select" v-model="capabilityStrategy"><option value="overwrite">覆盖原能力配置</option><option value="append">仅追加新增能力</option><option value="onlineOnly">仅应用到在线设备</option></select></div>
+            <p v-if="capabilityPtz" class="modal-hint">保存时会先探测每台设备的云台能力：不支持的设备不会被设置，保存后会在本弹窗列出明细。</p>
+            <p v-if="capabilityProbing" class="modal-hint">正在探测设备云台能力：{{ capabilityProgress.done }}/{{ capabilityProgress.total }} 台…</p>
+          </template>
+          <template v-else>
+            <p class="modal-hint">
+              已为 <b>{{ capabilityReport.applied }}</b> 台设备{{ capabilityReport.ptzOn ? "开启云台控制" : "关闭云台控制" }}；共选择 {{ capabilityReport.total }} 台，{{ capabilityReport.skipped.length }} 台未设置。
+            </p>
+            <div v-if="capabilityReport.skipped.length" class="capability-report">
+              <h4>以下设备{{ capabilityReport.ptzOn ? "不支持云台控制" : "未能设置" }}，已忽略：</h4>
+              <ul class="capability-report-list">
+                <li v-for="item in capabilityReport.skipped" :key="item.name"><b>{{ item.name }}</b><span>{{ item.reason }}</span></li>
+              </ul>
+            </div>
+          </template>
         </template>
         <template v-if="modal.type === 'mediaRegion'">
           <p class="modal-hint">区域树与「所在区域」下拉框数据一致，支持多级区域；拖拽同级节点可调整显示顺序，重命名会同步更新占用该区域的设备（含下级区域）。</p>
@@ -1986,6 +2082,15 @@ export default {
         <template v-else-if="modal.type === 'recordDownload'">
           <button class="btn" @click="$emit('close')">取消</button>
           <button class="btn primary" :disabled="recordDownloadBusy || !recordDownloadCamera" @click="submitRecordDownload">{{ recordDownloadBusy ? '导出中…' : '开始下载' }}</button>
+        </template>
+        <template v-else-if="modal.type === 'mediaCapability'">
+          <template v-if="capabilityReport">
+            <button class="btn primary" @click="$emit('close')">知道了</button>
+          </template>
+          <template v-else>
+            <button class="btn" :disabled="capabilitySaving" @click="$emit('close')">取消</button>
+            <button class="btn primary" :disabled="capabilitySaving" @click="handleSubmit">{{ capabilitySaving ? (capabilityProbing ? '探测中…' : '保存中…') : '批量保存' }}</button>
+          </template>
         </template>
         <template v-else-if="modal.type === 'recordEmpty'">
           <button class="btn primary" @click="$emit('close')">知道了</button>

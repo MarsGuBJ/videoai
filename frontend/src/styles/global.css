@@ -3876,6 +3876,55 @@
       color: #d92d20;
     }
 
+    /* 能力配置批量保存结果：列出不支持/未设置的设备明细 */
+    .capability-report {
+      margin-bottom: 14px;
+      padding: 12px;
+      border: 1px solid #fde3cf;
+      border-radius: 8px;
+      background: #fffaf5;
+    }
+
+    .capability-report h4 {
+      margin: 0 0 8px;
+      color: #d46b08;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .capability-report-list {
+      display: grid;
+      gap: 6px;
+      max-height: 260px;
+      margin: 0;
+      padding: 0;
+      overflow-y: auto;
+      list-style: none;
+    }
+
+    .capability-report-list li {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      color: #475467;
+      font-size: 12px;
+    }
+
+    .capability-report-list li b {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      color: #344054;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .capability-report-list li span {
+      flex: 0 0 auto;
+      color: #d92d20;
+    }
+
     .modal-drop-zone {
       display: grid;
       gap: 6px;
