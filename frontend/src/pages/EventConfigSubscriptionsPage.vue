@@ -27,8 +27,8 @@
         <section>
           <h4 class="event-config-section-title">推送内容</h4>
           <div class="event-config-form-grid">
-            <label class="event-config-field"><span><span class="required">*</span>事件来源</span><input v-model="form.eventSource" class="input" /></label>
-            <label class="event-config-field"><span><span class="required">*</span>事件类型</span><input v-model="form.eventTypes" class="input" /></label>
+            <label class="event-config-field"><span><span class="required">*</span>事件来源</span><event-source-select v-model="form.eventSource" /></label>
+            <label class="event-config-field"><span><span class="required">*</span>事件分类</span><select v-model="form.eventTypes" class="select"><option>安防事件</option><option>消防事件</option><option>环境事件</option><option>行为事件</option><option>交通事件</option></select></label>
           </div>
         </section>
         <div class="event-config-modal-actions"><button class="btn" @click="closeModal">取消</button><button class="btn primary" :disabled="saving" @click="save">确认</button></div>
@@ -55,10 +55,12 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
+import EventSourceSelect from "../components/EventSourceSelect.vue";
 import type { PushTask, PushTaskPayload } from "../types";
 
 export default defineComponent({
   name: "EventConfigSubscriptionsPage",
+  components: { EventSourceSelect },
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm", "embedded"],
   inject: {
     setRoute: { from: "setRoute", default: (route: string, options?: any) => {} },
