@@ -5,12 +5,12 @@
     <div class="review-board">
       <div class="page-actions"><div class="left"><button class="btn primary" @click="openModal('deployTask')">新建布控任务</button><button class="btn" @click="loadTasks">查询</button><button class="btn" @click="resetFilters">重置</button><input class="input" style="width:260px;" v-model="keyword" placeholder="搜索任务名称、任务ID" /><select class="select" style="width:150px;" v-model="statusFilter"><option value="">全部状态</option><option value="running">运行中</option><option value="stopped">已停止</option></select><select class="select" style="width:170px;" v-model="algorithmFilter"><option value="">全部算法</option><option v-for="algorithm in algorithms" :key="algorithm.id" :value="algorithm.id">{{ algorithm.name }}</option></select><select class="select" style="width:150px;" v-model="areaFilter"><option value="">全部区域</option><option v-for="area in areaOptions" :key="area" :value="area">{{ area }}</option></select></div></div>
       <table class="prototype-table">
-        <colgroup><col style="width:118px;" /><col style="width:145px;" /><col style="width:120px;" /><col style="width:96px;" /><col style="width:108px;" /><col style="width:64px;" /><col style="width:60px;" /><col style="width:112px;" /><col style="width:140px;" /></colgroup>
-        <thead><tr><th>任务ID</th><th class="left">任务名称</th><th>算法名称</th><th>布控区域</th><th>生效时间</th><th>状态</th><th>告警数</th><th>创建时间</th><th>操作</th></tr></thead>
+        <colgroup><col style="width:118px;" /><col style="width:145px;" /><col style="width:120px;" /><col style="width:110px;" /><col style="width:64px;" /><col style="width:60px;" /><col style="width:112px;" /><col style="width:140px;" /></colgroup>
+        <thead><tr><th>任务ID</th><th class="left">任务名称</th><th>算法名称</th><th>布控区域</th><th>状态</th><th>告警数</th><th>创建时间</th><th>操作</th></tr></thead>
         <tbody>
-          <tr v-for="row in filteredRows" :key="row.id"><td class="ellipsis" :title="row.id">{{ row.id }}</td><td class="left">{{ row.name }}</td><td>{{ row.algorithm }}</td><td>{{ row.area }}</td><td>{{ row.time }}</td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td>{{ row.alerts }}</td><td>{{ row.created }}</td><td><button class="link-blue" @click="openDeployDetail(row)">详情</button><button class="link-blue" @click="openModal('deployTask', row.raw)">编辑</button><button class="link-blue" @click="toggleTask(row)">{{ row.status === "运行中" ? "停止" : "启动" }}</button><button class="link-red" @click="removeTask(row)">删除</button></td></tr>
-          <tr v-if="!loading && !filteredRows.length"><td colspan="9" class="empty-cell">暂无布控任务</td></tr>
-          <tr v-if="loading"><td colspan="9" class="empty-cell">加载中...</td></tr>
+          <tr v-for="row in filteredRows" :key="row.id"><td class="ellipsis" :title="row.id">{{ row.id }}</td><td class="left">{{ row.name }}</td><td>{{ row.algorithm }}</td><td>{{ row.area }}</td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td>{{ row.alerts }}</td><td>{{ row.created }}</td><td><button class="link-blue" @click="openDeployDetail(row)">详情</button><button class="link-blue" @click="openModal('deployTask', row.raw)">编辑</button><button class="link-blue" @click="toggleTask(row)">{{ row.status === "运行中" ? "停止" : "启动" }}</button><button class="link-red" @click="removeTask(row)">删除</button></td></tr>
+          <tr v-if="!loading && !filteredRows.length"><td colspan="8" class="empty-cell">暂无布控任务</td></tr>
+          <tr v-if="loading"><td colspan="8" class="empty-cell">加载中...</td></tr>
         </tbody>
       </table>
     </div>
@@ -39,11 +39,9 @@ function mapTaskToRow(task: DeploymentTask) {
     area: task.area || "—",
     areaCount: task.areaCount ?? (task.cameraIds || []).length,
     points: (task.cameraIds || []).length ? `${task.cameraIds.length} 个点位` : "—",
-    time: "全天",
-    threshold: 85,
     status: task.enabled ? "运行中" : "已停止",
+    // 告警数由 loadTasks 逐个任务查 /api/deployment-events 的 total 填充（真实计数）
     alerts: 0,
-    owner: "—",
     created: formatCreatedAt(task.createdAt),
     desc: task.desc || "",
     recognitionPerMinute: task.recognitionPerMinute || 0,
