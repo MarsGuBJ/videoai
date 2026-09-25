@@ -7115,6 +7115,9 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 18px 28px;
+      /* 同一行里各字段按自身内容高度对齐：否则字段多出一行提示（如复核类型选完事件
+         名称后的「事件来源」）会把同行兄弟字段拉伸，控件被推下去、横向对不齐 */
+      align-items: start;
     }
 
     .event-config-form-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -7122,6 +7125,8 @@
     .event-config-field {
       display: grid;
       gap: 7px;
+      /* 字段内部的 label / 控件 / 提示行按内容排布，多余高度不参与分配 */
+      align-content: start;
       color: #41546a;
       font-size: 13px;
     }
