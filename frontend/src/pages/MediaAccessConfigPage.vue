@@ -254,7 +254,7 @@
             <input v-model="gbBaseForm.parentPort" class="input" disabled aria-label="上级联请求端口" />
           </label>
           <div class="access-field">
-            <span class="access-field-label">收流端口范围</span>
+            <span class="access-field-label required">收流端口范围</span>
             <span class="access-port-range">
               <input v-model.trim="gbBaseForm.receivePortStart" class="input" inputmode="numeric" aria-label="收流起始端口" :aria-invalid="!!gbBaseErrors.receivePorts" :aria-describedby="gbBaseErrors.receivePorts ? 'gb-base-receive-port-error' : null" @input="gbBaseErrors.receivePorts = ''" />
               <span>~</span>

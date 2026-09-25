@@ -20,9 +20,9 @@
       <section class="event-config-modal wide" role="dialog" aria-modal="true" :aria-label="editing ? '编辑定时任务' : '新增定时任务'">
         <div class="event-config-modal-head"><h3>{{ editing ? "编辑定时任务" : "新增定时任务" }}</h3><button class="event-config-modal-close" aria-label="关闭" @click="closeForm">×</button></div>
         <div class="event-config-form-grid">
-          <label class="event-config-field wide"><span>* 任务名称</span><input v-model="form.name" class="input" placeholder="请输入任务名称" /></label>
-          <label class="event-config-field wide"><span>* 复核类型</span><select v-model="form.reviewTypeId" class="select"><option value="">请选择复核类型</option><option v-for="row in reviewTypeOptions" :key="row.id" :value="row.id">{{ row.name }}（{{ row.code }}）</option></select></label>
-          <label class="event-config-field"><span>* cron 表达式</span><input v-model="form.cron" class="input" placeholder="*/30 * * * *" /></label>
+          <label class="event-config-field wide"><span><span class="required">*</span>任务名称</span><input v-model="form.name" class="input" placeholder="请输入任务名称" /></label>
+          <label class="event-config-field wide"><span><span class="required">*</span>复核类型</span><select v-model="form.reviewTypeId" class="select"><option value="">请选择复核类型</option><option v-for="row in reviewTypeOptions" :key="row.id" :value="row.id">{{ row.name }}（{{ row.code }}）</option></select></label>
+          <label class="event-config-field"><span><span class="required">*</span>cron 表达式</span><input v-model="form.cron" class="input" placeholder="*/30 * * * *" /></label>
           <label class="event-config-field"><span>每批处理条数</span><input v-model.number="form.batchSize" type="number" min="1" class="input" /></label>
           <label class="event-config-field"><span>启用</span><span style="display:flex;align-items:center;gap:6px;"><input v-model="form.enabled" type="checkbox" /> 启用该任务</span></label>
         </div>

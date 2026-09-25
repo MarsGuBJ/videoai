@@ -20,10 +20,10 @@
       <section class="event-config-modal wide" role="dialog" aria-modal="true" :aria-label="editing ? '编辑复核类型' : '新增复核类型'">
         <div class="event-config-modal-head"><h3>{{ editing ? "编辑复核类型" : "新增复核类型" }}</h3><button class="event-config-modal-close" aria-label="关闭" @click="closeForm">×</button></div>
         <div class="event-config-form-grid">
-          <label class="event-config-field"><span>* 事件名称</span><select v-model="form.code" class="select"><option value="">请选择事件名称</option><option v-for="row in algorithmOptions" :key="row.id" :value="row.code">{{ row.name }}（{{ row.code }}）</option></select><span v-if="selectedEventInfo" class="hint-text">事件来源：{{ selectedEventInfo.source || "-" }}</span></label>
+          <label class="event-config-field"><span><span class="required">*</span>事件名称</span><select v-model="form.code" class="select"><option value="">请选择事件名称</option><option v-for="row in algorithmOptions" :key="row.id" :value="row.code">{{ row.name }}（{{ row.code }}）</option></select><span v-if="selectedEventInfo" class="hint-text">事件来源：{{ selectedEventInfo.source || "-" }}</span></label>
           <div class="event-config-field"><span>算法编码</span><input class="input" :value="form.code" disabled placeholder="选择事件名称后自动填充" /></div>
           <label class="event-config-field wide"><span>大模型</span><select v-model="form.llmConfigId" class="select"><option value="">请选择大模型</option><option v-for="item in llmOptions" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
-          <label class="event-config-field wide"><span>* 提示词</span><textarea v-model="form.prompt" class="textarea" style="height:220px;" placeholder="你是园区安防监控事件复检助手，请根据图片或视频片段判断是否存在目标事件，并输出结构化判断结果。"></textarea></label>
+          <label class="event-config-field wide"><span><span class="required">*</span>提示词</span><textarea v-model="form.prompt" class="textarea" style="height:220px;" placeholder="你是园区安防监控事件复检助手，请根据图片或视频片段判断是否存在目标事件，并输出结构化判断结果。"></textarea></label>
           <label class="event-config-field wide"><span>注入事件</span><input v-model="form.injectEvent" class="input" placeholder="请输入注入事件字段" /></label>
           <label class="event-config-field wide"><span>备注</span><textarea v-model="form.remark" class="textarea" style="height:64px;" placeholder="请输入备注"></textarea></label>
         </div>

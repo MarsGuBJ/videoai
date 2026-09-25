@@ -38,12 +38,12 @@
         </div>
         <div class="model-config-section-title">高级配置</div>
         <div class="modal-form-row">
-          <label>超时时间（秒）：</label>
+          <label><span class="required">*</span>超时时间（秒）：</label>
           <input class="input" type="number" min="10" max="120" v-model.number="form.timeout" />
         </div>
         <p class="model-config-field-note">请求的最大等待时间，建议范围：10 - 120s</p>
         <div class="modal-form-row">
-          <label>温度参数（Temperature）：</label>
+          <label><span class="required">*</span>温度参数（Temperature）：</label>
           <div class="model-config-range">
             <input type="range" min="0" max="1" step="0.1" v-model.number="form.temperature" />
             <output>{{ form.temperature }}</output>

@@ -1684,7 +1684,7 @@ export default {
         <template v-if="modal.type === 'mediaImport'">
           <input ref="importFileInput" type="file" accept=".xlsx,.csv" style="display:none" aria-label="选择导入文件" @change="handleImportFile" />
           <div class="modal-drop-zone" style="cursor:pointer;" @click="triggerImportFile" @dragover.prevent @drop.prevent="handleImportDrop">
-            <strong>{{ importFileName || '拖拽或点击选择文件上传' }}</strong>
+            <strong><span class="required">*</span>{{ importFileName || '拖拽或点击选择文件上传' }}</strong>
             <span>支持 .xlsx / .csv，字段包含设备名称、接入协议、IP、端口、所在区域、账号、密码、设备编号。</span>
           </div>
           <div v-if="importResult" class="modal-summary-strip" style="margin-top:10px;"><strong>导入结果</strong><span>成功 {{ importResult.ok }} 条，失败 {{ importResult.fail.length }} 条</span></div>
@@ -1698,7 +1698,7 @@ export default {
         </template>
         <template v-if="modal.type === 'mediaMove'">
           <p class="modal-hint">将已选择 {{ (modal.item && modal.item.rows ? modal.item.rows.length : 0) }} 台设备移动到其他区域，通道与告警联动关系保持不变。</p>
-          <div class="modal-form-row"><label>目标区域：</label><select class="select" v-model="moveArea"><option v-for="area in ((modal.item && modal.item.areas) || [])" :key="area" :value="area">{{ area }}</option></select></div>
+          <div class="modal-form-row"><label><span class="required">*</span>目标区域：</label><select class="select" v-model="moveArea"><option v-for="area in ((modal.item && modal.item.areas) || [])" :key="area" :value="area">{{ area }}</option></select></div>
         </template>
         <template v-if="modal.type === 'mediaCapability'">
           <p class="modal-hint">将为已选择的 {{ (modal.item && modal.item.rows ? modal.item.rows.length : 0) }} 台设备设置能力参数；勾选项已按设备当前配置回填，可直接编辑修改。</p>
@@ -1710,7 +1710,7 @@ export default {
         <template v-if="modal.type === 'mediaRegion'">
           <p class="modal-hint">区域树与「所在区域」下拉框数据一致，支持多级区域；拖拽同级节点可调整显示顺序，重命名会同步更新占用该区域的设备（含下级区域）。</p>
           <div class="modal-form-row">
-            <label>空间服务地址：</label>
+            <label><span class="required">*</span>空间服务地址：</label>
             <div style="display:flex;gap:8px;flex:1;">
               <input class="input" style="flex:1;" v-model.trim="regionSpatialBaseUrl" placeholder="http://172.17.2.131:8080" @keyup.enter="saveSpatialConfig" />
               <button class="btn" :disabled="regionSpatialSaving" @click="saveSpatialConfig">{{ regionSpatialSaving ? '保存中…' : '保存' }}</button>
@@ -1724,7 +1724,7 @@ export default {
             </div>
           </div>
           <div class="modal-form-row">
-            <label>添加根区域：</label>
+            <label><span class="required">*</span>添加根区域：</label>
             <div style="display:flex;gap:8px;flex:1;">
               <input class="input" style="flex:1;" v-model.trim="regionRootNew" placeholder="请输入根区域名称，如：东区" @keyup.enter="addRootRegion" />
               <button class="btn primary" @click="addRootRegion">＋ 添加</button>
@@ -1757,21 +1757,21 @@ export default {
               <template v-if="regionSelected">
                 <p class="modal-hint" style="margin-bottom:10px;">完整路径：{{ regionSelected.fullPath }}</p>
                 <div class="modal-form-row" style="grid-template-columns:84px 1fr;margin-bottom:12px;">
-                  <label>重命名：</label>
+                  <label><span class="required">*</span>重命名：</label>
                   <div style="display:flex;gap:8px;flex:1;">
                     <input class="input" style="flex:1;" v-model.trim="regionRenameValue" @keyup.enter="saveRegionRename" />
                     <button class="btn primary" @click="saveRegionRename">保存</button>
                   </div>
                 </div>
                 <div class="modal-form-row" style="grid-template-columns:84px 1fr;margin-bottom:12px;">
-                  <label>添加子节点：</label>
+                  <label><span class="required">*</span>添加子节点：</label>
                   <div style="display:flex;gap:8px;flex:1;">
                     <input class="input" style="flex:1;" v-model.trim="regionChildNew" placeholder="请输入子区域名称" @keyup.enter="addChildRegion" />
                     <button class="btn" @click="addChildRegion">添加</button>
                   </div>
                 </div>
                 <div class="modal-form-row" style="grid-template-columns:84px 1fr;margin-bottom:12px;">
-                  <label>添加同级节点：</label>
+                  <label><span class="required">*</span>添加同级节点：</label>
                   <div style="display:flex;gap:8px;flex:1;">
                     <input class="input" style="flex:1;" v-model.trim="regionSiblingNew" placeholder="请输入同级区域名称" @keyup.enter="addSiblingRegion" />
                     <button class="btn" @click="addSiblingRegion">添加</button>
@@ -1791,8 +1791,8 @@ export default {
         </template>
         <template v-if="modal.type === 'mediaCloud'">
           <div class="modal-form-grid">
-            <div class="modal-form-row"><label>云平台：</label><select class="select" v-model="cloudPlatformId" @change="resetCloudSync"><option value="" disabled>请选择云平台</option><option v-for="platform in cloudPlatforms" :key="platform.id" :value="platform.id">{{ platform.name }}（{{ platform.ip }}:{{ platform.port }}）</option></select></div>
-            <div class="modal-form-row" v-if="isGb28181Mode"><label>级联服务器：</label><select class="select" v-model="gb28181EntryId" @change="onGb28181EntryChange"><option value="" disabled>请选择级联服务器</option><option v-for="entry in gb28181Entries" :key="entry.id" :value="entry.id">{{ entry.name }}（{{ entry.sipIp }}:{{ entry.sipPort }}）{{ entry.onlineStatus === 'ONLINE' ? '（在线）' : entry.onlineStatus === 'OFFLINE' ? '（离线）' : '' }}</option></select></div>
+            <div class="modal-form-row"><label><span class="required">*</span>云平台：</label><select class="select" v-model="cloudPlatformId" @change="resetCloudSync"><option value="" disabled>请选择云平台</option><option v-for="platform in cloudPlatforms" :key="platform.id" :value="platform.id">{{ platform.name }}（{{ platform.ip }}:{{ platform.port }}）</option></select></div>
+            <div class="modal-form-row" v-if="isGb28181Mode"><label><span class="required">*</span>级联服务器：</label><select class="select" v-model="gb28181EntryId" @change="onGb28181EntryChange"><option value="" disabled>请选择级联服务器</option><option v-for="entry in gb28181Entries" :key="entry.id" :value="entry.id">{{ entry.name }}（{{ entry.sipIp }}:{{ entry.sipPort }}）{{ entry.onlineStatus === 'ONLINE' ? '（在线）' : entry.onlineStatus === 'OFFLINE' ? '（离线）' : '' }}</option></select></div>
             <div class="modal-form-row"><label>冲突处理：</label><select class="select" v-model="cloudConflictStrategy"><option value="overwrite">云端覆盖本地</option><option value="skip">保留本地，仅新增</option></select></div>
             <div class="modal-form-row"><label>所属区域：</label><input class="input" v-model.trim="cloudTargetArea" list="cloud-target-area-options" placeholder="留空则沿用云端区域" /><datalist id="cloud-target-area-options"><option v-for="area in cloudAreaOptions" :key="area" :value="area"></option></datalist></div>
           </div>
@@ -1810,7 +1810,7 @@ export default {
         </template>
         <template v-if="modal.type === 'mediaNvrImport'">
           <div class="modal-form-grid">
-            <div class="modal-form-row"><label>NVR/CVR地址：</label>
+            <div class="modal-form-row"><label><span class="required">*</span>NVR/CVR地址：</label>
               <div>
                 <div v-for="(row, index) in nvrHostRows" :key="index" style="display:flex;gap:6px;margin-bottom:6px;">
                   <input class="input" v-model="nvrHostRows[index]" placeholder="如 192.168.1.100 或 192.168.1.100:8080" />
@@ -1819,8 +1819,8 @@ export default {
                 <button class="btn" @click="addNvrHostRow">＋ 添加地址</button>
               </div>
             </div>
-            <div class="modal-form-row"><label>登录账号：</label><input class="input" v-model.trim="nvrUsername" placeholder="如 admin" /></div>
-            <div class="modal-form-row"><label>登录密码：</label><input class="input" type="password" v-model="nvrPassword" /></div>
+            <div class="modal-form-row"><label><span class="required">*</span>登录账号：</label><input class="input" v-model.trim="nvrUsername" placeholder="如 admin" /></div>
+            <div class="modal-form-row"><label><span class="required">*</span>登录密码：</label><input class="input" type="password" v-model="nvrPassword" /></div>
             <div class="modal-form-row"><label>所属区域：</label><input class="input" v-model.trim="nvrTargetArea" list="nvr-target-area-options" placeholder="留空则使用默认区域" /><datalist id="nvr-target-area-options"><option v-for="area in nvrAreaOptions" :key="area" :value="area"></option></datalist></div>
           </div>
           <p class="modal-hint">导入仅新增设备：设备列表中已存在的设备（源 IP 相同）会跳过，不会被更新或覆盖。</p>
@@ -1896,8 +1896,8 @@ export default {
         </template>
         <template v-if="modal.type === 'recordDownload'">
           <div class="modal-replay-preview"><span>{{ (recordDownloadCamera && recordDownloadCamera.name) || '未选择摄像头' }}</span><b>录像将导出为 MP4 文件，耗时随时段增长</b></div>
-          <div class="modal-form-row"><label>开始时间：</label><input class="input" type="datetime-local" v-model="recordDownloadStart" :disabled="!recordDownloadCamera" /></div>
-          <div class="modal-form-row"><label>结束时间：</label><input class="input" type="datetime-local" v-model="recordDownloadEnd" :disabled="!recordDownloadCamera" /></div>
+          <div class="modal-form-row"><label><span class="required">*</span>开始时间：</label><input class="input" type="datetime-local" v-model="recordDownloadStart" :disabled="!recordDownloadCamera" /></div>
+          <div class="modal-form-row"><label><span class="required">*</span>结束时间：</label><input class="input" type="datetime-local" v-model="recordDownloadEnd" :disabled="!recordDownloadCamera" /></div>
           <div class="modal-form-row"><label>文件格式：</label><select class="select" disabled><option>MP4</option></select></div>
           <p v-if="!recordDownloadCamera" class="modal-hint danger">请先到录像回放页选择摄像头和时段，再打开录像下载</p>
           <p v-else-if="recordDownloadError" class="modal-hint danger">{{ recordDownloadError }}</p>

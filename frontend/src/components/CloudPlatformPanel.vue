@@ -9,12 +9,12 @@
       <section class="event-config-modal wide" role="dialog" aria-modal="true" :aria-label="editing ? '编辑云平台' : '新增云平台'">
         <div class="event-config-modal-head"><h3>{{ editing ? "编辑云平台" : "新增云平台" }}</h3><button class="event-config-modal-close" aria-label="关闭" @click="closeForm">×</button></div>
         <div class="event-config-form-grid cols-3">
-          <label class="event-config-field"><span>* 平台名称</span><input v-model="form.name" class="input" placeholder="请输入平台名称" /></label>
-          <label class="event-config-field"><span>* 平台类型</span><select v-model="form.type" class="select"><option value="" disabled>请选择平台类型</option><option v-for="option in typeOptions" :key="option">{{ option }}</option></select></label>
-          <label class="event-config-field"><span>* Key</span><input v-model="form.key" class="input" placeholder="请输入平台 Key" /></label>
-          <label class="event-config-field"><span>* 密钥</span><input v-model="form.secret" type="password" class="input" placeholder="请输入平台密钥" /></label>
-          <label class="event-config-field"><span>* IP</span><input v-model="form.ip" class="input" placeholder="请输入平台 IP 地址" /></label>
-          <label class="event-config-field"><span>* 端口</span><input v-model="form.port" class="input" placeholder="请输入端口号" /></label>
+          <label class="event-config-field"><span><span class="required">*</span>平台名称</span><input v-model="form.name" class="input" placeholder="请输入平台名称" /></label>
+          <label class="event-config-field"><span><span class="required">*</span>平台类型</span><select v-model="form.type" class="select"><option value="" disabled>请选择平台类型</option><option v-for="option in typeOptions" :key="option">{{ option }}</option></select></label>
+          <label class="event-config-field"><span><span class="required">*</span>Key</span><input v-model="form.key" class="input" placeholder="请输入平台 Key" /></label>
+          <label class="event-config-field"><span><span class="required">*</span>密钥</span><input v-model="form.secret" type="password" class="input" placeholder="请输入平台密钥" /></label>
+          <label class="event-config-field"><span><span class="required">*</span>IP</span><input v-model="form.ip" class="input" placeholder="请输入平台 IP 地址" /></label>
+          <label class="event-config-field"><span><span class="required">*</span>端口</span><input v-model="form.port" class="input" placeholder="请输入端口号" /></label>
         </div>
         <div class="event-config-modal-actions"><button class="btn" @click="closeForm">取消</button><button class="btn primary" :disabled="saving" @click="save">保存</button></div>
       </section>

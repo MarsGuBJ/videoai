@@ -11,24 +11,24 @@
         <section>
           <h4 class="event-config-section-title">基础信息</h4>
           <div class="event-config-form-grid cols-3">
-            <label class="event-config-field"><span>* 推送任务名称</span><input v-model="form.name" class="input" placeholder="请输入推送任务名称" /></label>
-            <div class="event-config-field"><span>* 推送类型</span><div class="event-config-radio-row"><label><input type="radio" value="mq" v-model="form.pushType" /> MQ</label><label><input type="radio" value="http" v-model="form.pushType" /> HTTP</label></div></div>
+            <label class="event-config-field"><span><span class="required">*</span>推送任务名称</span><input v-model="form.name" class="input" placeholder="请输入推送任务名称" /></label>
+            <div class="event-config-field"><span><span class="required">*</span>推送类型</span><div class="event-config-radio-row"><label><input type="radio" value="mq" v-model="form.pushType" /> MQ</label><label><input type="radio" value="http" v-model="form.pushType" /> HTTP</label></div></div>
             <template v-if="form.pushType === 'mq'">
-              <label class="event-config-field"><span>* MQ地址</span><input v-model="form.mqAddr" class="input" placeholder="请输入MQ地址" /></label>
+              <label class="event-config-field"><span><span class="required">*</span>MQ地址</span><input v-model="form.mqAddr" class="input" placeholder="请输入MQ地址" /></label>
               <label class="event-config-field"><span>MQ地址用户名</span><input v-model="form.mqUser" class="input" placeholder="请输入MQ地址用户名" /></label>
               <label class="event-config-field"><span>MQ地址密码</span><input v-model="form.mqPass" type="password" class="input" :placeholder="editing && editing.mqPassConfigured ? '已配置，留空则不修改' : '请输入MQ地址密码'" /></label>
             </template>
-            <label v-else class="event-config-field"><span>* TOKEN</span><span class="event-config-input-group"><input v-model="form.token" class="input" placeholder="请输入TOKEN" /><button class="event-config-input-button" type="button" @click="genToken">自动生成</button></span></label>
-            <label class="event-config-field"><span>* 推送地址</span><input v-model="form.address" class="input" placeholder="请输入推送地址" /></label>
-            <div class="event-config-field"><span>* 推送记录过期时间</span><span class="event-config-stepper"><button type="button" aria-label="减少天数" @click="step(-1)">−</button><input v-model.number="form.expireDays" type="number" min="1" aria-label="过期天数" /><button type="button" aria-label="增加天数" @click="step(1)">＋</button><em class="event-config-input-addon">天</em></span></div>
+            <label v-else class="event-config-field"><span><span class="required">*</span>TOKEN</span><span class="event-config-input-group"><input v-model="form.token" class="input" placeholder="请输入TOKEN" /><button class="event-config-input-button" type="button" @click="genToken">自动生成</button></span></label>
+            <label class="event-config-field"><span><span class="required">*</span>推送地址</span><input v-model="form.address" class="input" placeholder="请输入推送地址" /></label>
+            <div class="event-config-field"><span><span class="required">*</span>推送记录过期时间</span><span class="event-config-stepper"><button type="button" aria-label="减少天数" @click="step(-1)">−</button><input v-model.number="form.expireDays" type="number" min="1" aria-label="过期天数" /><button type="button" aria-label="增加天数" @click="step(1)">＋</button><em class="event-config-input-addon">天</em></span></div>
             <label class="event-config-field wide"><span>描述</span><textarea v-model="form.desc" placeholder="请输入描述"></textarea></label>
           </div>
         </section>
         <section>
           <h4 class="event-config-section-title">推送内容</h4>
           <div class="event-config-form-grid">
-            <label class="event-config-field"><span>* 事件来源</span><input v-model="form.eventSource" class="input" /></label>
-            <label class="event-config-field"><span>* 事件类型</span><input v-model="form.eventTypes" class="input" /></label>
+            <label class="event-config-field"><span><span class="required">*</span>事件来源</span><input v-model="form.eventSource" class="input" /></label>
+            <label class="event-config-field"><span><span class="required">*</span>事件类型</span><input v-model="form.eventTypes" class="input" /></label>
           </div>
         </section>
         <div class="event-config-modal-actions"><button class="btn" @click="closeModal">取消</button><button class="btn primary" :disabled="saving" @click="save">确认</button></div>
