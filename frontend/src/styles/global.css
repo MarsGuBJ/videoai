@@ -7224,6 +7224,23 @@
       font-size: 16px;
     }
 
+    /* 列表里显示上传的事件图标 */
+    .event-config-icon-img {
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      object-fit: contain;
+      vertical-align: middle;
+    }
+
+    /* 弹窗上传区：上传成功后直接预览图片 */
+    .event-config-upload-preview {
+      max-width: 100%;
+      max-height: 120px;
+      border-radius: 6px;
+      object-fit: contain;
+    }
+
     .event-config-attr-editor {
       display: grid;
       grid-template-columns: 90px minmax(0, 1fr);

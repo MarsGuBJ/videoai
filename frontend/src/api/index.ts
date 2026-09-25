@@ -499,6 +499,13 @@ export const api = {
   activateAlgorithmVersion: (id: string, versionId: string) =>
     request<AlgorithmVersion>(`/api/algorithms/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/activate`, { method: 'POST' }),
 
+  // 通用图片上传（事件图标等）：后端复用 /api/person-search/images 的存储与
+  // /api/assets/query-images 访问路径，返回可对外访问的 imageUrl
+  uploadImage: (image: File) => {
+    const form = new FormData();
+    form.append('image', image);
+    return request<{ imageUrl: string; imagePath: string }>('/api/person-search/images', { method: 'POST', body: form });
+  },
   uploadPersonSearchImage: (image: File) => {
     const form = new FormData();
     form.append('image', image);
