@@ -1363,6 +1363,7 @@
     .track-target-upload.upload-card {
       position: relative;
       width: 100%;
+      max-width: 100%;
       height: auto;
       min-height: 120px;
       overflow: hidden;
@@ -1370,11 +1371,26 @@
       cursor: zoom-in;
     }
 
+    /* 上传的目标图始终按卡片宽度缩放：图片再大也不会把容器撑出横向滚动条 */
     .track-target-upload.upload-card img {
       display: block;
       width: 100%;
+      max-width: 100%;
       height: auto;
       object-fit: contain;
+    }
+
+    /* 栅格项默认 min-width:auto 会被大图的最小内容宽度顶宽，显式归零 */
+    .track-target-block,
+    .track-query-block {
+      min-width: 0;
+    }
+
+    /* 目标图文件名过长时换行，不撑宽面板 */
+    .track-target-block .hint-text {
+      display: block;
+      overflow-wrap: anywhere;
+      word-break: break-all;
     }
 
     .track-target-upload-wrap {
@@ -11079,7 +11095,9 @@
       }
 
       .track-page .track-query-panel {
-        overflow: auto;
+        /* 只允许纵向滚动：目标参考图/长文件名等任何内容都不得撑出横向滚动条 */
+        overflow-x: hidden;
+        overflow-y: auto;
       }
 
       .track-page .track-result-panel {
