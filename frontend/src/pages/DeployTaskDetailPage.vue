@@ -22,7 +22,7 @@
             <dt>创建时间</dt><dd>{{ formatTime(task.createdAt) }}</dd>
             <dt>更新时间</dt><dd>{{ formatTime(task.updatedAt) }}</dd>
           </dl>
-          <div v-if="task.faceProfilePhotoUrl" class="deploy-target-preview" style="margin-top:12px;"><img :src="task.faceProfilePhotoUrl" alt="布控目标" /></div>
+          <div v-if="targetPhoto" class="deploy-target-preview" style="margin-top:12px;"><img :src="targetPhoto" alt="布控目标" /></div>
         </div>
 
         <div class="panel search-panel">
@@ -58,7 +58,7 @@
 
 <script lang="ts">
 import { defineComponent } from "vue";
-import { api } from "../api";
+import { api, sameOriginAssetUrl } from "../api";
 import type { Camera, DeploymentEvent, DeploymentTask } from "../types";
 
 function pad2(value: number): string {
@@ -121,6 +121,10 @@ export default defineComponent({
     };
   },
   computed: {
+    // 后端存的布控目标图是 backend 端口的绝对地址，改成同源路径走 nginx 反代
+    targetPhoto(): string {
+      return this.task && this.task.faceProfilePhotoUrl ? sameOriginAssetUrl(this.task.faceProfilePhotoUrl) : "";
+    },
     cameraNames(): string {
       const ids = (this.task && this.task.cameraIds) || [];
       if (!ids.length) return "—";

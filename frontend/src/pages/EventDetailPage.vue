@@ -11,7 +11,7 @@
 
 <script lang="ts">
 import { defineComponent } from "vue";
-import { api, assetUrl, cameraStreamUrl } from "../api";
+import { api, assetUrl, cameraStreamUrl, sameOriginAssetUrl } from "../api";
 import VideoPlayer from "../components/VideoPlayer.vue";
 
 export default defineComponent({
@@ -59,7 +59,7 @@ export default defineComponent({
         handleNote: this.localHandleNote ?? e.handleNote,
         time: e.time || e.videoTime || e.matchedAt || e.createdAt || "",
         owner: e.owner,
-        image: e.image || e.snapshotUrl || e.facePhotoUrl || e.faceProfilePhotoUrl || "",
+        image: sameOriginAssetUrl(e.image || e.snapshotUrl || e.facePhotoUrl || e.faceProfilePhotoUrl || ""),
         cameraId: e.cameraId,
         cameraName: e.cameraName
       };

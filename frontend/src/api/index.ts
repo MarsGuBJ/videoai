@@ -687,12 +687,32 @@ export const api = {
   workerNodes: () => request<WorkerNode[]>('/api/worker-nodes'),
 };
 
+// 后端会把 /api/assets/... 的绝对地址（BACKEND_PUBLIC_URL，指向 backend 端口 8081）写进
+// faceProfilePhotoUrl / snapshotUrl 等字段。现网客户端直连 8081/8083 会被限速甚至打不开，
+// 这里统一改写成同源相对路径，交给 5173 的 nginx 反代（实测同源可取到、直连不能）。
+// 只处理路径以 /api/ 开头的地址，MinIO（/public/...）等外部地址原样返回。
+export function sameOriginAssetUrl(path?: string | null): string {
+  const value = String(path == null ? '' : path).trim();
+  if (!value || !/^https?:\/\//i.test(value)) {
+    return value;
+  }
+  try {
+    const parsed = new URL(value);
+    if (parsed.pathname === '/api' || parsed.pathname.startsWith('/api/')) {
+      return `${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    return value;
+  }
+  return value;
+}
+
 export function assetUrl(path?: string | null): string {
   if (!path) {
     return '';
   }
   if (path.startsWith('http')) {
-    return path;
+    return sameOriginAssetUrl(path);
   }
   return `${baseUrlForPath(path)}${path}`;
 }

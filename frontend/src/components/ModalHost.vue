@@ -1,6 +1,6 @@
 <script lang="ts">
 import * as XLSX from "xlsx";
-import { api } from "../api";
+import { api, sameOriginAssetUrl } from "../api";
 import type { RecordingSegment } from "../api";
 import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, NvrImportPrecheck, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
@@ -945,7 +945,7 @@ export default {
       this.deployTargetFile = null;
       if (this.deployTargetLocalPreview) URL.revokeObjectURL(this.deployTargetLocalPreview);
       this.deployTargetLocalPreview = "";
-      const itemPhotoUrl = item && item.faceProfilePhotoUrl && !item.faceProfileId ? item.faceProfilePhotoUrl : "";
+      const itemPhotoUrl = item && item.faceProfilePhotoUrl && !item.faceProfileId ? sameOriginAssetUrl(item.faceProfilePhotoUrl) : "";
       this.deployTargetImageUrl = itemPhotoUrl || this.deployTargetImage || "";
       this.deployFaceFilter = "";
       this.deployFaceDropdownOpen = false;
