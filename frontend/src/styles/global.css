@@ -7066,6 +7066,74 @@
       resize: vertical;
     }
 
+    /* 事件来源下拉框：外形与「事件等级」原生 select 保持一致，展开菜单与下拉框左对齐 */
+    .event-config-source {
+      position: relative;
+      min-width: 0;
+    }
+
+    .event-config-source-input {
+      width: 100%;
+      padding-right: 26px;
+      cursor: pointer;
+    }
+
+    .event-config-source-caret {
+      position: absolute;
+      top: 50%;
+      right: 11px;
+      width: 7px;
+      height: 7px;
+      margin-top: -5px;
+      border-right: 2px solid #2d4766;
+      border-bottom: 2px solid #2d4766;
+      pointer-events: none;
+      transform: rotate(45deg);
+      transition: transform .16s ease;
+    }
+
+    .event-config-source-caret.open {
+      margin-top: -2px;
+      transform: rotate(225deg);
+    }
+
+    .event-config-source-menu {
+      position: absolute;
+      z-index: 9;
+      top: calc(100% + 4px);
+      right: 0;
+      left: 0;
+      max-height: 220px;
+      margin: 0;
+      padding: 4px;
+      overflow: auto;
+      border: 1px solid #d9e4f2;
+      border-radius: 5px;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(16, 24, 40, .14);
+      list-style: none;
+    }
+
+    .event-config-source-menu li {
+      min-height: 30px;
+      padding: 0 10px;
+      overflow: hidden;
+      border-radius: 4px;
+      color: #344054;
+      font-size: 13px;
+      line-height: 30px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .event-config-source-menu li.active {
+      background: #f2f7ff;
+      color: var(--blue);
+    }
+
+    .event-config-source-menu li.selected { font-weight: 600; }
+
     .event-config-section-title {
       margin: 0 0 14px;
       padding-left: 10px;

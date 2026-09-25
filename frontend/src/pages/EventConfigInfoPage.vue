@@ -10,7 +10,7 @@
       <section class="event-config-modal wide" role="dialog" aria-modal="true" :aria-label="editing ? '修改配置信息' : '新增配置信息'">
         <div class="event-config-modal-head"><h3>{{ editing ? "修改配置信息" : "新增配置信息" }}</h3><button class="event-config-modal-close" aria-label="关闭" @click="closeForm">×</button></div>
         <div class="event-config-form-grid cols-3">
-          <div class="event-config-field"><span>事件来源</span><input v-model="form.source" class="input" list="event-source-options" placeholder="请选择或输入事件来源" /><datalist id="event-source-options"><option value="中心推理平台"></option><option value="云边协同平台"></option></datalist></div>
+          <div class="event-config-field"><span>事件来源</span><div ref="sourceBox" class="event-config-source"><input v-model="form.source" class="input event-config-source-input" role="combobox" aria-label="事件来源" aria-haspopup="listbox" :aria-expanded="sourceOpen ? 'true' : 'false'" aria-controls="event-source-options" placeholder="请选择或输入事件来源" @focus="openSourceMenu" @click="openSourceMenu" @input="openSourceMenu" @keydown.down.prevent="moveSource(1)" @keydown.up.prevent="moveSource(-1)" @keydown.enter.prevent="commitSource" @keydown.esc="closeSourceMenu" /><span class="event-config-source-caret" :class="{ open: sourceOpen }" aria-hidden="true"></span><ul v-if="sourceOpen && sourceSuggestions.length" id="event-source-options" class="event-config-source-menu" role="listbox"><li v-for="(option, index) in sourceSuggestions" :key="option" role="option" :aria-selected="form.source === option ? 'true' : 'false'" :class="{ active: index === sourceActiveIndex, selected: form.source === option }" @mouseenter="sourceActiveIndex = index" @mousedown.prevent="pickSource(option)">{{ option }}</li></ul></div></div>
           <label class="event-config-field"><span>* 事件名称</span><input v-model="form.name" class="input" placeholder="请输入内容" /></label>
           <label class="event-config-field"><span>* 事件编码</span><input v-model="form.code" class="input" placeholder="请输入内容" /></label>
           <label class="event-config-field"><span>事件等级</span><select v-model="form.level" class="select"><option>低</option><option>中</option><option>高</option></select></label>
@@ -50,6 +50,9 @@ export default defineComponent({
       loading: false,
       saving: false,
       modalOpen: false,
+      sourceOpen: false,
+      sourceActiveIndex: -1,
+      sourceOptions: ["中心推理平台", "云边协同平台"] as string[],
       editing: null as EventInfo | null,
       form: { name: "", code: "", level: "低", category: "安防事件", mark: "多边形", enabled: true, iconName: "", source: "", eventSource: "", algorithmCode: "", attrs: [] as { key: string; value: string }[] }
     };
@@ -68,10 +71,22 @@ export default defineComponent({
     paginatedRows(): EventInfo[] {
       const start = (this.activePage - 1) * this.pageSize;
       return this.filteredRows.slice(start, start + this.pageSize);
+    },
+    sourceSuggestions(): string[] {
+      const value = this.form.source.trim().toLowerCase();
+      if (!value) return this.sourceOptions;
+      // 已选中某个来源时展开全部候选，便于直接改选；只有输入了半截关键字才做过滤
+      const exact = this.sourceOptions.some(option => option.toLowerCase() === value);
+      if (exact) return this.sourceOptions;
+      return this.sourceOptions.filter(option => option.toLowerCase().includes(value));
     }
   },
   mounted() {
     this.loadRows();
+    document.addEventListener("click", this.onSourceDocumentClick);
+  },
+  unmounted() {
+    document.removeEventListener("click", this.onSourceDocumentClick);
   },
   methods: {
     reset() { this.keyword = ""; this.activePage = 1; },
@@ -113,7 +128,29 @@ export default defineComponent({
       };
       this.modalOpen = true;
     },
-    closeForm() { this.modalOpen = false; },
+    closeForm() { this.modalOpen = false; this.closeSourceMenu(); },
+    openSourceMenu() {
+      this.sourceOpen = true;
+      this.sourceActiveIndex = this.sourceSuggestions.indexOf(this.form.source);
+    },
+    closeSourceMenu() { this.sourceOpen = false; this.sourceActiveIndex = -1; },
+    moveSource(step: number) {
+      const total = this.sourceSuggestions.length;
+      if (!total) return;
+      if (!this.sourceOpen) { this.openSourceMenu(); return; }
+      const next = this.sourceActiveIndex + step;
+      this.sourceActiveIndex = next < 0 ? total - 1 : (next >= total ? 0 : next);
+    },
+    commitSource() {
+      const option = this.sourceSuggestions[this.sourceActiveIndex];
+      if (this.sourceOpen && option) { this.pickSource(option); return; }
+      this.closeSourceMenu();
+    },
+    pickSource(option: string) { this.form.source = option; this.closeSourceMenu(); },
+    onSourceDocumentClick(event: MouseEvent) {
+      const box = this.$refs.sourceBox as unknown as HTMLElement | undefined;
+      if (!box || !box.contains(event.target as Node)) this.closeSourceMenu();
+    },
     pickIcon(event: any) { this.form.iconName = event.target.files && event.target.files[0] ? event.target.files[0].name : ""; },
     addAttr() { this.form.attrs.push({ key: "", value: "" }); },
     removeAttr(index: number) { if (this.form.attrs.length > 1) this.form.attrs.splice(index, 1); },
