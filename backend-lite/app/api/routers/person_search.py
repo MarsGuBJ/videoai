@@ -14,6 +14,7 @@ from app.schemas.person_search import (
     TextSearchQueryRequest,
 )
 from app.services.person_search import (
+    absolutize_image_url,
     es_document_api_post,
     person_api_get,
     person_api_post,
@@ -61,18 +62,22 @@ def query_image_asset(filename: str) -> FileResponse:
 
 @router.post("/api/person-search/detect-persons")
 def detect_persons_proxy(request: PersonSearchDetectRequest) -> dict:
-    """代理：检测图片中的人形目标。"""
+    """代理：检测图片中的人形目标。
+
+    imageUrl 允许传后端自身的相对资源路径（文搜视频页签传的是 /api/... 截图地址），
+    转发前补全为公网绝对地址，否则外部服务会把它当 base64 解析并报错。
+    """
     return person_api_post(
         "/vlm-application/search/detectPersons",
-        {"image_url": required_text(request.imageUrl, "imageUrl")},
+        {"image_url": absolutize_image_url(required_text(request.imageUrl, "imageUrl"))},
     )
 
 
 @router.post("/api/person-search/search-by-bbox")
 def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest) -> dict:
-    """代理：按 bbox 以图搜人。"""
+    """代理：按 bbox 以图搜人；imageUrl 处理同 detect-persons。"""
     payload = {
-        "image_url": required_text(request.imageUrl, "imageUrl"),
+        "image_url": absolutize_image_url(required_text(request.imageUrl, "imageUrl")),
         "search_method": request.searchMethod or DEFAULT_SEARCH_METHOD,
         "similarity_threshold": request.similarityThreshold,
         "top_k": max(1, int(request.topK or DEFAULT_SEARCH_TOP_K)),

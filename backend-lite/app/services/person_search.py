@@ -29,6 +29,28 @@ def required_text(value: str, name: str) -> str:
     return normalized
 
 
+def absolutize_image_url(value: str) -> str:
+    """把后端自身的相对资源路径补全为公网绝对地址。
+
+    外部以图搜人服务只接受 http(s) 地址或 base64：前端传 ``/api/assets/...`` 这类
+    相对路径时会被当成 base64 解析并报 "Incorrect padding"，检索直接失败。
+    这里按 BACKEND_PUBLIC_URL 补全；已是绝对地址或 data:/blob: 的原样返回。
+
+    Args:
+        value: 图片地址（调用方已用 required_text 校验非空）。
+
+    Returns:
+        外部服务可拉取的绝对地址；未配置公网地址且入参为相对路径时原样返回。
+    """
+    text = str(value or "").strip()
+    if not text or text.lower().startswith(("http://", "https://", "data:", "blob:", "//")):
+        return text
+    if not text.startswith("/"):
+        return text
+    public_base = (get_settings().backend_public_url or "").rstrip("/")
+    return f"{public_base}{text}" if public_base else text
+
+
 def person_api_post(path: str, payload: dict) -> dict:
     """POST 调用以图搜人服务。
 
