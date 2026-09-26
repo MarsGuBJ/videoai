@@ -561,6 +561,30 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
 // 视频理解接口报错时的友好提示（聊天消息与 toast 统一使用）
 const VIDEO_UNDERSTANDING_ERROR_TIP = "视频分析接口报错了！请找管理员。";
 
+// 上游按 segment_seconds 切片后逐段送模型，模型对过短切片直接判为 Invalid video file，
+// 且任一切片失败会让整次分析失败（只把「无法获取视频内容」塞进 summary，code 仍为 0）。
+// 实测 fps=1 时 3 秒切片（3 帧）被拒、4 秒及以上通过，故取 5 秒作为安全下限：
+// 末尾不足 5 秒的碎片段不纳入分析，避免整段视频被一个尾段拖垮。
+const ANALYSIS_SEGMENT_SECONDS = 60;
+const ANALYSIS_MIN_LAST_SEGMENT_SECONDS = 5;
+const ANALYSIS_MAX_SEGMENTS = 20;
+
+// 由视频总时长换算安全的切片数上限：整除时取全部，末尾碎片过短则丢掉该段。
+function analysisMaxSegments(totalSeconds: number): number {
+  const duration = Number(totalSeconds);
+  if (!Number.isFinite(duration) || duration <= 0) return 1;
+  const total = Math.ceil(duration / ANALYSIS_SEGMENT_SECONDS);
+  if (total <= 1) return 1;
+  const lastSeconds = duration - (total - 1) * ANALYSIS_SEGMENT_SECONDS;
+  const usable = lastSeconds < ANALYSIS_MIN_LAST_SEGMENT_SECONDS ? total - 1 : total;
+  return Math.min(ANALYSIS_MAX_SEGMENTS, Math.max(1, usable));
+}
+
+// 上游把「视频理解失败」的失败原因写进 summary 且 code=0，属于伪成功，需要识别出来按报错处理
+function isUpstreamAnalysisFailure(overview: string): boolean {
+  return overview.includes("无法获取视频内容");
+}
+
 // 模板中直接使用注入的 openResult；vue-tsc 不会把 inject 键推导到模板 this 上，
 // 因此以类型补丁形式合并进 ComponentCustomProperties（运行时 inject 声明保持不变）。
 declare module "vue" {
@@ -624,6 +648,7 @@ export default defineComponent({
       localFileName: lastLocalVideo.name || "",
       localFileSize: lastLocalVideo.size || "",
       localFileDuration: lastLocalVideo.duration || "",
+      localFileSeconds: 0,
       localVideoUrl: lastLocalVideo.url || "",
       localVideoPoster: lastLocalVideo.poster || "",
       localVideoFile: null as File | null,
@@ -795,7 +820,8 @@ export default defineComponent({
       const start = parse(this.onlineStart);
       const end = parse(this.onlineEnd);
       if (start === null || end === null || end <= start) return 1;
-      return Math.min(20, Math.max(1, Math.ceil((end - start) / 60000)));
+      // 按所选时段的真实秒数换算，末尾不足 5 秒的碎片段同样丢掉
+      return analysisMaxSegments((end - start) / 1000);
     },
     applySourceFieldHints() {
       const root = this.$el as any;
@@ -1175,7 +1201,8 @@ export default defineComponent({
       video.addEventListener("error", cleanup);
       video.src = url;
     },
-    // 探测上传视频时长，用于已上传卡片展示「时长 xx:xx」
+    // 探测上传视频时长：用于已上传卡片展示「时长 xx:xx」，并把真实时长回填给视频源，
+    // 供 maxSegments 计算（原先固定 2700 会让每次本地上传都请求 20 段，必然带上过短尾段）
     probeLocalVideoDuration(url) {
       const probe = document.createElement("video");
       probe.preload = "metadata";
@@ -1183,7 +1210,10 @@ export default defineComponent({
         const seconds = Math.round(probe.duration);
         if (Number.isFinite(seconds) && seconds > 0) {
           this.localFileDuration = this.formatTime(seconds);
+          this.localFileSeconds = seconds;
           if (this.store.lastLocalVideo) this.store.lastLocalVideo.duration = this.localFileDuration;
+          const source = this.selectedSource as any;
+          if (source && source.sourceType === "本地上传") source.durationSeconds = seconds;
         }
         if (probe.removeAttribute) probe.removeAttribute("src");
       };
@@ -1201,7 +1231,7 @@ export default defineComponent({
         camera: "本地视频文件",
         time: "本地上传 · 待分析",
         duration: "00:45",
-        durationSeconds: 2700,
+        durationSeconds: this.localFileSeconds || 2700,
         image: this.localVideoPoster || (this as any).store.img.analyst,
         videoUrl: this.localVideoUrl,
         sourceType: "本地上传"
@@ -1210,7 +1240,7 @@ export default defineComponent({
       this.analyzed = false;
       this.videoView = "record";
       this.currentTime = 0;
-      this.playerDuration = 2700;
+      this.playerDuration = this.localFileSeconds || 2700;
       this.seedQuestionMessages();
       this.showToast("视频源已确定，可以开始文搜");
     },
@@ -1347,6 +1377,14 @@ export default defineComponent({
         return;
       }
       if (this.analyzing || this.uploadingVideo || this.preparingRecording) return;
+      // 过短视频：整段送模型也会被判 Invalid video file，提前拦截给出明确提示
+      if (selectedSource.sourceType === "本地上传") {
+        const seconds = Number(selectedSource.durationSeconds) || this.localFileSeconds;
+        if (seconds > 0 && seconds < ANALYSIS_MIN_LAST_SEGMENT_SECONDS) {
+          this.showToast("视频过短，请上传 5 秒以上的视频");
+          return;
+        }
+      }
       // 从用户发送提示词起计时，直到本次 AI 消息完成
       this.startThinkingTimer();
       this.resetPhaseTimers();
@@ -1429,9 +1467,9 @@ export default defineComponent({
           prompt: question,
           question,
           fps: 1,
-          segmentSeconds: 60,
+          segmentSeconds: ANALYSIS_SEGMENT_SECONDS,
           maxSegments: selectedSource.sourceType === "本地上传"
-            ? Math.min(20, Math.max(1, Math.ceil((selectedSource.durationSeconds || 60) / 60)))
+            ? analysisMaxSegments(selectedSource.durationSeconds || this.localFileSeconds || 60)
             : this.estimateMaxSegments(),
           height: 480
         };
@@ -1448,6 +1486,15 @@ export default defineComponent({
         if (upstreamError) {
           console.error("视频理解接口返回错误：", upstreamError);
           const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（${upstreamError}）`;
+          this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+          this.showToast(tip);
+          return;
+        }
+        // 上游把失败原因写进 summary 且 code=0（如某切片过短被判 Invalid video file），
+        // 这里按报错处理，避免把「视频理解失败」当成分析结论展示
+        if (isUpstreamAnalysisFailure(overview)) {
+          console.error("视频理解上游未产出内容：", response);
+          const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（上游未能获取视频内容）`;
           this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(tip);
           return;
@@ -1670,9 +1717,9 @@ export default defineComponent({
           prompt: question,
           question,
           fps: 1,
-          segmentSeconds: 60,
+          segmentSeconds: ANALYSIS_SEGMENT_SECONDS,
           maxSegments: selectedSource.sourceType === "本地上传"
-            ? Math.min(20, Math.max(1, Math.ceil((selectedSource.durationSeconds || 60) / 60)))
+            ? analysisMaxSegments(selectedSource.durationSeconds || this.localFileSeconds || 60)
             : this.estimateMaxSegments(),
           height: 480
         };
@@ -1689,6 +1736,14 @@ export default defineComponent({
         if (upstreamError) {
           console.error("视频理解接口返回错误：", upstreamError);
           const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（${upstreamError}）`;
+          this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+          this.showToast(tip);
+          return;
+        }
+        // 上游失败同样以 code=0 + 失败 summary 返回，按报错处理
+        if (isUpstreamAnalysisFailure(answer)) {
+          console.error("视频理解上游未产出内容：", response);
+          const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（上游未能获取视频内容）`;
           this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(tip);
           return;
