@@ -48,7 +48,7 @@
                 <button class="exact-message-detail-btn" type="button" title="分析详情" aria-label="分析详情" @click="openMessageDetail(message)">&#xf05a;</button>
               </div>
             </div>
-            <div v-if="questionBusy" class="exact-chat-loading"><span class="exact-thinking-row"><span class="exact-thinking-tag">思考中</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(thinkingElapsed) }}</span></span><div v-if="downloading || downloadSeconds != null" class="exact-phase-row"><span>正在智能分析中，请稍后</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(downloadElapsed) }}</span></div><div v-if="analyzePhase" class="exact-phase-row"><span>开始分析...</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(analyzeElapsed) }}</span></div><div v-if="analyzePhase">分析助手正在结合视频内容整理答案...</div></div>
+            <div v-if="questionBusy" class="exact-chat-loading"><span class="exact-thinking-row"><span class="exact-thinking-tag">思考中</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(thinkingElapsed) }}</span></span><div v-if="uploadingVideo" class="exact-phase-row"><span>正在上传...</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(downloadElapsed) }}</span></div><div v-else-if="downloading || downloadSeconds != null" class="exact-phase-row"><span>正在智能分析中，请稍后</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(downloadElapsed) }}</span></div><div v-if="analyzePhase" class="exact-phase-row"><span>开始分析...</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(analyzeElapsed) }}</span></div><div v-if="analyzePhase">分析助手正在结合视频内容整理答案...</div></div>
           </div>
           <div class="exact-chat-quick"><button v-for="prompt in quickQuestions" :key="prompt.label" :class="{ active: activeQuickPrompt === prompt.label }" @click="fillQuickPrompt(prompt)">{{ prompt.label }}</button></div>
           <div class="exact-query-box"><textarea ref="exactQueryInput" class="textarea" v-model="query" :placeholder="queryPlaceholder" @keydown.enter.exact.prevent="submitVideoChat"></textarea><div class="exact-query-send"><button class="btn primary exact-send-btn" :disabled="questionBusy" aria-label="发送" title="发送" @click="submitVideoChat"><span class="send-icon" aria-hidden="true"></span></button></div></div>
@@ -112,7 +112,7 @@
         <div v-else-if="activeResultTabObj && activeResultTabObj.type === 'quickDeploy'" class="exact-dialog-body exact-quick-deploy-tab" role="tabpanel" aria-label="快速布防">
           <template v-if="activeResultTabObj.savedTask">
             <div class="detail-header-card exact-deploy-detail-header"><div><h2>{{ activeResultTabObj.savedTask.name }}</h2><p>{{ activeResultTabObj.savedTask.desc }}</p><div class="tags"><span class="tag blue">{{ activeResultTabObj.savedTask.algorithm }}</span><span class="status-pill pass">{{ activeResultTabObj.savedTask.status }}</span><span class="tag">{{ activeResultTabObj.savedTask.area }}</span></div></div></div>
-            <div class="panel search-panel exact-deploy-task-info"><h3 class="form-section-title">任务信息</h3><dl class="info-list"><dt>任务ID</dt><dd>{{ activeResultTabObj.savedTask.id }}</dd><dt>算法编号</dt><dd>{{ activeResultTabObj.savedTask.algorithmCode || "—" }}</dd><dt>绑定算法</dt><dd>{{ activeResultTabObj.savedTask.algorithm || "未绑定" }}</dd><dt>布控区域</dt><dd>{{ activeResultTabObj.savedTask.area }}</dd><dt>监控点位</dt><dd>{{ activeResultTabObj.savedTask.points }}</dd><dt>识别频次</dt><dd>{{ activeResultTabObj.savedTask.perMinute }} 次/分钟</dd><dt>任务状态</dt><dd>{{ activeResultTabObj.savedTask.status }}</dd><dt>创建时间</dt><dd>{{ activeResultTabObj.savedTask.created }}</dd></dl></div>
+            <div class="panel search-panel exact-deploy-task-info"><h3 class="form-section-title">任务信息</h3><dl class="info-list"><dt>任务ID</dt><dd>{{ activeResultTabObj.savedTask.id }}</dd><dt>算法编号</dt><dd>{{ activeResultTabObj.savedTask.algorithmCode || "—" }}</dd><dt>绑定算法</dt><dd>{{ activeResultTabObj.savedTask.algorithm || "未绑定" }}</dd><dt>布控区域</dt><dd>{{ activeResultTabObj.savedTask.area }}</dd><dt>监控点位</dt><dd>{{ activeResultTabObj.savedTask.points }}</dd><dt>识别频次</dt><dd>{{ activeResultTabObj.savedTask.perMinute }} 次/分钟</dd><dt>生效时间</dt><dd>{{ activeResultTabObj.savedTask.time }}</dd><dt>相似度</dt><dd>{{ activeResultTabObj.savedTask.threshold }}%</dd><dt>任务状态</dt><dd>{{ activeResultTabObj.savedTask.status }}</dd><dt>创建时间</dt><dd>{{ activeResultTabObj.savedTask.created }}</dd></dl></div>
           </template>
           <div v-else class="exact-quick-deploy-form">
             <div class="modal-form-row"><label><span class="required">*</span>布控目标：</label>
@@ -155,6 +155,15 @@
                   <div v-if="!areas.length" class="exact-tree-empty">暂无监控点数据</div>
                 </div>
               </div>
+            </div>
+            <div class="modal-form-row"><label><span class="required">*</span>生效时间：</label>
+              <div class="effective-range"><input class="input" type="date" v-model="activeResultTabObj.deployEffectiveStart" aria-label="生效开始日期" /><span class="range-arrow">→</span><input class="input" type="date" v-model="activeResultTabObj.deployEffectiveEnd" aria-label="生效结束日期" /></div>
+            </div>
+            <div class="modal-form-row"><label><span class="required">*</span>循环周期：</label>
+              <div class="effective-range"><input class="input" type="time" v-model="activeResultTabObj.deployCycleStart" aria-label="循环开始时间" /><span class="range-arrow">→</span><input class="input" type="time" v-model="activeResultTabObj.deployCycleEnd" aria-label="循环结束时间" /></div>
+            </div>
+            <div class="modal-form-row"><label><span class="required">*</span>相似度：</label>
+              <div class="deploy-similarity-field"><input type="range" min="0" max="100" step="1" v-model.number="activeResultTabObj.deploySimilarity" aria-label="相似度" /><output>{{ activeResultTabObj.deploySimilarity }}%</output></div>
             </div>
             <div class="modal-form-row"><label>识别频次：</label><input class="input" type="number" min="1" v-model.number="activeResultTabObj.deployRecognitionPerMinute" placeholder="每分钟识别次数" /></div>
             <div class="modal-form-row"><label>任务描述：</label><textarea class="textarea" style="height:96px;" v-model="activeResultTabObj.deployDescription" placeholder="请输入任务描述"></textarea></div>
@@ -1436,10 +1445,20 @@ export default defineComponent({
         const understanding = findVideoUnderstanding(response);
         const overview = understanding.overview;
         const upstreamError = findAnalysisError(response);
-        if (upstreamError || (!overview && !findUnderstandingEvents(response).length)) {
-          console.error("视频理解接口返回错误：", upstreamError || response);
-          this.pushAssistantMessage({ role: "assistant", text: VIDEO_UNDERSTANDING_ERROR_TIP, thinkingSeconds: this.stopThinkingTimer() });
-          this.showToast(VIDEO_UNDERSTANDING_ERROR_TIP);
+        if (upstreamError) {
+          console.error("视频理解接口返回错误：", upstreamError);
+          const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（${upstreamError}）`;
+          this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+          this.showToast(tip);
+          return;
+        }
+        // 接口正常但模型没有产出任何内容（长视频只分析前若干段、画面无有效目标时常见），
+        // 与接口故障区分开，避免误报「接口报错」
+        if (!overview && !findUnderstandingEvents(response).length) {
+          console.warn("视频理解接口返回空结果：", response);
+          const emptyTip = "本次分析未识别到与提问相关的内容，请调整提问或更换视频/时间段后重试";
+          this.pushAssistantMessage({ role: "assistant", text: emptyTip, thinkingSeconds: this.stopThinkingTimer() });
+          this.showToast(emptyTip);
           return;
         }
         this.events = sortEventsByStart(findUnderstandingEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60))) as any;
@@ -1463,8 +1482,10 @@ export default defineComponent({
         this.showToast("文搜分析完成，已生成事件结论");
       } catch (error) {
         console.error("视频理解接口调用失败：", error);
-        this.pushAssistantMessage({ role: "assistant", text: VIDEO_UNDERSTANDING_ERROR_TIP, thinkingSeconds: this.stopThinkingTimer() });
-        this.showToast(VIDEO_UNDERSTANDING_ERROR_TIP);
+        const detail = error instanceof Error && error.message ? `（${error.message}）` : "";
+        const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}${detail}`;
+        this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+        this.showToast(tip);
       } finally {
         this.analyzing = false;
         this.questionBusy = false;
@@ -1665,10 +1686,19 @@ export default defineComponent({
         const understanding = findVideoUnderstanding(response);
         const answer = understanding.overview;
         const upstreamError = findAnalysisError(response);
-        if (upstreamError || (!answer && !findUnderstandingEvents(response).length)) {
-          console.error("视频理解接口返回错误：", upstreamError || response);
-          this.pushAssistantMessage({ role: "assistant", text: VIDEO_UNDERSTANDING_ERROR_TIP, thinkingSeconds: this.stopThinkingTimer() });
-          this.showToast(VIDEO_UNDERSTANDING_ERROR_TIP);
+        if (upstreamError) {
+          console.error("视频理解接口返回错误：", upstreamError);
+          const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（${upstreamError}）`;
+          this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+          this.showToast(tip);
+          return;
+        }
+        // 接口正常但模型没有产出任何内容时与接口故障区分开，避免误报「接口报错」
+        if (!answer && !findUnderstandingEvents(response).length) {
+          console.warn("视频理解接口返回空结果：", response);
+          const emptyTip = "本次分析未识别到与提问相关的内容，请调整提问或更换视频/时间段后重试";
+          this.pushAssistantMessage({ role: "assistant", text: emptyTip, thinkingSeconds: this.stopThinkingTimer() });
+          this.showToast(emptyTip);
           return;
         }
         const parsedEvents = findUnderstandingEvents(response).map((item, index) => mapAnalysisEvent(item, index, images, 60));
@@ -1690,8 +1720,10 @@ export default defineComponent({
         this.activeAnalysisId = snapshot.id;
       } catch (error) {
         console.error("视频理解接口调用失败：", error);
-        this.pushAssistantMessage({ role: "assistant", text: VIDEO_UNDERSTANDING_ERROR_TIP, thinkingSeconds: this.stopThinkingTimer() });
-        this.showToast(VIDEO_UNDERSTANDING_ERROR_TIP);
+        const detail = error instanceof Error && error.message ? `（${error.message}）` : "";
+        const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}${detail}`;
+        this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+        this.showToast(tip);
       } finally {
         this.questionBusy = false;
       }
@@ -1757,7 +1789,7 @@ export default defineComponent({
         return { items: [] as any[], loading: false, runId: 0, fileName: "", start: this.onlineStart || "", end: this.onlineEnd || "", place: "全部区域", similarity: 50 };
       }
       if (type === "quickDeploy") {
-        return { savedTask: null, deployTaskName: "", deployAlgorithmCode: "", deployCameraSelections: [] as string[], deployAreaOpen: false, deployAreaExpanded: {} as Record<string, boolean>, deployRecognitionPerMinute: 10, deployDescription: "", deploySaving: false, deployTargetFile: null as File | null, deployTargetUrl: "", deployTargetName: "", deployTargetCleared: false, deployFaceProfileId: "", deployFaceFilter: "", deployFaceDropdownOpen: false };
+        return { savedTask: null, deployTaskName: "", deployAlgorithmCode: "", deployCameraSelections: [] as string[], deployAreaOpen: false, deployAreaExpanded: {} as Record<string, boolean>, deployEffectiveStart: "", deployEffectiveEnd: "", deployCycleStart: "00:00", deployCycleEnd: "23:59", deploySimilarity: 50, deployRecognitionPerMinute: 10, deployDescription: "", deploySaving: false, deployTargetFile: null as File | null, deployTargetUrl: "", deployTargetName: "", deployTargetCleared: false, deployFaceProfileId: "", deployFaceFilter: "", deployFaceDropdownOpen: false };
       }
       const expandedAreas: Record<string, boolean> = {};
       (this.areas as any[]).forEach((area, index) => { expandedAreas[area.name] = index === 0; });
@@ -2029,6 +2061,10 @@ export default defineComponent({
         this.showToast("请选择布控区域");
         return;
       }
+      if (!tab.deployEffectiveStart || !tab.deployEffectiveEnd) {
+        this.showToast("请选择生效时间");
+        return;
+      }
       if (tab.deploySaving) return;
       tab.deploySaving = true;
       try {
@@ -2069,6 +2105,11 @@ export default defineComponent({
           faceProfileId: targetPreview ? null : (face ? face.id : null),
           faceProfilePhotoUrl: photoUrl || null,
           recognitionPerMinute: Math.max(1, Math.floor(Number(tab.deployRecognitionPerMinute) || 10)),
+          similarity: Math.min(100, Math.max(0, Math.floor(Number(tab.deploySimilarity) || 0))),
+          effectiveStart: tab.deployEffectiveStart || null,
+          effectiveEnd: tab.deployEffectiveEnd || null,
+          cycleStart: tab.deployCycleStart || null,
+          cycleEnd: tab.deployCycleEnd || null,
           desc: tab.deployDescription.trim(),
           area: areaNames.length ? areaNames.join("、") : null,
           areaCount: tab.deployCameraSelections.length
@@ -2086,6 +2127,8 @@ export default defineComponent({
           area: areaNames.length ? areaNames.join("、") : "默认区域",
           points: pointNames.length ? pointNames.join("、") : "全部点位",
           perMinute: body.recognitionPerMinute,
+          time: [`${tab.deployEffectiveStart} ~ ${tab.deployEffectiveEnd}`, `${tab.deployCycleStart}~${tab.deployCycleEnd}`].filter(Boolean).join(" "),
+          threshold: tab.deploySimilarity,
           created: createdText
         };
         this.showToast("布控任务已创建");

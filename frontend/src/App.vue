@@ -370,6 +370,11 @@ export default defineComponent({
         faceProfileId: payload.faceProfileId,
         faceProfilePhotoUrl: payload.faceProfilePhotoUrl || null,
         recognitionPerMinute: payload.recognitionPerMinute,
+        similarity: payload.similarity,
+        effectiveStart: payload.effectiveStart || null,
+        effectiveEnd: payload.effectiveEnd || null,
+        cycleStart: payload.cycleStart || null,
+        cycleEnd: payload.cycleEnd || null,
         desc: payload.desc,
         area: payload.area || null,
         areaCount: payload.areaCount

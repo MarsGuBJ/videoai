@@ -29,6 +29,13 @@ class DeploymentTaskORM(Base):
     camera_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     recognition_per_minute: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
 
+    # 布控策略：相似度阈值（置信度，0~100）、生效时间（日期区间）、循环周期（每日时段）
+    similarity: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    effective_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    effective_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    cycle_start: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    cycle_end: Mapped[str | None] = mapped_column(String(5), nullable=True)
+
     # 绑定算法的冗余快照（创建/更新时从算法表拷贝）
     algorithm_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     algorithm_name: Mapped[str | None] = mapped_column(String(200), nullable=True)

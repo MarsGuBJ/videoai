@@ -70,6 +70,24 @@ def ensure_deployment_task_schema() -> None:
             conn.execute(
                 text("ALTER TABLE deployment_tasks ADD COLUMN IF NOT EXISTS algorithm_code VARCHAR(100)")
             )
+            conn.execute(
+                text(
+                    "ALTER TABLE deployment_tasks "
+                    "ADD COLUMN IF NOT EXISTS similarity INTEGER NOT NULL DEFAULT 50"
+                )
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_tasks ADD COLUMN IF NOT EXISTS effective_start VARCHAR(10)")
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_tasks ADD COLUMN IF NOT EXISTS effective_end VARCHAR(10)")
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_tasks ADD COLUMN IF NOT EXISTS cycle_start VARCHAR(5)")
+            )
+            conn.execute(
+                text("ALTER TABLE deployment_tasks ADD COLUMN IF NOT EXISTS cycle_end VARCHAR(5)")
+            )
     except SQLAlchemyError as exc:  # 数据库不可达时跳过迁移，不阻断启动
         logger.error("deployment task schema ensure failed: %s", exc)
 
@@ -95,6 +113,11 @@ def load_deployment_tasks_from_db() -> None:
                     faceProfilePhotoUrl=row.face_profile_photo_url,
                     cameraIds=list(row.camera_ids or []),
                     recognitionPerMinute=max(1, int(row.recognition_per_minute or DEFAULT_RECOGNITION_PER_MINUTE)),
+                    similarity=min(100, max(0, int(row.similarity if row.similarity is not None else 50))),
+                    effectiveStart=row.effective_start,
+                    effectiveEnd=row.effective_end,
+                    cycleStart=row.cycle_start,
+                    cycleEnd=row.cycle_end,
                     algorithmId=row.algorithm_id,
                     algorithmName=row.algorithm_name,
                     engineType=row.engine_type,
@@ -130,6 +153,11 @@ def persist_deployment_task(task: DeploymentTaskResponse) -> None:
             row.face_profile_photo_url = task.faceProfilePhotoUrl
             row.camera_ids = list(task.cameraIds or [])
             row.recognition_per_minute = max(1, int(task.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE))
+            row.similarity = min(100, max(0, int(task.similarity if task.similarity is not None else 50)))
+            row.effective_start = task.effectiveStart
+            row.effective_end = task.effectiveEnd
+            row.cycle_start = task.cycleStart
+            row.cycle_end = task.cycleEnd
             row.algorithm_id = task.algorithmId
             row.algorithm_name = task.algorithmName
             row.engine_type = task.engineType

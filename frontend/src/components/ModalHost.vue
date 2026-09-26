@@ -80,6 +80,11 @@ export default {
       deployTaskName: "",
       deployAlgorithmCode: "",
       deployRecognitionPerMinute: 10,
+      deployEffectiveStart: "",
+      deployEffectiveEnd: "",
+      deployCycleStart: "00:00",
+      deployCycleEnd: "23:59",
+      deploySimilarity: 50,
       deployFaceProfileId: "",
       deployTargetFile: null as File | null,
       deployTargetImageUrl: "",
@@ -1037,6 +1042,11 @@ export default {
       this.deployAlgorithmCode = (item && item.algorithmCode) || "";
       this.deploySelectedCameras = item && Array.isArray(item.cameraIds) ? [...item.cameraIds] : [];
       this.deployRecognitionPerMinute = (item && item.recognitionPerMinute) || 10;
+      this.deployEffectiveStart = (item && item.effectiveStart) || "";
+      this.deployEffectiveEnd = (item && item.effectiveEnd) || "";
+      this.deployCycleStart = (item && item.cycleStart) || "00:00";
+      this.deployCycleEnd = (item && item.cycleEnd) || "23:59";
+      this.deploySimilarity = item && item.similarity != null ? item.similarity : 50;
       this.deployFaceProfileId = (item && item.faceProfileId) || "";
       this.deployDesc = (item && item.desc) || "";
       // 布控目标图：快速布防带入，或编辑回填（仅当目标图不是来自人脸库时）
@@ -1135,6 +1145,10 @@ export default {
           this.showToast("请上传布控图像或从人脸库选取");
           return;
         }
+        if (!this.deployEffectiveStart || !this.deployEffectiveEnd) {
+          this.showToast("请选择生效时间");
+          return;
+        }
         this.$emit("submit", "deployTask", {
           id: this.isDeployTaskEdit ? this.modal.item.id : null,
           name: this.deployTaskName.trim(),
@@ -1146,6 +1160,11 @@ export default {
           faceProfileId: this.deployTargetPreview ? null : faceProfile ? faceProfile.id : null,
           faceProfilePhotoUrl: photoUrl || null,
           recognitionPerMinute: this.deployRecognitionPerMinute,
+          similarity: Math.min(100, Math.max(0, Math.floor(Number(this.deploySimilarity) || 0))),
+          effectiveStart: this.deployEffectiveStart || null,
+          effectiveEnd: this.deployEffectiveEnd || null,
+          cycleStart: this.deployCycleStart || null,
+          cycleEnd: this.deployCycleEnd || null,
           desc: this.deployDesc.trim(),
           area: this.deploySelectedAreas.join("、"),
           areaCount: this.deploySelectedCameras.length
@@ -1712,6 +1731,18 @@ export default {
                 <div v-if="!deployCameraAreas.length" class="exact-tree-children"><span style="padding:8px 12px;display:block;">暂无摄像机，请先在设备管理中接入</span></div>
               </div>
             </div>
+          </div>
+          <div class="modal-form-row">
+            <label><span class="required">*</span>生效时间：</label>
+            <div class="effective-range"><input class="input" type="date" v-model="deployEffectiveStart" aria-label="生效开始日期" /><span class="range-arrow">→</span><input class="input" type="date" v-model="deployEffectiveEnd" aria-label="生效结束日期" /></div>
+          </div>
+          <div class="modal-form-row">
+            <label><span class="required">*</span>循环周期：</label>
+            <div class="effective-range"><input class="input" type="time" v-model="deployCycleStart" aria-label="循环开始时间" /><span class="range-arrow">→</span><input class="input" type="time" v-model="deployCycleEnd" aria-label="循环结束时间" /></div>
+          </div>
+          <div class="modal-form-row">
+            <label><span class="required">*</span>相似度：</label>
+            <div class="deploy-similarity-field"><input type="range" min="0" max="100" step="1" v-model.number="deploySimilarity" aria-label="相似度" /><output>{{ deploySimilarity }}%</output></div>
           </div>
           <div class="modal-form-row">
             <label>识别频次：</label>

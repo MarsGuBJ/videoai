@@ -39,7 +39,7 @@
           </div>
         </div>
         <div class="track-query-actions">
-          <button class="btn primary" :disabled="searching" title="搜索图片" @click="runCandidateSearch">⌕ 搜索候选图片</button>
+          <button class="btn primary" :disabled="searching" title="搜索图片" @click="runCandidateSearch">⌕ 搜索图片</button>
         </div>
       </div>
       <div class="track-main-grid">

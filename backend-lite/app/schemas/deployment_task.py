@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 DEFAULT_RECOGNITION_PER_MINUTE = 60
+DEFAULT_SIMILARITY = 50
 
 
 class DeploymentTaskResponse(BaseModel):
@@ -22,6 +23,11 @@ class DeploymentTaskResponse(BaseModel):
     faceProfilePhotoUrl: str | None = None
     cameraIds: list[str]
     recognitionPerMinute: int = Field(default=DEFAULT_RECOGNITION_PER_MINUTE, ge=1)
+    similarity: int = Field(default=DEFAULT_SIMILARITY, ge=0, le=100)
+    effectiveStart: str | None = None
+    effectiveEnd: str | None = None
+    cycleStart: str | None = None
+    cycleEnd: str | None = None
     algorithmId: UUID | None = None
     algorithmName: str | None = None
     engineType: str | None = None
@@ -42,6 +48,11 @@ class DeploymentTaskCreateRequest(BaseModel):
     faceProfilePhotoUrl: str | None = None
     cameraIds: list[str] = []
     recognitionPerMinute: int = Field(default=DEFAULT_RECOGNITION_PER_MINUTE, ge=1)
+    similarity: int = Field(default=DEFAULT_SIMILARITY, ge=0, le=100)
+    effectiveStart: str | None = None
+    effectiveEnd: str | None = None
+    cycleStart: str | None = None
+    cycleEnd: str | None = None
     algorithmId: UUID | None = None
     algorithmCode: str | None = None
 
@@ -59,5 +70,10 @@ class DeploymentTaskUpdateRequest(BaseModel):
     faceProfilePhotoUrl: str | None = None
     cameraIds: list[str] | None = None
     recognitionPerMinute: int | None = Field(default=None, ge=1)
+    similarity: int | None = Field(default=None, ge=0, le=100)
+    effectiveStart: str | None = None
+    effectiveEnd: str | None = None
+    cycleStart: str | None = None
+    cycleEnd: str | None = None
     algorithmId: UUID | None = None
     algorithmCode: str | None = None

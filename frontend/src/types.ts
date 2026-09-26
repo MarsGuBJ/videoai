@@ -467,6 +467,11 @@ export type DeploymentTask = {
   engineType?: string | null;
   cameraIds: string[];
   recognitionPerMinute: number;
+  similarity?: number;
+  effectiveStart?: string | null;
+  effectiveEnd?: string | null;
+  cycleStart?: string | null;
+  cycleEnd?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -618,6 +623,11 @@ export type DeploymentTaskCreate = {
   engineType?: string | null;
   cameraIds: string[];
   recognitionPerMinute?: number;
+  similarity?: number;
+  effectiveStart?: string | null;
+  effectiveEnd?: string | null;
+  cycleStart?: string | null;
+  cycleEnd?: string | null;
 };
 
 export type GpuInfo = {

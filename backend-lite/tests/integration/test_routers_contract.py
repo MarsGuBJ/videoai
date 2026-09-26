@@ -93,6 +93,56 @@ def test_update_deployment_task_passes_through_algorithm_code(client: TestClient
     assert response.json()["algorithmCode"] is None
 
 
+def test_deployment_task_strategy_fields_round_trip(client: TestClient, monkeypatch):
+    persisted = []
+    synced = []
+    # mock 边界：DB 落库与 worker 流同步，在使用处（路由模块命名空间）替换
+    monkeypatch.setattr(deployment_tasks_router, "persist_deployment_task", persisted.append)
+    monkeypatch.setattr(deployment_tasks_router, "sync_worker_streams_for_task", synced.append)
+
+    response = client.post(
+        "/api/deployment-tasks",
+        json={
+            "name": "西门布控",
+            "cameraIds": ["cam-1"],
+            "similarity": 80,
+            "effectiveStart": "2026-10-01",
+            "effectiveEnd": "2026-12-31",
+            "cycleStart": "08:00",
+            "cycleEnd": "20:00",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["similarity"] == 80
+    assert payload["effectiveStart"] == "2026-10-01"
+    assert payload["effectiveEnd"] == "2026-12-31"
+    assert payload["cycleStart"] == "08:00"
+    assert payload["cycleEnd"] == "20:00"
+
+    # 缺省时给默认值
+    created = client.post("/api/deployment-tasks", json={"name": "南门布控", "cameraIds": []}).json()
+    assert created["similarity"] == 50
+    assert created["effectiveStart"] is None
+    assert created["cycleStart"] is None
+
+    # 部分更新与显式置空
+    response = client.patch(f"/api/deployment-tasks/{payload['id']}", json={"similarity": 65, "cycleEnd": "22:30"})
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["similarity"] == 65
+    assert updated["cycleEnd"] == "22:30"
+    assert updated["effectiveStart"] == "2026-10-01"
+    response = client.patch(f"/api/deployment-tasks/{payload['id']}", json={"effectiveStart": None})
+    assert response.status_code == 200
+    assert response.json()["effectiveStart"] is None
+
+    # 越界相似度按 422 拦截
+    response = client.post("/api/deployment-tasks", json={"name": "非法", "cameraIds": [], "similarity": 120})
+    assert response.status_code == 422
+
+
 def test_get_deployment_task_unknown_id_returns_404(client: TestClient):
     response = client.get(f"/api/deployment-tasks/{uuid4()}")
 

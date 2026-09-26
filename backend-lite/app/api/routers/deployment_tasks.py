@@ -50,6 +50,11 @@ def create_deployment_task(request: DeploymentTaskCreateRequest) -> DeploymentTa
         faceProfilePhotoUrl=clean_optional(request.faceProfilePhotoUrl),
         cameraIds=list(request.cameraIds or []),
         recognitionPerMinute=max(1, int(request.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE)),
+        similarity=min(100, max(0, int(request.similarity if request.similarity is not None else 50))),
+        effectiveStart=clean_optional(request.effectiveStart),
+        effectiveEnd=clean_optional(request.effectiveEnd),
+        cycleStart=clean_optional(request.cycleStart),
+        cycleEnd=clean_optional(request.cycleEnd),
         algorithmId=algorithm.id if algorithm else None,
         algorithmName=algorithm.name if algorithm else None,
         engineType=algorithm.engineType if algorithm else None,
@@ -102,6 +107,11 @@ def update_deployment_task(task_id: UUID, request: DeploymentTaskUpdateRequest) 
         update_payload["cameraIds"] = list(request.cameraIds)
     if request.recognitionPerMinute is not None:
         update_payload["recognitionPerMinute"] = max(1, int(request.recognitionPerMinute))
+    if request.similarity is not None:
+        update_payload["similarity"] = min(100, max(0, int(request.similarity)))
+    for field in ("effectiveStart", "effectiveEnd", "cycleStart", "cycleEnd"):
+        if field in request.model_fields_set:
+            update_payload[field] = clean_optional(getattr(request, field))
     if request.algorithmId is not None:
         algorithm = require_bindable_algorithm(request.algorithmId)
         update_payload["algorithmId"] = algorithm.id
