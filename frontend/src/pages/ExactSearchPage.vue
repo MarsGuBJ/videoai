@@ -2324,6 +2324,17 @@ export default defineComponent({
       });
       return cache;
     },
+    // 页面上已加载的事件卡片截图的原始尺寸（导出 Word 时按此比例算出缩放后的宽高，
+    // 写进 img 的 width/height 属性——Word 对 CSS class 宽度支持不稳定，只认标签属性）
+    loadedEventImageDims() {
+      const dims: Record<string, { width: number; height: number }> = {};
+      document.querySelectorAll(".exact-event-card img").forEach(node => {
+        const img = node as HTMLImageElement;
+        if (!img.complete || !img.naturalWidth || !img.naturalHeight) return;
+        dims[img.currentSrc || img.src] = { width: img.naturalWidth, height: img.naturalHeight };
+      });
+      return dims;
+    },
     // 分析结果条目（含后端按时间点截出的画面），三种报告共用
     reportEvents(imageCache?: Record<string, string>) {
       return this.events.map((item: any, index: number) => {
@@ -2447,6 +2458,19 @@ export default defineComponent({
     exportWordReport() {
       const meta = this.reportMeta();
       const overview = this.summary.overview ? `<div class="md">${this.renderMarkdown(this.summary.overview)}</div>` : `<p class="empty">暂无事件摘要</p>`;
+      // Word 导入 HTML 时对 <style> 里的 class 宽度支持不稳定，大图会按原始尺寸（如 1920×1080）撑破排版；
+      // 这里按页面已加载截图的原始比例算出缩放后的宽高，直接写进 img 的 width/height 属性和内联样式。
+      const dims = this.loadedEventImageDims();
+      const shotWidth = 320;
+      const eventsHtml = this.reportEvents().map(item => {
+        let shot = "";
+        if (item.src) {
+          const dim = dims[item.src];
+          const shotHeight = dim && dim.width ? Math.max(1, Math.round(shotWidth * dim.height / dim.width)) : 180;
+          shot = `<img class="shot" src="${this.escapeHtml(item.src)}" alt="${this.escapeHtml(item.title)}" width="${shotWidth}" height="${shotHeight}" style="width:${shotWidth}px;height:${shotHeight}px;" />`;
+        }
+        return `<section class="event"><h3>${item.index + 1}. ${this.escapeHtml(item.title)}</h3><p class="meta">发生时间：${this.escapeHtml(item.time)}</p><div class="event-body">${shot}<div class="md">${this.renderMarkdown(item.detail)}</div></div></section>`;
+      }).join("");
       const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8" /><title>文搜视频分析报告</title><style>
         body { font: 12pt "PingFang SC", "Microsoft YaHei", Arial, sans-serif; line-height: 1.7; color: #1f2d3d; }
         h1 { font-size: 18pt; } h2 { font-size: 14pt; } h3 { font-size: 12pt; }
@@ -2458,7 +2482,7 @@ export default defineComponent({
         <p class="meta">视频源：${this.escapeHtml(meta.sourceName)} ｜ 来源：${this.escapeHtml(meta.sourceType)}</p>
         <p class="meta">检索内容：${this.escapeHtml(meta.query)} ｜ 生成时间：${this.escapeHtml(meta.stamp)}</p>
         <h2>一、事件摘要</h2>${overview}
-        <h2>二、分析结果（共 ${this.events.length} 个关键事件）</h2>${this.reportEventsHtml() || `<p class="empty">暂无分析事件</p>`}
+        <h2>二、分析结果（共 ${this.events.length} 个关键事件）</h2>${eventsHtml || `<p class="empty">暂无分析事件</p>`}
         ${this.results.length ? `<h2>三、统计结果</h2>${this.reportResultsHtml()}` : ""}
       </body></html>`;
       this.downloadBlob(html, "application/msword", "文搜视频分析报告.doc");
