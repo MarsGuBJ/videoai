@@ -12,7 +12,7 @@
         <h4 class="event-config-section-title">事件属性</h4>
         <div class="event-config-form-grid">
           <label class="event-config-field"><span><span class="required">*</span>名称</span><input v-model="form.name" class="input" /></label>
-          <label class="event-config-field"><span><span class="required">*</span>关联算法</span><select v-model="form.algorithm" class="select"><option>区域入侵</option><option>车辆违停</option><option>垃圾识别</option></select></label>
+          <label class="event-config-field"><span><span class="required">*</span>关联算法</span><select v-model="form.algorithm" class="select"><option value="">请选择关联算法</option><option v-for="name in algorithmOptions" :key="name" :value="name">{{ name }}</option></select></label>
           <label class="event-config-field"><span><span class="required">*</span>摄像头</span><span class="event-config-input-group"><input v-model="form.camera" class="input" :placeholder="camerasFailed ? '输入摄像头名称' : '搜索摄像头'" /><button v-if="camerasFailed" class="event-config-input-button" type="button" @click="addManualCamera">添加</button></span></label>
           <div class="event-config-field"><span>摄像头范围</span><div class="event-config-radio-row event-config-camera-choices"><label><input type="checkbox" v-model="form.allCameras" @change="onAllCamerasChange" /> 全选</label><label v-for="name in cameraChoices" :key="name"><input type="checkbox" :value="name" v-model="form.cameras" @change="onCameraSelectionChange" /><span class="event-config-camera-name">{{ name }}</span></label><span v-if="!camerasFailed && !camerasLoading && !cameraChoices.length" style="color:#98a2b3;font-size:12px;">无匹配摄像头</span><span v-if="camerasLoading" style="color:#98a2b3;font-size:12px;">摄像头加载中...</span></div></div>
         </div>
@@ -29,7 +29,7 @@
         <h4 class="event-config-section-title">备注说明</h4>
         <textarea v-model="form.remark" placeholder="请填写说明，最多不超过200字" style="width:100%;min-height:86px;padding:8px 10px;border:1px solid #cbd5df;border-radius:6px;font:inherit;resize:vertical;"></textarea>
       </div>
-      <div class="event-config-modal-actions"><button class="btn" @click="resetForm">重置</button><button class="btn primary" :disabled="saving" title="保存" @click="submit">提交</button><button class="btn" @click="view = 'cards'">返回</button></div>
+      <div class="event-config-modal-actions"><button class="btn" @click="resetForm">重置</button><button class="btn primary" :disabled="saving" title="保存" @click="submit">保存</button><button class="btn" @click="view = 'cards'">返回</button></div>
     </template>
     <div v-if="modal === 'logs'" class="event-config-modal-mask" @click.self="modal = null">
       <section class="event-config-modal" role="dialog" aria-modal="true" aria-label="规则日志">
@@ -76,7 +76,8 @@ export default defineComponent({
       cameraOptions: [] as string[],
       camerasLoading: false,
       camerasFailed: false,
-      form: { name: "去重", algorithm: "区域入侵", camera: "", allCameras: true, cameras: [] as string[], tab: "时间维度去重", duration: "", similarity: "", remark: "" },
+      algorithmOptions: [] as string[],
+      form: { name: "去重", algorithm: "", camera: "", allCameras: true, cameras: [] as string[], tab: "时间维度去重", duration: "", similarity: "", remark: "" },
       logFilters: { eventType: "", ruleName: "", device: "", ruleType: "", status: "", range: "" }
     };
   },
@@ -91,8 +92,18 @@ export default defineComponent({
   mounted() {
     this.loadRules();
     this.loadCameras();
+    this.loadAlgorithms();
   },
   methods: {
+    // 关联算法下拉与算法管理页同源（/api/algorithms，即算法管理上传的算法清单）
+    async loadAlgorithms() {
+      try {
+        const algorithms = await api.algorithms();
+        this.algorithmOptions = (algorithms || []).map(item => item.name).filter(Boolean);
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "算法清单加载失败");
+      }
+    },
     async loadRules() {
       if (this.loading) return;
       this.loading = true;
@@ -125,14 +136,14 @@ export default defineComponent({
       return rule.allCameras ? "全部摄像头" : (rule.cameras || []).join("、") || "--";
     },
     blankForm() {
-      return { name: "去重", algorithm: "区域入侵", camera: "", allCameras: true, cameras: [] as string[], tab: "时间维度去重", duration: "", similarity: "", remark: "" };
+      return { name: "去重", algorithm: "", camera: "", allCameras: true, cameras: [] as string[], tab: "时间维度去重", duration: "", similarity: "", remark: "" };
     },
     openCreate() { this.editingId = null; this.form = this.blankForm(); this.view = "create"; },
     openEdit(rule: DedupRule) {
       this.editingId = rule.id;
       this.form = {
         name: rule.name,
-        algorithm: rule.algorithm || "区域入侵",
+        algorithm: rule.algorithm || "",
         camera: "",
         allCameras: rule.allCameras,
         cameras: [...(rule.cameras || [])],
@@ -176,6 +187,7 @@ export default defineComponent({
     },
     async submit() {
       if (!this.form.name.trim()) { this.showToast("请填写规则名称"); return; }
+      if (!this.form.algorithm) { this.showToast("请选择关联算法"); return; }
       if (!this.form.allCameras && !this.form.cameras.length) { this.showToast("请选择摄像头或勾选全选"); return; }
       if (this.saving) return;
       const editing = this.editingId ? this.rules.find(rule => rule.id === this.editingId) : null;
