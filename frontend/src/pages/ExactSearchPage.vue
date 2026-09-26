@@ -134,12 +134,12 @@
               </div>
             </div>
             <div class="modal-form-row"><label><span class="required">*</span>任务名称：</label><input class="input" v-model="activeResultTabObj.deployTaskName" placeholder="请输入任务名称" /></div>
-            <div class="modal-form-row"><label><span class="required">*</span>算法编号：</label>
+            <div class="modal-form-row"><label><span class="required">*</span>事件编号：</label>
               <div>
-                <select class="select" v-model="activeResultTabObj.deployAlgorithmCode" aria-label="算法编号"><option value="">请选择算法编号</option><option v-for="item in deployEventInfos" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option></select>
+                <select class="select" v-model="activeResultTabObj.deployAlgorithmCode" aria-label="事件编号"><option value="">请选择事件编号</option><option v-for="item in deployEventInfos" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option></select>
                 <span v-if="!deployEventInfos.length" class="hint-text">暂无事件信息，请先在「事件配置 → 事件信息配置」新增事件</span>
                 <span v-else-if="deployAlgorithmFor(activeResultTabObj)" class="hint-text">已绑定算法：{{ deployAlgorithmFor(activeResultTabObj).name }}（{{ deployAlgorithmFor(activeResultTabObj).code }}）</span>
-                <span v-else-if="activeResultTabObj.deployAlgorithmCode" class="hint-text">未匹配到可布控算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法编码</span>
+                <span v-else-if="activeResultTabObj.deployAlgorithmCode" class="hint-text">未匹配到可布控算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法</span>
               </div>
             </div>
             <div class="modal-form-row"><label><span class="required">*</span>布控区域：</label>
@@ -2082,7 +2082,7 @@ export default defineComponent({
           return;
         }
         if (!tab.deployAlgorithmCode) {
-          this.showToast("请选择算法编号");
+          this.showToast("请选择事件编号");
           return;
         }
         const algorithm = this.deployAlgorithmFor(tab);

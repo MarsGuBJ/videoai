@@ -26,14 +26,14 @@
       <div class="deploy-grid">
         <div class="deploy-field"><label><span class="required">*</span>任务名称</label><input class="input" v-model="form.name" placeholder="请输入任务名称" /></div>
         <div class="deploy-field">
-          <label><span class="required">*</span>算法编号</label>
-          <select class="select" v-model="form.algorithmCode" aria-label="算法编号">
-            <option value="">请选择算法编号</option>
+          <label><span class="required">*</span>事件编号</label>
+          <select class="select" v-model="form.algorithmCode" aria-label="事件编号">
+            <option value="">请选择事件编号</option>
             <option v-for="item in eventInfos" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option>
           </select>
           <span v-if="!eventInfos.length" class="hint-text">暂无事件信息，请先在「事件配置 → 事件信息配置」新增事件</span>
           <span v-else-if="eventBoundAlgorithm" class="hint-text">已绑定算法：{{ eventBoundAlgorithm.name }}（{{ eventBoundAlgorithm.code }}）</span>
-          <span v-else-if="form.algorithmCode" class="hint-text">未匹配到可布控算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法编码</span>
+          <span v-else-if="form.algorithmCode" class="hint-text">未匹配到可布控算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法</span>
         </div>
         <div class="deploy-field quick-deploy-wide">
           <label><span class="required">*</span>布控区域</label>
@@ -232,7 +232,7 @@ export default defineComponent({
     async submit() {
       const name = this.form.name.trim();
       if (!name) { this.notify("请输入任务名称"); return; }
-      if (!this.form.algorithmCode) { this.notify("请选择算法编号"); return; }
+      if (!this.form.algorithmCode) { this.notify("请选择事件编号"); return; }
       if (!this.form.cameraIds.length) { this.notify("请选择布控区域（至少一台摄像机）"); return; }
       if (!this.targetPreview) { this.notify("请上传布控目标图像"); return; }
       if (this.saving) return;

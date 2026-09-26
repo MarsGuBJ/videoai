@@ -13,7 +13,7 @@
           <div class="event-config-field"><span>事件来源</span><event-source-select v-model="form.source" /></div>
           <label class="event-config-field"><span><span class="required">*</span>事件名称</span><input v-model="form.name" class="input" placeholder="请输入内容" /></label>
           <label class="event-config-field"><span><span class="required">*</span>事件编码</span><input v-model="form.code" class="input" placeholder="请输入内容" /></label>
-          <label class="event-config-field"><span>算法编码</span><select v-model="form.algorithmCode" class="select" aria-label="算法编码"><option value="">不绑定算法</option><option v-for="item in algorithmOptions" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option></select></label>
+          <label class="event-config-field"><span>算法</span><select v-model="form.algorithmCode" class="select" aria-label="算法"><option value="">不绑定算法</option><option v-for="item in algorithmOptions" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option></select></label>
           <label class="event-config-field"><span>事件等级</span><select v-model="form.level" class="select"><option>低</option><option>中</option><option>高</option></select></label>
           <label class="event-config-field"><span>事件分类</span><select v-model="form.category" class="select"><option>安防事件</option><option>消防事件</option><option>环境事件</option><option>行为事件</option><option>交通事件</option></select></label>
           <label class="event-config-field"><span>标注方式</span><select v-model="form.mark" class="select"><option>多边形</option><option>关键点</option></select></label>
@@ -101,7 +101,7 @@ export default defineComponent({
       try {
         this.algorithmOptions = await api.algorithms();
       } catch {
-        // 算法列表不可用时算法编码下拉只保留「不绑定算法」
+        // 算法列表不可用时算法下拉只保留「不绑定算法」
       }
     },
     blankForm() {

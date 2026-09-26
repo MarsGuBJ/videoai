@@ -1,14 +1,18 @@
 """事件配置（事件信息/去重规则/推送任务）路由契约测试：TestClient 直连，DB 落库在路由模块命名空间 mock。"""
 
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+import app.api.routers.deployment_tasks as deployment_tasks_router
 import app.api.routers.event_dedup_rules as dedup_rules_router
 import app.api.routers.event_infos as event_infos_router
 import app.api.routers.event_push_tasks as push_tasks_router
 import app.api.routers.review_types as review_types_router
+import app.services.event_infos as event_infos_service
 from app import state
+from app.schemas.algorithm import AlgorithmRecord
 
 EVENT_INFO_PAYLOAD = {
     "name": "人员聚集",
@@ -204,6 +208,110 @@ def test_delete_event_info_allowed_after_review_type_removed(client: TestClient,
 
     assert response.status_code == 200
     assert client.get("/api/event-infos").json() == []
+
+
+# ---------------- 事件信息「算法编码」变更级联布控任务 ----------------
+
+
+def _seed_algorithm(code: str, name: str, engine_type: str = "face") -> AlgorithmRecord:
+    record = AlgorithmRecord(
+        id=uuid4(),
+        name=name,
+        code=code,
+        engineType=engine_type,
+        createdAt=datetime.now(timezone.utc),
+        updatedAt=datetime.now(timezone.utc),
+    )
+    state.algorithms_store[record.id] = record
+    return record
+
+
+def _create_cascade_task(client: TestClient, monkeypatch, **overrides) -> dict:
+    monkeypatch.setattr(deployment_tasks_router, "persist_deployment_task", lambda task: None)
+    monkeypatch.setattr(deployment_tasks_router, "sync_worker_streams_for_task", lambda task: None)
+    payload = {"name": "级联验证任务", "cameraIds": ["cam-01"], "algorithmCode": "evt-cascade", **overrides}
+    response = client.post("/api/deployment-tasks", json=payload)
+    assert response.status_code == 200
+    return response.json()
+
+
+def _mock_cascade_side_effects(monkeypatch) -> None:
+    monkeypatch.setattr(event_infos_service, "persist_deployment_task", lambda task: None)
+    monkeypatch.setattr(event_infos_service, "sync_worker_streams_for_task", lambda task: None)
+
+
+def test_update_event_info_algorithm_code_rebinds_deployment_tasks(client: TestClient, monkeypatch):
+    algo_a = _seed_algorithm("algo-a", "算法A")
+    algo_b = _seed_algorithm("algo-b", "算法B", engine_type="object")
+    created = _create_event_info(client, monkeypatch, code="evt-cascade", algorithmCode="algo-a")
+    task = _create_cascade_task(client, monkeypatch)
+    other = _create_cascade_task(client, monkeypatch, name="无关任务", algorithmCode="evt-other")
+    _mock_cascade_side_effects(monkeypatch)
+
+    response = client.put(f"/api/event-infos/{created['id']}", json={"algorithmCode": "algo-b"})
+
+    assert response.status_code == 200
+    rebound = client.get(f"/api/deployment-tasks/{task['id']}").json()
+    assert rebound["algorithmCode"] == "evt-cascade"
+    assert rebound["algorithmId"] == str(algo_b.id)
+    assert rebound["algorithmName"] == "算法B"
+    assert rebound["engineType"] == "object"
+    assert rebound["pipeline"] == "算法B"
+    assert rebound["algorithmId"] != str(algo_a.id)
+    # 引用其他事件编码的任务不受影响
+    untouched = client.get(f"/api/deployment-tasks/{other['id']}").json()
+    assert untouched["algorithmId"] is None
+
+
+def test_update_event_info_algorithm_code_unbinds_when_no_match(client: TestClient, monkeypatch):
+    _seed_algorithm("algo-a", "算法A")
+    created = _create_event_info(client, monkeypatch, code="evt-cascade", algorithmCode="algo-a")
+    task = _create_cascade_task(client, monkeypatch)
+    _mock_cascade_side_effects(monkeypatch)
+    # 先改成其他值触发一次级联，让任务绑定到 算法A
+    client.put(f"/api/event-infos/{created['id']}", json={"algorithmCode": ""})
+    client.put(f"/api/event-infos/{created['id']}", json={"algorithmCode": "algo-a"})
+    assert client.get(f"/api/deployment-tasks/{task['id']}").json()["algorithmId"] == str(
+        next(iter(state.algorithms_store))
+    )
+
+    response = client.put(f"/api/event-infos/{created['id']}", json={"algorithmCode": "algo-unknown"})
+
+    assert response.status_code == 200
+    unbound = client.get(f"/api/deployment-tasks/{task['id']}").json()
+    assert unbound["algorithmId"] is None
+    assert unbound["algorithmName"] is None
+    assert unbound["engineType"] is None
+    assert unbound["pipeline"] == ""
+
+
+def test_update_event_info_algorithm_code_cleared_falls_back_to_event_code(client: TestClient, monkeypatch):
+    _seed_algorithm("algo-a", "算法A")
+    fallback = _seed_algorithm("evt-cascade", "同名算法")
+    created = _create_event_info(client, monkeypatch, code="evt-cascade", algorithmCode="algo-a")
+    task = _create_cascade_task(client, monkeypatch)
+    _mock_cascade_side_effects(monkeypatch)
+
+    response = client.put(f"/api/event-infos/{created['id']}", json={"algorithmCode": ""})
+
+    assert response.status_code == 200
+    rebound = client.get(f"/api/deployment-tasks/{task['id']}").json()
+    assert rebound["algorithmId"] == str(fallback.id)
+    assert rebound["algorithmName"] == "同名算法"
+
+
+def test_update_event_info_without_algorithm_code_change_leaves_tasks_untouched(client: TestClient, monkeypatch):
+    _seed_algorithm("algo-a", "算法A")
+    created = _create_event_info(client, monkeypatch, code="evt-cascade", algorithmCode="algo-a")
+    task = _create_cascade_task(client, monkeypatch)
+    _mock_cascade_side_effects(monkeypatch)
+
+    response = client.put(f"/api/event-infos/{created['id']}", json={"name": "改名"})
+
+    assert response.status_code == 200
+    untouched = client.get(f"/api/deployment-tasks/{task['id']}").json()
+    assert untouched["algorithmId"] is None
+    assert untouched["algorithmName"] is None
 
 
 # ---------------- 去重规则 /api/event-dedup-rules ----------------

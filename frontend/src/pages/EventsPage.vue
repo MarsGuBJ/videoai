@@ -13,8 +13,8 @@
             <td class="left"><div class="event-name-cell"><div class="event-thumb-wrap"><img v-if="row.image" class="event-thumb" :src="row.image" :alt="row.name" style="cursor:pointer;" @click="setRoute('imageSearch', { prefill: row.image })" /><div v-else class="event-thumb"></div></div><div><h4>{{ row.name }}</h4><p>{{ row.time }}</p></div></div></td>
             <td>{{ row.type }}</td>
             <td><span class="level-pill" :class="levelClass(row.level)">{{ row.level }}</span></td>
-            <td class="left ellipsis" :title="taskNameOf(row.deploymentTaskId)">{{ taskNameOf(row.deploymentTaskId) }}</td>
-            <td>{{ row.area }}<br /><span class="hint-text">{{ row.point }}</span></td>
+            <td class="left ellipsis" :title="taskNameOf(row)">{{ taskNameOf(row) }}</td>
+            <td>{{ areaOf(row) }}<br /><span class="hint-text">{{ row.point }}</span></td>
             <td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td>
             <td><button class="link-blue" @click="openEventDetail(row)">详情</button><button v-if="row.status !== '待复核'" class="link-blue" :disabled="handling" @click="handleEvent(row)">处理</button></td>
           </tr>
@@ -151,15 +151,27 @@ export default defineComponent({
     },
     openEventDetail(row: any) {
       // 事件来源列为布控任务名（任务列表异步加载，点击详情时再归一并带上）
-      (this as any).injectedOpenEventDetail({ ...row, eventSource: this.taskNameOf(row.deploymentTaskId) });
+      (this as any).injectedOpenEventDetail({ ...row, eventSource: this.taskNameOf(row) });
     },
     showToast(m: string) {
       (this as any).injectedShowToast(m);
     },
-    taskNameOf(id?: string | null): string {
-      if (!id) return "—";
-      const task = this.tasks.find((item) => item.id === id);
+    taskNameOf(row: any): string {
+      const task = this.taskOf(row);
       return task ? task.name : "—";
+    },
+    // 事件来源/布控区域关联布控任务：优先按事件的 deploymentTaskId，
+    // 缺失时按点位反查包含该点位的任务（worker 对无任务点位上报的事件不带 taskId）
+    taskOf(row: any): DeploymentTask | undefined {
+      const byId = row.deploymentTaskId ? this.tasks.find((item) => item.id === row.deploymentTaskId) : undefined;
+      if (byId) return byId;
+      const cameraId = row.cameraId ? String(row.cameraId) : "";
+      return cameraId ? this.tasks.find((item) => (item.cameraIds || []).map(String).includes(cameraId)) : undefined;
+    },
+    // 布控区域取布控任务摄像头所属区域（任务落库的 area 即所选点位区域合集），取不到回落事件点位区域
+    areaOf(row: any): string {
+      const task = this.taskOf(row);
+      return (task && task.area) || row.area || "—";
     },
     toIso(value: string): string | undefined {
       if (!value) return undefined;

@@ -9,6 +9,7 @@ from app import state
 from app.schemas.event_info import EventInfoCreate, EventInfoOut, EventInfoUpdate
 from app.services.event_infos import (
     assert_event_info_not_referenced,
+    cascade_event_algorithm_to_tasks,
     delete_event_info_from_db,
     event_info_out,
     persist_event_info,
@@ -55,8 +56,11 @@ def create_event_info(request: EventInfoCreate) -> EventInfoOut:
 
 @router.put("/api/event-infos/{event_id}", response_model=EventInfoOut)
 def update_event_info(event_id: str, request: EventInfoUpdate) -> EventInfoOut:
-    """更新事件信息；缺省字段保留原值。"""
+    """更新事件信息；缺省字段保留原值。「算法编码」变更时级联刷新引用该事件的布控任务。"""
     record = require_event_info(event_id)
+    # 布控任务按事件编码引用事件信息，级联匹配要用修改前的编码
+    old_code = str(record.get("code") or "")
+    old_algorithm_code = str(record.get("algorithm_code") or "")
     if request.name is not None:
         record["name"] = request.name
     if request.code is not None:
@@ -83,6 +87,9 @@ def update_event_info(event_id: str, request: EventInfoUpdate) -> EventInfoOut:
         record["enabled"] = request.enabled
     record["updated_at"] = datetime.now(timezone.utc)
     persist_event_info(record)
+    new_algorithm_code = str(record.get("algorithm_code") or "")
+    if request.algorithmCode is not None and new_algorithm_code != old_algorithm_code:
+        cascade_event_algorithm_to_tasks(old_code, new_algorithm_code)
     return event_info_out(record)
 
 

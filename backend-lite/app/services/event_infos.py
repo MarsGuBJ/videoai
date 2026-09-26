@@ -1,6 +1,7 @@
 """事件信息的内存态与数据库持久化。"""
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, cast
 
 from fastapi import HTTPException
@@ -11,6 +12,8 @@ from app import state
 from app.db.session import SessionLocal, engine
 from app.models.event_info import EventInfoORM
 from app.schemas.event_info import EventInfoOut
+from app.services.deployment_tasks import persist_deployment_task
+from app.services.worker_streams import sync_worker_streams_for_task
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,57 @@ def assert_event_info_not_referenced(record: dict[str, Any]) -> None:
             status_code=409,
             detail="事件配置已被复核任务引用，无法删除",
         )
+
+
+def cascade_event_algorithm_to_tasks(event_code: str, bound_algorithm_code: str) -> int:
+    """事件信息「算法编码」变更后，级联更新引用该事件的布控任务的算法快照。
+
+    布控任务的 algorithmCode 存的是事件编码（布控弹窗的「算法编号」），
+    algorithmId/algorithmName/engineType/pipeline 是保存时的算法快照；事件配置里
+    改了「算法编码」后快照即过期。这里按与前端 resolveEventAlgorithm 相同的口径
+    重新解析：优先事件绑定的算法编码，绑定为空或未命中时回落到事件编码本身对应
+    的算法；都匹配不到则解绑。同步落库并刷新 worker 流。
+
+    Args:
+        event_code: 事件编码（布控任务按 algorithmCode 引用它）。
+        bound_algorithm_code: 事件信息修改后的算法编码。
+
+    Returns:
+        实际更新的布控任务数。
+    """
+    code = event_code.strip()
+    if not code:
+        return 0
+    candidates = [item for item in (bound_algorithm_code.strip(), code) if item]
+    algorithm = next(
+        (
+            algo
+            for candidate in candidates
+            for algo in state.algorithms_store.values()
+            if algo.code.strip() == candidate
+        ),
+        None,
+    )
+    now = datetime.now(timezone.utc)
+    updated_count = 0
+    for task in list(state.deployment_tasks_store.values()):
+        if (task.algorithmCode or "").strip() != code:
+            continue
+        updated = task.model_copy(
+            update={
+                "algorithmId": algorithm.id if algorithm else None,
+                "algorithmName": algorithm.name if algorithm else None,
+                "engineType": algorithm.engineType if algorithm else None,
+                "pipeline": algorithm.name if algorithm else "",
+                "updatedAt": now,
+            }
+        )
+        state.deployment_tasks_store[task.id] = updated
+        persist_deployment_task(updated)
+        sync_worker_streams_for_task(task)
+        sync_worker_streams_for_task(updated)
+        updated_count += 1
+    return updated_count
 
 
 def event_info_out(record: dict[str, Any]) -> EventInfoOut:

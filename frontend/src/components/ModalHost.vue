@@ -196,9 +196,9 @@ export default {
       });
       return Object.keys(groups).map((name) => ({ name, cameras: groups[name] }));
     },
-    // 算法编号下拉：选项来自事件信息配置，value 用事件信息的编码；
+    // 事件编号下拉：选项来自事件信息配置，value 用事件信息的编码；
     // 选中后按其 algorithmCode 在算法列表中匹配出实际布控算法，事件未绑定算法
-    // 编码时回落到「算法编号本身即算法编码」的算法（见 utils/algorithm-binding）。
+    // 时回落到「事件编号本身即算法编码」的算法（见 utils/algorithm-binding）。
     deploySelectedEventInfo(): EventInfo | undefined {
       return this.deployEventInfos.find((item) => item.code === this.deployAlgorithmCode);
     },
@@ -208,15 +208,15 @@ export default {
     deploySelectedAlgorithm(): Algorithm | undefined {
       return this.deployAlgorithmResolution.algorithm;
     },
-    // 算法编号下方的提示：让用户看清这次到底绑定了哪个算法，没绑上也要说清楚
+    // 事件编号下方的提示：让用户看清这次到底绑定了哪个算法，没绑上也要说清楚
     deployAlgorithmHint(): string {
       const resolution = this.deployAlgorithmResolution;
       if (!this.deployAlgorithmCode) return "";
       if (resolution.algorithm) return `已绑定算法：${resolution.algorithm.name}（${resolution.algorithm.code}）`;
       if (resolution.boundCode) {
-        return `事件绑定的算法编码「${resolution.boundCode}」在算法管理中不存在：任务会照常创建，但 worker 不会启动算法`;
+        return `事件绑定的算法「${resolution.boundCode}」在算法管理中不存在：任务会照常创建，但 worker 不会启动算法`;
       }
-      return "该事件未绑定可布控算法，且没有同编码的算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法编码";
+      return "该事件未绑定可布控算法，且没有同编码的算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法";
     },
     deployCameraSummary(): string {
       const count = this.deploySelectedCameras.length;
@@ -1027,7 +1027,7 @@ export default {
           .then((engines) => { this.algorithmEngines = engines; })
           .catch((error) => this.showToast(`算法引擎加载失败：${error instanceof Error ? error.message : error}`));
       }
-      // 算法编号下拉：选项来自事件配置页（事件信息）的编码，与原型一致
+      // 事件编号下拉：选项来自事件配置页（事件信息）的编码，与原型一致
       if (!this.algorithmEventInfos.length) {
         api.eventInfos()
           .then((rows) => { this.algorithmEventInfos = rows; })
@@ -1708,10 +1708,10 @@ export default {
             <input class="input" v-model="deployTaskName" placeholder="请输入任务名称" />
           </div>
           <div class="modal-form-row">
-            <label><span class="required">*</span>算法编号：</label>
+            <label><span class="required">*</span>事件编号：</label>
             <div class="deploy-algorithm-field">
               <select class="select" v-model="deployAlgorithmCode">
-                <option value="">请选择算法编号</option>
+                <option value="">请选择事件编号</option>
                 <option v-for="item in deployEventInfos" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option>
               </select>
               <span v-if="deployAlgorithmHint" class="hint-text" :class="{ 'hint-warn': !deploySelectedAlgorithm }">{{ deployAlgorithmHint }}</span>
