@@ -426,6 +426,111 @@ function markdownToHtml(text: string): string {
   return html.join("");
 }
 
+// ===== 文本型 PDF 导出（pdfmake + 内嵌中文字体子集，文字可选中/复制，非截图图片型） =====
+// 行内 Markdown → pdfmake 文本段，与 renderMarkdownInline 同一套子集：**加粗**、*斜体*、`行内代码`
+function mdInlineToPdfSegments(text: string): any[] {
+  const segments: any[] = [];
+  const pattern = /(\*\*([^*]+)\*\*|\*([^*\n]+)\*|`([^`]+)`)/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > last) segments.push(text.slice(last, match.index));
+    if (match[2] != null) segments.push({ text: match[2], bold: true });
+    else if (match[3] != null) segments.push({ text: match[3], italics: true });
+    else segments.push({ text: match[4], background: "#eef2f7" });
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) segments.push(text.slice(last));
+  return segments.length ? segments : [""];
+}
+
+// 与 markdownToHtml 同一套轻量 Markdown 子集：# 标题、无序/有序列表、空行分段、段内换行
+function markdownToPdfBlocks(text: string): any[] {
+  const blocks = String(text || "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+  const content: any[] = [];
+  for (const block of blocks) {
+    const lines = block.split("\n").map(line => line.trimEnd()).filter(line => line.trim());
+    if (!lines.length) continue;
+    const heading = lines.length === 1 ? lines[0].match(/^(#{1,4})\s+(.*)$/) : null;
+    if (heading) {
+      const level = Math.min(heading[1].length, 4);
+      content.push({ text: mdInlineToPdfSegments(heading[2]), bold: true, fontSize: [14, 13, 12, 11][level - 1], margin: [0, 6, 0, 3] });
+      continue;
+    }
+    const isUl = lines.every(line => /^[-*•]\s+/.test(line.trim()));
+    const isOl = lines.every(line => /^\d+[.、)]\s*/.test(line.trim()));
+    if (isUl || isOl) {
+      const items = lines.map(line => ({ text: mdInlineToPdfSegments(line.trim().replace(/^[-*•]\s+|^\d+[.、)]\s*/, "")), margin: [0, 1, 0, 1] }));
+      content.push({ [isUl ? "ul" : "ol"]: items, margin: [0, 2, 0, 4] });
+      continue;
+    }
+    const parts: any[] = [];
+    lines.forEach((line, index) => {
+      if (index) parts.push("\n");
+      parts.push(...mdInlineToPdfSegments(line));
+    });
+    content.push({ text: parts, margin: [0, 2, 0, 4] });
+  }
+  return content;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  return window.btoa(binary);
+}
+
+function utf8ToBase64(text: string): string {
+  return arrayBufferToBase64(new TextEncoder().encode(text).buffer as ArrayBuffer);
+}
+
+// MIME 部件的 base64 按 76 列折行
+function wrapBase64(b64: string): string {
+  const lines: string[] = [];
+  for (let i = 0; i < b64.length; i += 76) lines.push(b64.slice(i, i + 76));
+  return lines.join("\r\n");
+}
+
+// pdfmake 与中文字体子集都只在导出时按需加载（字体文件在 public/fonts/ 下，构建时拷进 dist）
+let pdfMakeLoader: Promise<any> | null = null;
+function loadPdfMake(): Promise<any> {
+  if (!pdfMakeLoader) {
+    pdfMakeLoader = (async () => {
+      const mod: any = await import("pdfmake/build/pdfmake");
+      const pdfMake = mod.default || mod;
+      if (!pdfMake.__videoaiFontsLoaded) {
+        const fetchFont = async (name: string) => {
+          const resp = await fetch(`/fonts/${name}`);
+          if (!resp.ok) throw new Error(`PDF 字体加载失败：${name}（HTTP ${resp.status}）`);
+          return arrayBufferToBase64(await resp.arrayBuffer());
+        };
+        const [regular, bold] = await Promise.all([fetchFont("NotoSansSC-Regular.ttf"), fetchFont("NotoSansSC-Bold.ttf")]);
+        pdfMake.addFontContainer({
+          vfs: { "NotoSansSC-Regular.ttf": regular, "NotoSansSC-Bold.ttf": bold },
+          fonts: PDF_FONT_DEFS
+        });
+        pdfMake.__videoaiFontsLoaded = true;
+      }
+      return pdfMake;
+    })();
+    // 加载失败时允许下次重试
+    pdfMakeLoader.catch(() => { pdfMakeLoader = null; });
+  }
+  return pdfMakeLoader;
+}
+
+// pdfmake 字体族：斜体无独立字体文件，回退到常规/粗体
+const PDF_FONT_DEFS = {
+  NotoSC: {
+    normal: "NotoSansSC-Regular.ttf",
+    bold: "NotoSansSC-Bold.ttf",
+    italics: "NotoSansSC-Regular.ttf",
+    bolditalics: "NotoSansSC-Bold.ttf"
+  }
+};
+
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
@@ -2455,53 +2560,103 @@ export default defineComponent({
         };
       });
     },
-    reportEventsHtml(imageCache?: Record<string, string>) {
-      return this.reportEvents(imageCache).map(item => {
-        const shot = item.src ? `<img class="shot" src="${this.escapeHtml(item.src)}" alt="${this.escapeHtml(item.title)}" />` : "";
-        return `<section class="event"><h3>${item.index + 1}. ${this.escapeHtml(item.title)}</h3><p class="meta">发生时间：${this.escapeHtml(item.time)}</p><div class="event-body">${shot}<div class="md">${this.renderMarkdown(item.detail)}</div></div></section>`;
-      }).join("");
-    },
     reportResultsHtml() {
       const rows = this.results.map((item: any) => `<tr><td>${this.escapeHtml(item.title || "-")}</td><td>${this.escapeHtml(item.value == null || item.value === "" ? "-" : item.value)}</td><td>${this.escapeHtml(item.detail || "-")}</td></tr>`).join("");
       return `<table><thead><tr><th style="width:22%;">项目</th><th style="width:22%;">数值</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>`;
     },
-    // 导出 PDF 的报告样式：渲染进隐藏 DOM 交给 html2canvas 截屏，再由 jsPDF 分页成 A4
-    reportCssText() {
-      return `
-        * { box-sizing: border-box; }
-        .pdf-report { margin: 0; padding: 60px 53px; width: 794px; color: #1f2d3d; font: 12px/1.75 "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #ffffff; }
-        .pdf-report h1 { margin: 0 0 6px; font-size: 20px; }
-        .pdf-report h2 { margin: 22px 0 10px; padding-left: 9px; border-left: 4px solid #2087e6; font-size: 15px; }
-        .pdf-report h3 { margin: 14px 0 6px; font-size: 13px; }
-        .pdf-report .meta { margin: 0 0 4px; color: #657689; font-size: 11px; }
-        .pdf-report .md p { margin: 4px 0; }
-        .pdf-report .md ul { margin: 4px 0; padding-left: 20px; }
-        .pdf-report .event-body { display: flex; gap: 12px; align-items: flex-start; }
-        .pdf-report .event-body .md { flex: 1; min-width: 0; }
-        .pdf-report .shot { width: 250px; max-width: 42%; border: 1px solid #d9e2ef; border-radius: 4px; }
-        .pdf-report table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .pdf-report th, .pdf-report td { padding: 7px 9px; border: 1px solid #d9e2ef; text-align: left; vertical-align: top; }
-        .pdf-report th { background: #f2f7ff; font-weight: 600; }
-        .pdf-report .empty { color: #98a2b3; }
-        .pdf-report header { padding-bottom: 12px; margin-bottom: 4px; border-bottom: 2px solid #2087e6; }
-      `;
-    },
-    reportBodyHtml(imageCache?: Record<string, string>) {
-      const meta = this.reportMeta();
-      const overview = this.summary.overview ? `<div class="md">${this.renderMarkdown(this.summary.overview)}</div>` : `<p class="empty">暂无事件摘要</p>`;
-      const events = this.reportEventsHtml(imageCache);
-      const summarySection = `<h2>一、事件摘要</h2>${overview}`;
-      const resultSection = `<h2>二、分析结果（共 ${this.events.length} 个关键事件）</h2>${events || `<p class="empty">暂无分析事件</p>`}`;
-      const statsSection = this.results.length ? `<h2>三、统计结果</h2>${this.reportResultsHtml()}` : "";
-      return `<header><h1>文搜视频分析报告</h1><p class="meta">视频源：${this.escapeHtml(meta.sourceName)} ｜ 来源：${this.escapeHtml(meta.sourceType)}</p><p class="meta">检索内容：${this.escapeHtml(meta.query)} ｜ 生成时间：${this.escapeHtml(meta.stamp)}</p></header>${summarySection}${resultSection}${statsSection}`;
-    },
-    // 导出 PDF：隐藏 DOM 渲染报告 → html2canvas 截屏 → jsPDF 按 A4 分页后直接保存下载。
+    // 导出 PDF：pdfmake 生成文本型 PDF（文字可选中/复制），版式与 Word 报告一致；
+    // 事件截图复用页面已加载的事件卡片图（data URL），按与 Word 导出相同的缩放策略控制尺寸。
     // 不用 window.print：打印预览是浏览器级模态框，弹出期间会屏蔽主页面所有点击。
     async exportPdfReport() {
       if (this.pdfExporting) return;
       this.pdfExporting = true;
       this.showToast("正在生成 PDF，请稍候…");
-      // 先等事件卡片截图加载完（报告复用这些已加载的图；渐进式 JPEG 加载一半时画出来是黑图）
+      try {
+        // 先等事件卡片截图加载完（报告复用这些已加载的图；渐进式 JPEG 加载一半时画出来是黑图）
+        const cardImgs = Array.from(document.querySelectorAll(".exact-event-card img")) as HTMLImageElement[];
+        const loading = cardImgs.filter(img => !img.complete || !img.naturalWidth);
+        if (loading.length) {
+          await Promise.race([
+            Promise.all(loading.map(img => new Promise(resolve => {
+              img.addEventListener("load", resolve, { once: true });
+              img.addEventListener("error", resolve, { once: true });
+            }))),
+            new Promise(resolve => window.setTimeout(resolve, 30000))
+          ]);
+        }
+        const imageCache = this.loadedEventImageDataUrls();
+        const dims = this.loadedEventImageDims();
+        const pdfMake = await loadPdfMake();
+        const meta = this.reportMeta();
+        const content: any[] = [
+          { text: "文搜视频分析报告", fontSize: 18, bold: true, margin: [0, 0, 0, 4] },
+          { text: `视频源：${meta.sourceName} ｜ 来源：${meta.sourceType}`, style: "meta" },
+          { text: `检索内容：${meta.query} ｜ 生成时间：${meta.stamp}`, style: "meta", margin: [0, 0, 0, 10] },
+          { text: "一、事件摘要", style: "h2" }
+        ];
+        if (this.summary.overview) content.push(...markdownToPdfBlocks(this.summary.overview));
+        else content.push({ text: "暂无事件摘要", style: "empty" });
+        content.push({ text: `二、分析结果（共 ${this.events.length} 个关键事件）`, style: "h2" });
+        // 事件截图缩放：宽上限 250pt、高上限 170pt，按原始比例自适应（与 Word 导出策略一致）
+        this.reportEvents().forEach(item => {
+          content.push({ text: `${item.index + 1}. ${item.title}`, style: "h3" });
+          content.push({ text: `发生时间：${item.time}`, style: "meta", margin: [0, 0, 0, 3] });
+          const dataUrl = imageCache[item.src] || "";
+          const dim = dims[item.src];
+          const detailBlocks = markdownToPdfBlocks(item.detail);
+          if (dataUrl) {
+            let width = 250;
+            let height = dim && dim.width ? width * dim.height / dim.width : 160;
+            if (height > 170) { height = 170; width = dim && dim.height ? height * dim.width / dim.height : width; }
+            const imageBlock: any = { image: dataUrl, width, margin: [0, 2, 0, 6] };
+            if (dim && dim.width) imageBlock.height = Math.round(height);
+            content.push(detailBlocks.length
+              ? { columns: [Object.assign(imageBlock, { width: Math.round(imageBlock.width) }), { stack: detailBlocks, width: "*" }], columnGap: 10 }
+              : imageBlock);
+          } else {
+            content.push(...detailBlocks);
+          }
+        });
+        if (!this.events.length) content.push({ text: "暂无分析事件", style: "empty" });
+        if (this.results.length) {
+          content.push({ text: "三、统计结果", style: "h2" });
+          content.push({
+            table: {
+              headerRows: 1,
+              widths: ["22%", "22%", "*"],
+              body: [
+                [{ text: "项目", style: "th" }, { text: "数值", style: "th" }, { text: "说明", style: "th" }],
+                ...this.results.map((item: any) => [String(item.title || "-"), String(item.value == null || item.value === "" ? "-" : item.value), String(item.detail || "-")])
+              ]
+            }
+          });
+        }
+        const stamp = meta.stamp.replace(/[-: ]/g, "");
+        pdfMake.createPdf({
+          pageSize: "A4",
+          pageMargins: [48, 56, 48, 56],
+          defaultStyle: { font: "NotoSC", fontSize: 10.5, lineHeight: 1.5, color: "#1f2d3d" },
+          styles: {
+            h2: { fontSize: 14, bold: true, margin: [0, 14, 0, 6] },
+            h3: { fontSize: 12, bold: true, margin: [0, 10, 0, 3] },
+            meta: { fontSize: 9, color: "#657689", margin: [0, 0, 0, 2] },
+            empty: { color: "#98a2b3", margin: [0, 2, 0, 6] },
+            th: { bold: true }
+          },
+          content
+        }).download(`文搜视频分析报告-${stamp}.pdf`);
+        this.showToast("PDF 报告已下载（含分析结果截图）");
+      } catch (error) {
+        this.showToast(`PDF 导出失败：${error instanceof Error ? error.message : error}`);
+      } finally {
+        this.pdfExporting = false;
+      }
+    },
+    // 导出 Word：MHTML（multipart/related）封装，事件截图以 base64 MIME 部件嵌入文档，
+    // Word/WPS 打开 .doc 时直接读文档内图片——隔离网络环境也能显示（不再远程引用图片 URL）。
+    // img src 与图片部件的 Content-Location 一一对应；截图复用页面已加载的事件卡片图。
+    async exportWordReport() {
+      // 先等事件卡片截图加载完，尽量全部嵌入文档（渐进式 JPEG 加载一半时画出来是黑图）
       const cardImgs = Array.from(document.querySelectorAll(".exact-event-card img")) as HTMLImageElement[];
       const loading = cardImgs.filter(img => !img.complete || !img.naturalWidth);
       if (loading.length) {
@@ -2513,68 +2668,24 @@ export default defineComponent({
           new Promise(resolve => window.setTimeout(resolve, 30000))
         ]);
       }
-      // 截图复用页面上已加载的事件卡片图（data URL），避免逐张重新请求后端截帧
-      const imageCache = this.loadedEventImageDataUrls();
-      const host = document.createElement("div");
-      host.style.cssText = "position:fixed;left:-10000px;top:0;z-index:-1;";
-      host.innerHTML = `<style>${this.reportCssText()}</style><div class="pdf-report">${this.reportBodyHtml(imageCache)}</div>`;
-      document.body.appendChild(host);
-      try {
-        const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import("jspdf"), import("html2canvas")]);
-        const reportEl = host.querySelector(".pdf-report") as HTMLElement;
-        // 报告里的截图没加载完就截屏会印出空白图，等图片就绪（8 秒超时兜底）
-        const pending = Array.from(reportEl.querySelectorAll("img")).filter(img => !img.complete);
-        if (pending.length) {
-          await Promise.race([
-            Promise.all(pending.map(img => new Promise(resolve => {
-              img.addEventListener("load", resolve, { once: true });
-              img.addEventListener("error", resolve, { once: true });
-            }))),
-            new Promise(resolve => window.setTimeout(resolve, 8000))
-          ]);
-        }
-        const canvas = await html2canvas(reportEl, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false });
-        const pdf = new jsPDF({ unit: "pt", format: "a4" });
-        const pageW = pdf.internal.pageSize.getWidth();
-        const pageH = pdf.internal.pageSize.getHeight();
-        const pxPerPt = canvas.width / pageW;
-        const pagePx = Math.max(1, Math.floor(pageH * pxPerPt));
-        for (let y = 0; y < canvas.height; y += pagePx) {
-          const sliceH = Math.min(pagePx, canvas.height - y);
-          const slice = document.createElement("canvas");
-          slice.width = canvas.width;
-          slice.height = sliceH;
-          const ctx = slice.getContext("2d");
-          if (!ctx) continue;
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, slice.width, slice.height);
-          ctx.drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
-          if (y > 0) pdf.addPage();
-          pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, sliceH / pxPerPt);
-        }
-        const stamp = this.reportMeta().stamp.replace(/[-: ]/g, "");
-        pdf.save(`文搜视频分析报告-${stamp}.pdf`);
-        this.showToast("PDF 报告已下载（含分析结果截图）");
-      } catch (error) {
-        this.showToast(`PDF 导出失败：${error instanceof Error ? error.message : error}`);
-      } finally {
-        host.remove();
-        this.pdfExporting = false;
-      }
-    },
-    exportWordReport() {
       const meta = this.reportMeta();
       const overview = this.summary.overview ? `<div class="md">${this.renderMarkdown(this.summary.overview)}</div>` : `<p class="empty">暂无事件摘要</p>`;
       // Word 导入 HTML 时对 <style> 里的 class 宽度支持不稳定，大图会按原始尺寸（如 1920×1080）撑破排版；
       // 这里按页面已加载截图的原始比例算出缩放后的宽高，直接写进 img 的 width/height 属性和内联样式。
+      const imageCache = this.loadedEventImageDataUrls();
       const dims = this.loadedEventImageDims();
       const shotWidth = 320;
+      const imageParts: Array<{ mime: string; location: string; base64: string }> = [];
       const eventsHtml = this.reportEvents().map(item => {
         let shot = "";
-        if (item.src) {
+        const dataUrl = imageCache[item.src] || "";
+        const matched = dataUrl.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
+        if (item.src && matched) {
+          const location = `http://videoai.report/images/event-${item.index + 1}.jpg`;
+          imageParts.push({ mime: matched[1], location, base64: matched[2] });
           const dim = dims[item.src];
           const shotHeight = dim && dim.width ? Math.max(1, Math.round(shotWidth * dim.height / dim.width)) : 180;
-          shot = `<img class="shot" src="${this.escapeHtml(item.src)}" alt="${this.escapeHtml(item.title)}" width="${shotWidth}" height="${shotHeight}" style="width:${shotWidth}px;height:${shotHeight}px;" />`;
+          shot = `<img class="shot" src="${location}" alt="${this.escapeHtml(item.title)}" width="${shotWidth}" height="${shotHeight}" style="width:${shotWidth}px;height:${shotHeight}px;" />`;
         }
         return `<section class="event"><h3>${item.index + 1}. ${this.escapeHtml(item.title)}</h3><p class="meta">发生时间：${this.escapeHtml(item.time)}</p><div class="event-body">${shot}<div class="md">${this.renderMarkdown(item.detail)}</div></div></section>`;
       }).join("");
@@ -2592,7 +2703,29 @@ export default defineComponent({
         <h2>二、分析结果（共 ${this.events.length} 个关键事件）</h2>${eventsHtml || `<p class="empty">暂无分析事件</p>`}
         ${this.results.length ? `<h2>三、统计结果</h2>${this.reportResultsHtml()}` : ""}
       </body></html>`;
-      this.downloadBlob(html, "application/msword", "文搜视频分析报告.doc");
+      const boundary = "----=_videoai-word-report";
+      const mhtmlLines = [
+        "MIME-Version: 1.0",
+        `Content-Type: multipart/related; type="text/html"; boundary="${boundary}"`,
+        "",
+        `--${boundary}`,
+        'Content-Type: text/html; charset="utf-8"',
+        "Content-Transfer-Encoding: base64",
+        "",
+        wrapBase64(utf8ToBase64(html))
+      ];
+      imageParts.forEach(part => {
+        mhtmlLines.push(
+          `--${boundary}`,
+          `Content-Type: ${part.mime}`,
+          "Content-Transfer-Encoding: base64",
+          `Content-Location: ${part.location}`,
+          "",
+          wrapBase64(part.base64)
+        );
+      });
+      mhtmlLines.push(`--${boundary}--`, "");
+      this.downloadBlob(mhtmlLines.join("\r\n"), "application/msword", "文搜视频分析报告.doc");
       this.showToast("Word 报告已下载（含分析结果截图）");
     },
     exportMarkdownReport() {
