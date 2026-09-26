@@ -6,8 +6,10 @@
       <div v-if="sourceMode === 'online'" class="exact-online-pane">
         <div class="exact-source-form" @click.stop>
           <div class="deploy-field"><label>区域 / 监控点</label><div class="exact-tree-select"><button class="exact-tree-trigger" :class="{ open: pointDropdownOpen }" @click="togglePointDropdown"><span>{{ selectedPointLabel }}</span><span>{{ pointDropdownOpen ? '收起' : '展开' }}⌄</span></button><div v-if="pointDropdownOpen" class="exact-tree-dropdown"><div class="exact-tree-search"><input v-model="pointSearchQuery" type="text" placeholder="输入关键字搜索监控点" @click.stop /></div><div v-for="entry in pointAreaEntries" :key="entry.area.name"><button class="exact-tree-area-row" :class="{ active: selectedArea && selectedArea.name === entry.area.name }" @click="toggleArea(entry.area)"><span>{{ expandedAreas[entry.area.name] || pointSearchActive ? '⌄' : '›' }} {{ entry.area.name }}</span><span>{{ entry.cameras.length }} 台设备</span></button><div v-if="expandedAreas[entry.area.name] || pointSearchActive" class="exact-tree-children"><button v-for="camera in entry.cameras" :key="camera.code" class="exact-tree-device" :class="{ active: selectedCamera && selectedCamera.code === camera.code }" @click="selectCamera(camera, entry.area)"><span>{{ camera.name }}</span><span>{{ camera.status }}</span></button></div></div><div v-if="!pointAreaEntries.length" class="exact-tree-empty">未找到匹配的监控点</div></div></div></div>
-          <div class="deploy-field"><date-time-range-picker v-model:start="onlineStart" v-model:end="onlineEnd" /></div>
-          <button class="btn primary" :disabled="searching" @click="searchOnlineSources">⌕ 搜索回放</button>
+          <div class="exact-source-form-side">
+            <div class="deploy-field"><date-time-range-picker v-model:start="onlineStart" v-model:end="onlineEnd" /></div>
+            <button class="btn primary" :disabled="searching" @click="searchOnlineSources">⌕ 搜索回放</button>
+          </div>
         </div>
       </div>
       <div v-else class="exact-last-video-panel">
@@ -635,6 +637,7 @@ export default defineComponent({
       activeQuickPrompt: "",
       query: "查找视频中出现的白色车辆，以及人员进入限制区域的情况",
       analyzed: false,
+      pdfExporting: false,
       videoView: "record",
       questionInput: "",
       questionBusy: false,
@@ -1596,11 +1599,11 @@ export default defineComponent({
       if (!baseMs || !event) return event && event.time ? event.time : "";
       return toLocalDateTimeSeconds(baseMs + (Number(event.start) || 0) * 1000).slice(11);
     },
-    // 分析结果事件卡片用真实截图：按事件起点从视频文件截帧；失败时回退到原占位图
+    // 分析结果事件卡片用真实截图：按事件起点从视频文件截帧（854 宽缩略图，减小现场链路传输体积）；失败时回退到原占位图
     applyEventFrameImages(events, videoUrl) {
       (events as any[]).forEach(event => {
         if (!event.fallbackImage) event.fallbackImage = event.image;
-        const frameUrl = videoAnalysisFrameUrl(videoUrl, event.start);
+        const frameUrl = videoAnalysisFrameUrl(videoUrl, event.start, 854);
         if (frameUrl) event.image = frameUrl;
       });
     },
@@ -2299,18 +2302,43 @@ export default defineComponent({
         stamp: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
       };
     },
-    // 分析结果条目（含后端按时间点截出的画面），三种报告共用
-    reportEvents() {
-      return this.events.map((item: any, index: number) => ({
-        index,
-        title: item.name || `事件 ${index + 1}`,
-        time: this.formatEventDisplayTime(item),
-        detail: item.detail || "",
-        src: this.reportImageSrc(item.image)
-      }));
+    // 事件卡片截图已在页面上加载过，直接转成 data URL 复用，避免报告里的 img 再逐张请求后端截帧
+    // （/api/video-analysis/frame 每次都要重新截帧，多张时会拖慢导出几十秒）；跨域污染等失败场景忽略，回退原始 URL。
+    // 注意必须 img.complete：渐进式 JPEG 加载到一半时 naturalWidth 已有值但像素未解码完，画出来是黑图
+    loadedEventImageDataUrls() {
+      const cache: Record<string, string> = {};
+      document.querySelectorAll(".exact-event-card img").forEach(node => {
+        const img = node as HTMLImageElement;
+        if (!img.complete || !img.naturalWidth) return;
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(img, 0, 0);
+          cache[img.currentSrc || img.src] = canvas.toDataURL("image/jpeg", 0.9);
+        } catch {
+          // ignore
+        }
+      });
+      return cache;
     },
-    reportEventsHtml() {
-      return this.reportEvents().map(item => {
+    // 分析结果条目（含后端按时间点截出的画面），三种报告共用
+    reportEvents(imageCache?: Record<string, string>) {
+      return this.events.map((item: any, index: number) => {
+        const src = this.reportImageSrc(item.image);
+        return {
+          index,
+          title: item.name || `事件 ${index + 1}`,
+          time: this.formatEventDisplayTime(item),
+          detail: item.detail || "",
+          src: (imageCache && imageCache[src]) || src
+        };
+      });
+    },
+    reportEventsHtml(imageCache?: Record<string, string>) {
+      return this.reportEvents(imageCache).map(item => {
         const shot = item.src ? `<img class="shot" src="${this.escapeHtml(item.src)}" alt="${this.escapeHtml(item.title)}" />` : "";
         return `<section class="event"><h3>${item.index + 1}. ${this.escapeHtml(item.title)}</h3><p class="meta">发生时间：${this.escapeHtml(item.time)}</p><div class="event-body">${shot}<div class="md">${this.renderMarkdown(item.detail)}</div></div></section>`;
       }).join("");
@@ -2319,74 +2347,102 @@ export default defineComponent({
       const rows = this.results.map((item: any) => `<tr><td>${this.escapeHtml(item.title || "-")}</td><td>${this.escapeHtml(item.value == null || item.value === "" ? "-" : item.value)}</td><td>${this.escapeHtml(item.detail || "-")}</td></tr>`).join("");
       return `<table><thead><tr><th style="width:22%;">项目</th><th style="width:22%;">数值</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>`;
     },
-    // 导出 PDF：把报告渲染成独立打印页并唤起浏览器打印，「另存为 PDF」即得到带中文与截图的 PDF。
-    // 前端没有 PDF 库，浏览器打印是唯一能正确嵌入中文字体的方式。
-    pdfReportHtml() {
+    // 导出 PDF 的报告样式：渲染进隐藏 DOM 交给 html2canvas 截屏，再由 jsPDF 分页成 A4
+    reportCssText() {
+      return `
+        * { box-sizing: border-box; }
+        .pdf-report { margin: 0; padding: 60px 53px; width: 794px; color: #1f2d3d; font: 12px/1.75 "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #ffffff; }
+        .pdf-report h1 { margin: 0 0 6px; font-size: 20px; }
+        .pdf-report h2 { margin: 22px 0 10px; padding-left: 9px; border-left: 4px solid #2087e6; font-size: 15px; }
+        .pdf-report h3 { margin: 14px 0 6px; font-size: 13px; }
+        .pdf-report .meta { margin: 0 0 4px; color: #657689; font-size: 11px; }
+        .pdf-report .md p { margin: 4px 0; }
+        .pdf-report .md ul { margin: 4px 0; padding-left: 20px; }
+        .pdf-report .event-body { display: flex; gap: 12px; align-items: flex-start; }
+        .pdf-report .event-body .md { flex: 1; min-width: 0; }
+        .pdf-report .shot { width: 250px; max-width: 42%; border: 1px solid #d9e2ef; border-radius: 4px; }
+        .pdf-report table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .pdf-report th, .pdf-report td { padding: 7px 9px; border: 1px solid #d9e2ef; text-align: left; vertical-align: top; }
+        .pdf-report th { background: #f2f7ff; font-weight: 600; }
+        .pdf-report .empty { color: #98a2b3; }
+        .pdf-report header { padding-bottom: 12px; margin-bottom: 4px; border-bottom: 2px solid #2087e6; }
+      `;
+    },
+    reportBodyHtml(imageCache?: Record<string, string>) {
       const meta = this.reportMeta();
       const overview = this.summary.overview ? `<div class="md">${this.renderMarkdown(this.summary.overview)}</div>` : `<p class="empty">暂无事件摘要</p>`;
-      const events = this.reportEventsHtml();
+      const events = this.reportEventsHtml(imageCache);
       const summarySection = `<h2>一、事件摘要</h2>${overview}`;
       const resultSection = `<h2>二、分析结果（共 ${this.events.length} 个关键事件）</h2>${events || `<p class="empty">暂无分析事件</p>`}`;
       const statsSection = this.results.length ? `<h2>三、统计结果</h2>${this.reportResultsHtml()}` : "";
-      return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /><title>文搜视频分析报告 ${this.escapeHtml(meta.stamp)}</title><style>
-        @page { size: A4 portrait; margin: 16mm 14mm; }
-        * { box-sizing: border-box; }
-        body { margin: 0; color: #1f2d3d; font: 12px/1.75 "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
-        h1 { margin: 0 0 6px; font-size: 20px; }
-        h2 { margin: 22px 0 10px; padding-left: 9px; border-left: 4px solid #2087e6; font-size: 15px; }
-        h3 { margin: 14px 0 6px; font-size: 13px; }
-        .meta { margin: 0 0 4px; color: #657689; font-size: 11px; }
-        .md p { margin: 4px 0; }
-        .md ul { margin: 4px 0; padding-left: 20px; }
-        .event-body { display: flex; gap: 12px; align-items: flex-start; }
-        .event-body .md { flex: 1; min-width: 0; }
-        .shot { width: 250px; max-width: 42%; border: 1px solid #d9e2ef; border-radius: 4px; }
-        table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th, td { padding: 7px 9px; border: 1px solid #d9e2ef; text-align: left; vertical-align: top; }
-        th { background: #f2f7ff; font-weight: 600; }
-        .event { break-inside: avoid; page-break-inside: avoid; }
-        .empty { color: #98a2b3; }
-        header { padding-bottom: 12px; margin-bottom: 4px; border-bottom: 2px solid #2087e6; }
-      </style></head><body>
-        <header><h1>文搜视频分析报告</h1><p class="meta">视频源：${this.escapeHtml(meta.sourceName)} ｜ 来源：${this.escapeHtml(meta.sourceType)}</p><p class="meta">检索内容：${this.escapeHtml(meta.query)} ｜ 生成时间：${this.escapeHtml(meta.stamp)}</p></header>
-        ${summarySection}${resultSection}${statsSection}
-      </body></html>`;
+      return `<header><h1>文搜视频分析报告</h1><p class="meta">视频源：${this.escapeHtml(meta.sourceName)} ｜ 来源：${this.escapeHtml(meta.sourceType)}</p><p class="meta">检索内容：${this.escapeHtml(meta.query)} ｜ 生成时间：${this.escapeHtml(meta.stamp)}</p></header>${summarySection}${resultSection}${statsSection}`;
     },
-    exportPdfReport() {
-      const win = window.open("", "_blank");
-      if (!win) {
-        this.showToast("浏览器拦截了导出窗口，请允许本站弹出窗口后重试");
-        return;
+    // 导出 PDF：隐藏 DOM 渲染报告 → html2canvas 截屏 → jsPDF 按 A4 分页后直接保存下载。
+    // 不用 window.print：打印预览是浏览器级模态框，弹出期间会屏蔽主页面所有点击。
+    async exportPdfReport() {
+      if (this.pdfExporting) return;
+      this.pdfExporting = true;
+      this.showToast("正在生成 PDF，请稍候…");
+      // 先等事件卡片截图加载完（报告复用这些已加载的图；渐进式 JPEG 加载一半时画出来是黑图）
+      const cardImgs = Array.from(document.querySelectorAll(".exact-event-card img")) as HTMLImageElement[];
+      const loading = cardImgs.filter(img => !img.complete || !img.naturalWidth);
+      if (loading.length) {
+        await Promise.race([
+          Promise.all(loading.map(img => new Promise(resolve => {
+            img.addEventListener("load", resolve, { once: true });
+            img.addEventListener("error", resolve, { once: true });
+          }))),
+          new Promise(resolve => window.setTimeout(resolve, 30000))
+        ]);
       }
-      win.document.open();
-      win.document.write(this.pdfReportHtml());
-      win.document.close();
-      let fired = false;
-      const fire = () => {
-        // 截图没加载完就打印会印出空白图，这里等图片就绪（或超时兜底）再唤起打印
-        if (fired || win.closed) return;
-        fired = true;
-        try {
-          win.focus();
-          win.print();
-        } catch {
-          // 用户可能在打印前关闭了窗口，忽略
+      // 截图复用页面上已加载的事件卡片图（data URL），避免逐张重新请求后端截帧
+      const imageCache = this.loadedEventImageDataUrls();
+      const host = document.createElement("div");
+      host.style.cssText = "position:fixed;left:-10000px;top:0;z-index:-1;";
+      host.innerHTML = `<style>${this.reportCssText()}</style><div class="pdf-report">${this.reportBodyHtml(imageCache)}</div>`;
+      document.body.appendChild(host);
+      try {
+        const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import("jspdf"), import("html2canvas")]);
+        const reportEl = host.querySelector(".pdf-report") as HTMLElement;
+        // 报告里的截图没加载完就截屏会印出空白图，等图片就绪（8 秒超时兜底）
+        const pending = Array.from(reportEl.querySelectorAll("img")).filter(img => !img.complete);
+        if (pending.length) {
+          await Promise.race([
+            Promise.all(pending.map(img => new Promise(resolve => {
+              img.addEventListener("load", resolve, { once: true });
+              img.addEventListener("error", resolve, { once: true });
+            }))),
+            new Promise(resolve => window.setTimeout(resolve, 8000))
+          ]);
         }
-      };
-      const waitImages = () => {
-        const pending = Array.from(win.document.images || []).filter(img => !img.complete);
-        if (!pending.length) { window.setTimeout(fire, 350); return; }
-        let left = pending.length;
-        const step = () => { left -= 1; if (left <= 0) window.setTimeout(fire, 250); };
-        pending.forEach(img => {
-          img.addEventListener("load", step, { once: true });
-          img.addEventListener("error", step, { once: true });
-        });
-        window.setTimeout(fire, 6000);
-      };
-      if (win.document.readyState === "complete") waitImages();
-      else win.addEventListener("load", waitImages, { once: true });
-      this.showToast("已打开 PDF 打印预览（含分析结果截图），选择「另存为 PDF」即可导出");
+        const canvas = await html2canvas(reportEl, { scale: 2, useCORS: true, backgroundColor: "#ffffff", logging: false });
+        const pdf = new jsPDF({ unit: "pt", format: "a4" });
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const pxPerPt = canvas.width / pageW;
+        const pagePx = Math.max(1, Math.floor(pageH * pxPerPt));
+        for (let y = 0; y < canvas.height; y += pagePx) {
+          const sliceH = Math.min(pagePx, canvas.height - y);
+          const slice = document.createElement("canvas");
+          slice.width = canvas.width;
+          slice.height = sliceH;
+          const ctx = slice.getContext("2d");
+          if (!ctx) continue;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, slice.width, slice.height);
+          ctx.drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+          if (y > 0) pdf.addPage();
+          pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pageW, sliceH / pxPerPt);
+        }
+        const stamp = this.reportMeta().stamp.replace(/[-: ]/g, "");
+        pdf.save(`文搜视频分析报告-${stamp}.pdf`);
+        this.showToast("PDF 报告已下载（含分析结果截图）");
+      } catch (error) {
+        this.showToast(`PDF 导出失败：${error instanceof Error ? error.message : error}`);
+      } finally {
+        host.remove();
+        this.pdfExporting = false;
+      }
     },
     exportWordReport() {
       const meta = this.reportMeta();

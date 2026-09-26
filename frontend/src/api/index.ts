@@ -724,13 +724,15 @@ export function assetUrl(path?: string | null): string {
   return `${baseUrlForPath(path)}${path}`;
 }
 
-// 文搜视频分析结果的真实截图：后端按时间点从视频文件截帧
-export function videoAnalysisFrameUrl(videoUrl?: string | null, seconds = 0): string {
+// 文搜视频分析结果的真实截图：后端按时间点从视频文件截帧；
+// width 可选缩放宽度——事件卡片等缩略图场景传入可大幅减小传输体积（原图约 1MB/张，现场链路慢）
+export function videoAnalysisFrameUrl(videoUrl?: string | null, seconds = 0, width?: number): string {
   if (!videoUrl) {
     return '';
   }
   const offset = Math.max(0, Math.floor(Number(seconds) || 0));
-  return `${baseUrlForPath('/api/video-analysis/frame')}/api/video-analysis/frame?videoUrl=${encodeURIComponent(videoUrl)}&seconds=${offset}`;
+  const base = `${baseUrlForPath('/api/video-analysis/frame')}/api/video-analysis/frame?videoUrl=${encodeURIComponent(videoUrl)}&seconds=${offset}`;
+  return width && width > 0 ? `${base}&width=${Math.floor(width)}` : base;
 }
 
 // 文搜视频分析视频的浏览器播放地址：经 backend-lite 同源代理拉流（Range 透传），
