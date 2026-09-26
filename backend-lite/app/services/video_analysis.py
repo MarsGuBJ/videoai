@@ -71,12 +71,14 @@ def mcp_recording_export(payload: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def extract_video_frame(video_url: str, seconds: float) -> bytes:
+def extract_video_frame(video_url: str, seconds: float, width: int | None = None) -> bytes:
     """用 ffmpeg 从视频文件的指定时间点截取一帧 JPEG。
 
     Args:
         video_url: 视频文件 URL（MinIO 等 HTTP 地址）。
         seconds: 截图时间点（秒，从 0 开始）。
+        width: 可选缩放宽度（保持宽高比）。列表缩略图场景传入可大幅减小传输体积
+            （原图 2560x1440 约 1MB，现场客户端链路慢时多张并发加载非常慢）。
 
     Returns:
         JPEG 字节。
@@ -88,6 +90,7 @@ def extract_video_frame(video_url: str, seconds: float) -> bytes:
     if not url.lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="videoUrl 必须是 http(s) 视频文件地址")
     offset = max(0.0, float(seconds))
+    scale_args: list[str] = ["-vf", f"scale={int(width)}:-2"] if width and width > 0 else []
     try:
         process = subprocess.run(  # noqa: S603  # 参数列表固定，地址来自已确认的分析视频源
             [
@@ -102,6 +105,7 @@ def extract_video_frame(video_url: str, seconds: float) -> bytes:
                 url,
                 "-frames:v",
                 "1",
+                *scale_args,
                 "-q:v",
                 "3",
                 "-f",

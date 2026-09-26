@@ -44,9 +44,16 @@ async def upload_analysis_video(file: UploadFile = File(...)) -> dict[str, Any]:
 
 
 @router.get("/api/video-analysis/frame")
-def video_analysis_frame(video_url: Annotated[str, Query(alias="videoUrl")], seconds: float = 0) -> Response:
-    """按时间点截取视频一帧 JPEG，供分析结果事件卡片直接作为 <img> 地址。"""
-    frame = extract_video_frame(required_text(video_url, "videoUrl"), seconds)
+def video_analysis_frame(
+    video_url: Annotated[str, Query(alias="videoUrl")],
+    seconds: float = 0,
+    width: int | None = None,
+) -> Response:
+    """按时间点截取视频一帧 JPEG，供分析结果事件卡片直接作为 <img> 地址。
+
+    width 可选：缩略图场景按宽度缩放（保持宽高比）减小传输体积，缺省返回原尺寸。
+    """
+    frame = extract_video_frame(required_text(video_url, "videoUrl"), seconds, width)
     return Response(content=frame, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 

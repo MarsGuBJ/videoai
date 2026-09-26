@@ -330,6 +330,34 @@ def test_frame_endpoint_rejects_non_http_url(client: TestClient):
     assert response.status_code == 400
 
 
+def test_frame_endpoint_scales_when_width_given(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """传 width 时 ffmpeg 命令带 scale 过滤器，缺省不带。"""
+    captured = {}
+
+    def fake_run(args, capture_output, timeout):
+        captured["args"] = args
+        return FakeProcess()
+
+    monkeypatch.setattr(video_analysis.subprocess, "run", fake_run)
+
+    response = client.get(
+        "/api/video-analysis/frame",
+        params={"videoUrl": "http://192.168.11.194:9000/public/a.mp4", "seconds": 10, "width": 854},
+    )
+
+    assert response.status_code == 200
+    args = captured["args"]
+    assert args[args.index("-vf") + 1] == "scale=854:-2"
+
+    response = client.get(
+        "/api/video-analysis/frame",
+        params={"videoUrl": "http://192.168.11.194:9000/public/a.mp4", "seconds": 10},
+    )
+
+    assert response.status_code == 200
+    assert "-vf" not in captured["args"]
+
+
 def test_frame_endpoint_502_when_ffmpeg_fails(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     """ffmpeg 失败或无输出时返回 502。"""
     monkeypatch.setattr(
