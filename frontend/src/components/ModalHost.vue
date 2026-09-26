@@ -1624,15 +1624,15 @@ export default {
           </div>
         </template>
         <template v-if="modal.type === 'algorithm'">
-          <p v-if="isAlgorithmEdit" class="modal-hint">算法编号、算法引擎与版本信息创建后不可修改；新版本请在列表的「版本号」中上传。</p>
+          <p v-if="isAlgorithmEdit" class="modal-hint">事件编号、算法引擎与版本信息创建后不可修改；新版本请在列表的「版本号」中上传。</p>
           <div class="modal-form-row">
             <label><span class="required">*</span>算法名称：</label>
             <input class="input" v-model="algorithmName" placeholder="请输入算法名称" />
           </div>
           <div class="modal-form-row">
-            <label><span class="required">*</span>算法编号：</label>
+            <label><span class="required">*</span>事件编号：</label>
             <select class="select" v-model="algorithmCode" :disabled="isAlgorithmEdit">
-              <option value="" disabled>请选择算法编号</option>
+              <option value="" disabled>请选择事件编号</option>
               <option v-for="row in algorithmEventInfos" :key="row.code" :value="row.code">{{ row.code }}（{{ row.name }}）</option>
             </select>
           </div>
