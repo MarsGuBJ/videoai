@@ -572,6 +572,7 @@ export default defineComponent({
     this.loadCameras();
     this.$nextTick(() => this.applySourceFieldHints());
     document.addEventListener("fullscreenchange", this.syncFullscreenState);
+    document.addEventListener("click", this.closeExportMenuOnOutsideClick, true);
   },
   // keep-alive 重新激活（从其它页面返回）：离开时正在播放的视频需继续播放，
   // 兼容浏览器在元素脱离文档期间暂停媒体的场景
@@ -1703,10 +1704,10 @@ export default defineComponent({
         date: event.date || (event.time ? `2026-07-24 ${event.time}` : "")
       };
       this.cropTargetIndex = index;
-      // 以图搜图/快速布防弹窗播放被分析的视频文件（经后端同源代理拉流，避免浏览器直连 MinIO 被限速），
-      // 起点为事件相对偏移秒数；轨迹还原保持图片框选；无视频地址时弹窗降级为图片框选
+      // 以图搜图/快速布防/轨迹还原弹窗都播放被分析的视频文件（经后端同源代理拉流，避免浏览器直连 MinIO 被限速），
+      // 起点为事件相对偏移秒数；无视频地址时弹窗降级为图片框选
       const selectedSource = this.selectedSource as any;
-      this.cropVideoUrl = action === "imageSearch" || action === "quickDeploy" ? videoAnalysisStreamUrl((selectedSource && selectedSource.analysisUrl) || "") : "";
+      this.cropVideoUrl = videoAnalysisStreamUrl((selectedSource && selectedSource.analysisUrl) || "");
       this.cropVideoStart = Number(event.start) || 0;
       this.cropDialogOpen = true;
     },
@@ -2264,6 +2265,14 @@ export default defineComponent({
       if (menu) menu.open = false;
       this.exportReport(type);
     },
+    // <details> 下拉只在点 summary 时才开合，点击菜单外区域不会自动收起，这里全局兜底。
+    // 注意不能用 this.$el.querySelector：该页面被外层壳挂载时 $el 可能是文本节点（无 querySelector）。
+    closeExportMenuOnOutsideClick(event: MouseEvent) {
+      const menu = document.querySelector(".exact-export-menu") as HTMLDetailsElement | null;
+      if (!menu || !menu.open) return;
+      if (menu.contains(event.target as Node)) return;
+      menu.open = false;
+    },
     exportReport(type) {
       if (!this.analyzed) {
         this.showToast("请先完成文搜分析");
@@ -2519,6 +2528,7 @@ export default defineComponent({
       this.thinkingTimer = null;
     }
     document.removeEventListener("fullscreenchange", this.syncFullscreenState);
+    document.removeEventListener("click", this.closeExportMenuOnOutsideClick, true);
   }
 });
 </script>
