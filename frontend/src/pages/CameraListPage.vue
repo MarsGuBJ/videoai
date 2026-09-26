@@ -6,7 +6,7 @@
         <div class="review-board video-device-board">
           <div class="video-device-filter">
             <label>设备名称<input class="input" v-model.trim="nameQuery" placeholder="请输入设备名称/编号/IP" /></label>
-            <label>接入协议<select class="select" v-model="protocolFilter"><option>全部协议</option><option>海康 SDK</option><option>大华 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></label>
+            <label>接入协议<select class="select" v-model="protocolFilter"><option>全部协议</option><option v-for="option in protocolOptions" :key="option" :value="option">{{ option }}</option></select></label>
             <label>设备状态<select class="select" v-model="statusFilter"><option>全部状态</option><option>在线</option><option>离线</option></select></label>
             <label>厂商<select class="select" v-model="vendorFilter"><option>全部厂商</option><option>海康威视</option><option>大华</option><option>宇视</option><option>华为</option><option>其他</option></select></label>
             <label>所在区域<select class="select" v-model="areaFilter"><option>全部区域</option><option v-for="option in areaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></label>
@@ -42,6 +42,7 @@ import { api } from "../api";
 import type { Camera } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { deviceStatusLabel, onlineStatusOf } from "../utils/device-status";
+import { PROTOCOL_OPTIONS, normalizeProtocol } from "../utils/protocol";
 import { flattenRegionTree, loadRegionTree, normalizePath, passwordStrength } from "../utils/regions";
 import type { FlatRegionNode } from "../utils/regions";
 
@@ -79,6 +80,7 @@ export default defineComponent({
       includeChildren: true,
       nameQuery: "",
       protocolFilter: "全部协议",
+      protocolOptions: PROTOCOL_OPTIONS,
       statusFilter: "全部状态",
       vendorFilter: "全部厂商",
       areaFilter: "全部区域",
@@ -193,7 +195,8 @@ export default defineComponent({
         id: camera.id,
         name: camera.name,
         area: normalizePath(camera.area) || "未分配",
-        protocol: camera.protocol || guessProtocol(camera.sourceUrl),
+        // 归一化后再入库内存行：表格展示与「接入协议」筛选下拉同一套文案
+        protocol: normalizeProtocol(camera.protocol) || guessProtocol(camera.sourceUrl),
         address: camera.ip ? `${camera.ip}${camera.port ? `:${camera.port}` : ""}` : extractAddress(camera.sourceUrl),
         code: camera.deviceCode || "-",
         serial: camera.serialNumber || "-",

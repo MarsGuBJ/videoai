@@ -28,7 +28,7 @@
         <dl class="event-detail-field"><dt>设备名称</dt><dd>{{ camera.name || '-' }}</dd></dl>
         <dl class="event-detail-field"><dt>设备编号</dt><dd>{{ camera.deviceCode || '-' }}</dd></dl>
         <dl class="event-detail-field"><dt>设备序列号</dt><dd>{{ camera.serialNumber || '-' }}</dd></dl>
-        <dl class="event-detail-field"><dt>接入方式</dt><dd>{{ camera.protocol || '-' }}</dd></dl>
+        <dl class="event-detail-field"><dt>接入方式</dt><dd>{{ protocolText }}</dd></dl>
         <dl class="event-detail-field"><dt>协议版本</dt><dd>{{ camera.protocolVersion || '-' }}</dd></dl>
         <dl class="event-detail-field"><dt>IP地址及端口</dt><dd>{{ address }}</dd></dl>
         <dl class="event-detail-field"><dt>用户名</dt><dd>{{ camera.username || '-' }}</dd></dl>
@@ -56,6 +56,7 @@ import { defineComponent } from "vue";
 import { api } from "../api";
 import type { Camera } from "../types";
 import { passwordStrength } from "../utils/regions";
+import { normalizeProtocol } from "../utils/protocol";
 
 export default defineComponent({
   name: "MediaDeviceDetailPage",
@@ -80,6 +81,10 @@ export default defineComponent({
     },
     strength(): { label: string; cls: string } {
       return passwordStrength(this.camera.password);
+    },
+    // 历史数据里协议可能是 RTSP 这类短码，展示前归一化为与下拉框一致的文案
+    protocolText(): string {
+      return normalizeProtocol(this.camera.protocol) || "-";
     },
     // 码流类型统一显示中文：兼容历史数据中的 main/sub 取值
     streamTypeText(): string {

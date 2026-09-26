@@ -13,7 +13,7 @@
       </div>
       <h3 class="form-section-title">基本信息</h3>
       <div class="form-grid-3">
-        <div class="wide-field-row"><label><span class="required">*</span>接入方式：</label><select class="select" v-model="form.protocol"><option>海康 SDK</option><option>GB28181</option><option>ONVIF</option><option>Ehome / ISUP 5.0</option><option>大华 SDK</option><option>RTSP 拉流</option><option>RTMP 推流</option><option>HTTP 拉流</option><option>GA/T 1400</option></select></div>
+        <div class="wide-field-row"><label><span class="required">*</span>接入方式：</label><select class="select" v-model="form.protocol"><option v-for="option in protocolOptions" :key="option" :value="option">{{ option }}</option></select></div>
         <div class="wide-field-row"><label><span class="required">*</span>协议版本：</label><select class="select" v-model="form.protocolVersion"><option>标准协议</option><option>海康 ISUP 5.0</option><option>GB/T 28181-2022</option><option>ONVIF Profile S</option></select></div>
         <div class="wide-field-row"><label><span class="required">*</span>设备名称：</label><input class="input" v-model.trim="form.name" placeholder="请输入设备名称" /></div>
         <div class="wide-field-row"><label><span class="required">*</span>设备编号：</label><input class="input" v-model.trim="form.deviceCode" placeholder="请输入设备编号" /></div>
@@ -51,6 +51,7 @@ import IpInput from "../components/IpInput.vue";
 import type { Camera } from "../types";
 import { flattenRegionTree, hasSourceUrlCredentials, isValidChannelNo, isValidGbCode, isValidIPv4, isValidPort, loadRegionTree, MAX_CHANNEL_NO, normalizePath, parseSourceUrlParts } from "../utils/regions";
 import type { FlatRegionNode } from "../utils/regions";
+import { PROTOCOL_OPTIONS, normalizeProtocol } from "../utils/protocol";
 
 export default defineComponent({
   name: "MediaDeviceEditPage",
@@ -64,6 +65,7 @@ export default defineComponent({
   data() {
     return {
       saving: false,
+      protocolOptions: PROTOCOL_OPTIONS,
       regionFlat: [] as FlatRegionNode[],
       // 云台能力探测：设备源不支持云台前禁用勾选框
       ptzUnsupported: false,
@@ -186,7 +188,8 @@ export default defineComponent({
       this.form.name = camera.name || "";
       this.form.deviceCode = camera.deviceCode || "";
       this.form.serialNumber = camera.serialNumber || "";
-      this.form.protocol = camera.protocol || "RTSP 拉流";
+      // 历史数据里协议可能是 RTSP 这类短码，先归一化再回填，否则下拉框匹配不到选项会显示空白
+      this.form.protocol = normalizeProtocol(camera.protocol) || "RTSP 拉流";
       this.form.ip = camera.ip || "";
       this.form.port = camera.port || "";
       this.form.area = normalizePath(camera.area);

@@ -7,6 +7,7 @@ import { statusClass } from "../utils/prototype-helpers";
 import { deviceStatusLabel, onlineStatusOf, streamStatusLabel } from "../utils/device-status";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
 import { computeSourceUrl, flattenRegionTree, loadRegionTree } from "../utils/regions";
+import { normalizeProtocol } from "../utils/protocol";
 import { resolveEventAlgorithm } from "../utils/algorithm-binding";
 import type { AlgorithmResolution } from "../utils/algorithm-binding";
 import type { FlatRegionNode } from "../utils/regions";
@@ -431,6 +432,10 @@ export default {
   },
   methods: {
     statusClass,
+    // 云端设备预检查列表的「接入协议」列：与设备列表/表单共用归一化文案
+    protocolLabel(value?: string | null): string {
+      return normalizeProtocol(value) || "-";
+    },
     saveVideoConfig() {
       savePlayerSettings(this.videoSettings);
       this.showToast("视频参数配置已保存");
@@ -1329,7 +1334,8 @@ export default {
             continue;
           }
           // 列名兼容：导入模板用「协议/区域/序列号」，导出文件与界面列名用「接入协议/所在区域/设备序列号」
-          const protocol = cell("协议") || cell("接入协议");
+          // 先归一化：表格里写 RTSP/GB28181 这类短码时，下面的拉流地址拼装与落库都要用统一下拉文案
+          const protocol = normalizeProtocol(cell("协议") || cell("接入协议"));
           const ip = cell("IP");
           let sourceUrl = cell("拉流地址");
           if (!sourceUrl) {
@@ -1387,7 +1393,7 @@ export default {
         all: [
           ["设备名称", (c: Camera) => c.name],
           ["所在区域", (c: Camera) => c.area || "未分配"],
-          ["接入协议", (c: Camera) => c.protocol || ""],
+          ["接入协议", (c: Camera) => normalizeProtocol(c.protocol)],
           ["IP", (c: Camera) => c.ip || ""],
           ["端口", (c: Camera) => c.port || ""],
           ["设备编号", (c: Camera) => c.deviceCode || ""],
@@ -1408,7 +1414,7 @@ export default {
         ],
         connect: [
           ["设备名称", (c: Camera) => c.name],
-          ["接入协议", (c: Camera) => c.protocol || ""],
+          ["接入协议", (c: Camera) => normalizeProtocol(c.protocol)],
           ["IP", (c: Camera) => c.ip || ""],
           ["端口", (c: Camera) => c.port || ""],
           ["拉流地址", (c: Camera) => c.sourceUrl || ""]
@@ -1968,7 +1974,7 @@ export default {
             <table class="prototype-table">
               <thead><tr><th style="width:36px;"><input type="checkbox" :checked="cloudAllChecked" :disabled="!cloudItems.length" aria-label="全选云端设备" @change="toggleCloudAll" /></th><th>设备名称</th><th>云端区域</th><th>接入协议</th><th>{{ isGb28181Mode ? '国标编码' : 'IP地址' }}</th><th>处理方式</th></tr></thead>
               <tbody>
-                <tr v-for="(item, index) in cloudItems" :key="item.ip || item.gbCode || index"><td><input type="checkbox" v-model="item.checked" /></td><td>{{ item.name }}</td><td>{{ item.area || '-' }}</td><td>{{ item.protocol || '-' }}</td><td>{{ isGb28181Mode ? (item.gbCode || '-') : item.ip }}</td><td><span class="status-pill" :class="item.status === 'new' ? 'pass' : 'waiting'">{{ item.status === 'new' ? '新增' : '更新' }}</span></td></tr>
+                <tr v-for="(item, index) in cloudItems" :key="item.ip || item.gbCode || index"><td><input type="checkbox" v-model="item.checked" /></td><td>{{ item.name }}</td><td>{{ item.area || '-' }}</td><td>{{ protocolLabel(item.protocol) }}</td><td>{{ isGb28181Mode ? (item.gbCode || '-') : item.ip }}</td><td><span class="status-pill" :class="item.status === 'new' ? 'pass' : 'waiting'">{{ item.status === 'new' ? '新增' : '更新' }}</span></td></tr>
                 <tr v-if="!cloudItems.length"><td colspan="6" class="empty-cell">{{ cloudBusy ? '正在拉取云端设备...' : '尚未预检查' }}</td></tr>
               </tbody>
             </table>
