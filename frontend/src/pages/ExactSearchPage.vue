@@ -482,15 +482,11 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return window.btoa(binary);
 }
 
-function utf8ToBase64(text: string): string {
-  return arrayBufferToBase64(new TextEncoder().encode(text).buffer as ArrayBuffer);
-}
-
-// MIME 部件的 base64 按 76 列折行
-function wrapBase64(b64: string): string {
-  const lines: string[] = [];
-  for (let i = 0; i < b64.length; i += 76) lines.push(b64.slice(i, i + 76));
-  return lines.join("\r\n");
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 // pdfmake 与中文字体子集都只在导出时按需加载（字体文件在 public/fonts/ 下，构建时拷进 dist）
@@ -530,6 +526,75 @@ const PDF_FONT_DEFS = {
     bolditalics: "NotoSansSC-Bold.ttf"
   }
 };
+
+// ===== Word 导出（docx 库生成真 .docx，图片二进制嵌入 word/media，Word/WPS 均可显示） =====
+// docx 只在导出时按需加载
+let docxLoader: Promise<any> | null = null;
+function loadDocx(): Promise<any> {
+  if (!docxLoader) {
+    docxLoader = import("docx");
+    // 加载失败时允许下次重试
+    docxLoader.catch(() => { docxLoader = null; });
+  }
+  return docxLoader;
+}
+
+// 行内 Markdown → docx TextRun，与 renderMarkdownInline 同一套子集：**加粗**、*斜体*、`行内代码`
+function mdInlineToDocxRuns(docx: any, text: string): any[] {
+  const runs: any[] = [];
+  const pattern = /(\*\*([^*]+)\*\*|\*([^*\n]+)\*|`([^`]+)`)/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > last) runs.push(new docx.TextRun(text.slice(last, match.index)));
+    if (match[2] != null) runs.push(new docx.TextRun({ text: match[2], bold: true }));
+    else if (match[3] != null) runs.push(new docx.TextRun({ text: match[3], italics: true }));
+    else runs.push(new docx.TextRun({ text: match[4], font: "Consolas" }));
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) runs.push(new docx.TextRun(text.slice(last)));
+  return runs.length ? runs : [new docx.TextRun("")];
+}
+
+// 与 markdownToHtml 同一套轻量 Markdown 子集：# 标题、无序/有序列表、空行分段、段内换行
+function markdownToDocxParagraphs(docx: any, text: string): any[] {
+  const blocks = String(text || "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+  const paragraphs: any[] = [];
+  for (const block of blocks) {
+    const lines = block.split("\n").map(line => line.trimEnd()).filter(line => line.trim());
+    if (!lines.length) continue;
+    const heading = lines.length === 1 ? lines[0].match(/^(#{1,4})\s+(.*)$/) : null;
+    if (heading) {
+      const level = Math.min(heading[1].length, 4);
+      const headingLevel = [docx.HeadingLevel.HEADING_3, docx.HeadingLevel.HEADING_4, docx.HeadingLevel.HEADING_4, docx.HeadingLevel.HEADING_4][level - 1];
+      paragraphs.push(new docx.Paragraph({ heading: headingLevel, children: mdInlineToDocxRuns(docx, heading[2]) }));
+      continue;
+    }
+    const isUl = lines.every(line => /^[-*•]\s+/.test(line.trim()));
+    const isOl = lines.every(line => /^\d+[.、)]\s*/.test(line.trim()));
+    if (isUl) {
+      lines.forEach(line => paragraphs.push(new docx.Paragraph({
+        bullet: { level: 0 },
+        children: mdInlineToDocxRuns(docx, line.trim().replace(/^[-*•]\s+/, ""))
+      })));
+      continue;
+    }
+    if (isOl) {
+      // 有序列表直接写序号文本，避免 numbering 配置在多个列表块间续号
+      lines.forEach((line, index) => paragraphs.push(new docx.Paragraph({
+        children: [new docx.TextRun(`${index + 1}. `), ...mdInlineToDocxRuns(docx, line.trim().replace(/^\d+[.、)]\s*/, ""))]
+      })));
+      continue;
+    }
+    const runs: any[] = [];
+    lines.forEach((line, index) => {
+      if (index) runs.push(new docx.TextRun({ break: 1 }));
+      runs.push(...mdInlineToDocxRuns(docx, line));
+    });
+    paragraphs.push(new docx.Paragraph({ children: runs }));
+  }
+  return paragraphs;
+}
 
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
@@ -2488,7 +2553,7 @@ export default defineComponent({
     escapeHtml(value: any) {
       return String(value == null ? "" : value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] as string));
     },
-    downloadBlob(content: string, mime: string, filename: string) {
+    downloadBlob(content: string | Blob, mime: string, filename: string) {
       const url = URL.createObjectURL(new Blob([content], { type: mime }));
       const link = document.createElement("a");
       link.href = url;
@@ -2559,10 +2624,6 @@ export default defineComponent({
           src: (imageCache && imageCache[src]) || src
         };
       });
-    },
-    reportResultsHtml() {
-      const rows = this.results.map((item: any) => `<tr><td>${this.escapeHtml(item.title || "-")}</td><td>${this.escapeHtml(item.value == null || item.value === "" ? "-" : item.value)}</td><td>${this.escapeHtml(item.detail || "-")}</td></tr>`).join("");
-      return `<table><thead><tr><th style="width:22%;">项目</th><th style="width:22%;">数值</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>`;
     },
     // 导出 PDF：pdfmake 生成文本型 PDF（文字可选中/复制），版式与 Word 报告一致；
     // 事件截图复用页面已加载的事件卡片图（data URL），按与 Word 导出相同的缩放策略控制尺寸。
@@ -2652,81 +2713,100 @@ export default defineComponent({
         this.pdfExporting = false;
       }
     },
-    // 导出 Word：MHTML（multipart/related）封装，事件截图以 base64 MIME 部件嵌入文档，
-    // Word/WPS 打开 .doc 时直接读文档内图片——隔离网络环境也能显示（不再远程引用图片 URL）。
-    // img src 与图片部件的 Content-Location 一一对应；截图复用页面已加载的事件卡片图。
+    // 导出 Word：docx 库生成真 .docx，事件截图以二进制嵌入 word/media 并在文档内引用，
+    // Word/WPS 都能直接显示（MHTML .doc 方案在 WPS 下不解析图片部件，已弃用）；隔离网络环境也不受影响。
+    // 截图复用页面已加载的事件卡片图；版式与 PDF 报告一致。
     async exportWordReport() {
-      // 先等事件卡片截图加载完，尽量全部嵌入文档（渐进式 JPEG 加载一半时画出来是黑图）
-      const cardImgs = Array.from(document.querySelectorAll(".exact-event-card img")) as HTMLImageElement[];
-      const loading = cardImgs.filter(img => !img.complete || !img.naturalWidth);
-      if (loading.length) {
-        await Promise.race([
-          Promise.all(loading.map(img => new Promise(resolve => {
-            img.addEventListener("load", resolve, { once: true });
-            img.addEventListener("error", resolve, { once: true });
-          }))),
-          new Promise(resolve => window.setTimeout(resolve, 30000))
-        ]);
-      }
-      const meta = this.reportMeta();
-      const overview = this.summary.overview ? `<div class="md">${this.renderMarkdown(this.summary.overview)}</div>` : `<p class="empty">暂无事件摘要</p>`;
-      // Word 导入 HTML 时对 <style> 里的 class 宽度支持不稳定，大图会按原始尺寸（如 1920×1080）撑破排版；
-      // 这里按页面已加载截图的原始比例算出缩放后的宽高，直接写进 img 的 width/height 属性和内联样式。
-      const imageCache = this.loadedEventImageDataUrls();
-      const dims = this.loadedEventImageDims();
-      const shotWidth = 320;
-      const imageParts: Array<{ mime: string; location: string; base64: string }> = [];
-      const eventsHtml = this.reportEvents().map(item => {
-        let shot = "";
-        const dataUrl = imageCache[item.src] || "";
-        const matched = dataUrl.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
-        if (item.src && matched) {
-          const location = `http://videoai.report/images/event-${item.index + 1}.jpg`;
-          imageParts.push({ mime: matched[1], location, base64: matched[2] });
-          const dim = dims[item.src];
-          const shotHeight = dim && dim.width ? Math.max(1, Math.round(shotWidth * dim.height / dim.width)) : 180;
-          shot = `<img class="shot" src="${location}" alt="${this.escapeHtml(item.title)}" width="${shotWidth}" height="${shotHeight}" style="width:${shotWidth}px;height:${shotHeight}px;" />`;
+      this.showToast("正在生成 Word 文档，请稍候…");
+      try {
+        // 先等事件卡片截图加载完，尽量全部嵌入文档（渐进式 JPEG 加载一半时画出来是黑图）
+        const cardImgs = Array.from(document.querySelectorAll(".exact-event-card img")) as HTMLImageElement[];
+        const loading = cardImgs.filter(img => !img.complete || !img.naturalWidth);
+        if (loading.length) {
+          await Promise.race([
+            Promise.all(loading.map(img => new Promise(resolve => {
+              img.addEventListener("load", resolve, { once: true });
+              img.addEventListener("error", resolve, { once: true });
+            }))),
+            new Promise(resolve => window.setTimeout(resolve, 30000))
+          ]);
         }
-        return `<section class="event"><h3>${item.index + 1}. ${this.escapeHtml(item.title)}</h3><p class="meta">发生时间：${this.escapeHtml(item.time)}</p><div class="event-body">${shot}<div class="md">${this.renderMarkdown(item.detail)}</div></div></section>`;
-      }).join("");
-      const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8" /><title>文搜视频分析报告</title><style>
-        body { font: 12pt "PingFang SC", "Microsoft YaHei", Arial, sans-serif; line-height: 1.7; color: #1f2d3d; }
-        h1 { font-size: 18pt; } h2 { font-size: 14pt; } h3 { font-size: 12pt; }
-        .meta { color: #657689; font-size: 9pt; }
-        .shot { width: 320px; border: 1px solid #d9e2ef; }
-        table { border-collapse: collapse; } th, td { border: 1px solid #999999; padding: 4px 8px; }
-      </style></head><body>
-        <h1>文搜视频分析报告</h1>
-        <p class="meta">视频源：${this.escapeHtml(meta.sourceName)} ｜ 来源：${this.escapeHtml(meta.sourceType)}</p>
-        <p class="meta">检索内容：${this.escapeHtml(meta.query)} ｜ 生成时间：${this.escapeHtml(meta.stamp)}</p>
-        <h2>一、事件摘要</h2>${overview}
-        <h2>二、分析结果（共 ${this.events.length} 个关键事件）</h2>${eventsHtml || `<p class="empty">暂无分析事件</p>`}
-        ${this.results.length ? `<h2>三、统计结果</h2>${this.reportResultsHtml()}` : ""}
-      </body></html>`;
-      const boundary = "----=_videoai-word-report";
-      const mhtmlLines = [
-        "MIME-Version: 1.0",
-        `Content-Type: multipart/related; type="text/html"; boundary="${boundary}"`,
-        "",
-        `--${boundary}`,
-        'Content-Type: text/html; charset="utf-8"',
-        "Content-Transfer-Encoding: base64",
-        "",
-        wrapBase64(utf8ToBase64(html))
-      ];
-      imageParts.forEach(part => {
-        mhtmlLines.push(
-          `--${boundary}`,
-          `Content-Type: ${part.mime}`,
-          "Content-Transfer-Encoding: base64",
-          `Content-Location: ${part.location}`,
-          "",
-          wrapBase64(part.base64)
-        );
-      });
-      mhtmlLines.push(`--${boundary}--`, "");
-      this.downloadBlob(mhtmlLines.join("\r\n"), "application/msword", "文搜视频分析报告.doc");
-      this.showToast("Word 报告已下载（含分析结果截图）");
+        const docx = await loadDocx();
+        const meta = this.reportMeta();
+        const imageCache = this.loadedEventImageDataUrls();
+        const dims = this.loadedEventImageDims();
+        // 图片宽 320px，按原始比例算高（docx transformation 单位是像素，按 96dpi 换算）
+        const shotWidth = 320;
+        const metaParagraph = (text: string) => new docx.Paragraph({
+          children: [new docx.TextRun({ text, size: 18, color: "657689" })]
+        });
+        const emptyParagraph = (text: string) => new docx.Paragraph({
+          children: [new docx.TextRun({ text, color: "98A2B3" })]
+        });
+        const children: any[] = [
+          new docx.Paragraph({ heading: docx.HeadingLevel.TITLE, children: [new docx.TextRun("文搜视频分析报告")] }),
+          metaParagraph(`视频源：${meta.sourceName} ｜ 来源：${meta.sourceType}`),
+          metaParagraph(`检索内容：${meta.query} ｜ 生成时间：${meta.stamp}`),
+          new docx.Paragraph({ heading: docx.HeadingLevel.HEADING_1, children: [new docx.TextRun("一、事件摘要")] })
+        ];
+        if (this.summary.overview) children.push(...markdownToDocxParagraphs(docx, this.summary.overview));
+        else children.push(emptyParagraph("暂无事件摘要"));
+        children.push(new docx.Paragraph({
+          heading: docx.HeadingLevel.HEADING_1,
+          children: [new docx.TextRun(`二、分析结果（共 ${this.events.length} 个关键事件）`)]
+        }));
+        this.reportEvents().forEach(item => {
+          children.push(new docx.Paragraph({
+            heading: docx.HeadingLevel.HEADING_2,
+            children: [new docx.TextRun(`${item.index + 1}. ${item.title}`)]
+          }));
+          children.push(metaParagraph(`发生时间：${item.time}`));
+          const dataUrl = imageCache[item.src] || "";
+          const matched = dataUrl.match(/^data:image\/(jpeg|jpg|png);base64,(.+)$/i);
+          if (matched) {
+            const dim = dims[item.src];
+            const shotHeight = dim && dim.width ? Math.max(1, Math.round(shotWidth * dim.height / dim.width)) : 180;
+            children.push(new docx.Paragraph({
+              children: [new docx.ImageRun({
+                type: matched[1].toLowerCase() === "png" ? "png" : "jpg",
+                data: base64ToUint8Array(matched[2]),
+                transformation: { width: shotWidth, height: shotHeight }
+              })]
+            }));
+          }
+          children.push(...markdownToDocxParagraphs(docx, item.detail));
+        });
+        if (!this.events.length) children.push(emptyParagraph("暂无分析事件"));
+        if (this.results.length) {
+          children.push(new docx.Paragraph({ heading: docx.HeadingLevel.HEADING_1, children: [new docx.TextRun("三、统计结果")] }));
+          const cell = (text: any, bold = false) => new docx.TableCell({
+            children: [new docx.Paragraph({ children: [new docx.TextRun({ text: String(text), bold })] })]
+          });
+          children.push(new docx.Table({
+            width: { size: 100, type: docx.WidthType.PERCENTAGE },
+            rows: [
+              new docx.TableRow({ tableHeader: true, children: [cell("项目", true), cell("数值", true), cell("说明", true)] }),
+              ...this.results.map((item: any) => new docx.TableRow({
+                children: [
+                  cell(item.title || "-"),
+                  cell(item.value == null || item.value === "" ? "-" : item.value),
+                  cell(item.detail || "-")
+                ]
+              }))
+            ]
+          }));
+        }
+        const doc = new docx.Document({
+          styles: { default: { document: { run: { font: "Microsoft YaHei", size: 24 } } } },
+          sections: [{ children }]
+        });
+        const blob: Blob = await docx.Packer.toBlob(doc);
+        const stamp = meta.stamp.replace(/[-: ]/g, "");
+        this.downloadBlob(blob, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", `文搜视频分析报告-${stamp}.docx`);
+        this.showToast("Word 报告已下载（含分析结果截图）");
+      } catch (error) {
+        this.showToast(`Word 导出失败：${error instanceof Error ? error.message : error}`);
+      }
     },
     exportMarkdownReport() {
       const meta = this.reportMeta();
