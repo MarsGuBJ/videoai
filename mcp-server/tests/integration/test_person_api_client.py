@@ -55,7 +55,8 @@ def test_search_person_by_bbox_maps_mcp_fields_to_upstream_payload():
     )
 
     assert result["data"]["task_id"] == "task-1"
-    assert seen["path"] == "/vlm-application/search/searchPersonByBbox"
+    # 2026-09 上游重构：searchPersonByBbox 下线，改调详版 searchPersonFull
+    assert seen["path"] == "/vlm-application/search/searchPersonFull"
     assert seen["body"] == {
         "image_url": "http://example.test/query.jpg",
         "bbox": bbox,

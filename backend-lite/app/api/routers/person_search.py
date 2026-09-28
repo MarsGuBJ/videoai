@@ -75,7 +75,11 @@ def detect_persons_proxy(request: PersonSearchDetectRequest) -> dict:
 
 @router.post("/api/person-search/search-by-bbox")
 def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest) -> dict:
-    """代理：按 bbox 以图搜人；imageUrl 处理同 detect-persons。"""
+    """代理：按 bbox 以图搜人；imageUrl 处理同 detect-persons。
+
+    2026-09 上游重构：`searchPersonByBbox` 下线，改调详版 `searchPersonFull`
+    （上游直接返回 ES 全量文档组成的 similar_persons，无需再依赖 ES 文档查询接口）。
+    """
     payload = {
         "image_url": absolutize_image_url(required_text(request.imageUrl, "imageUrl")),
         "search_method": request.searchMethod or DEFAULT_SEARCH_METHOD,
@@ -88,7 +92,7 @@ def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest) -> dict:
         payload["start_time"] = request.startTime
     if request.endTime:
         payload["end_time"] = request.endTime
-    return person_api_post("/vlm-application/search/searchPersonByBbox", payload)
+    return person_api_post("/vlm-application/search/searchPersonFull", payload)
 
 
 @router.get("/api/person-search/results/{task_id}")
@@ -102,8 +106,9 @@ def person_search_result_proxy(task_id: str) -> dict:
 def resolve_similar_persons(response: dict) -> dict:
     """把任务结果里的 es_ids 解析为 similar_persons（前端结果卡片期望的结构）。
 
-    vlm-application v3 的检索结果只回 es_ids + index_name（不再回 ES 全量文档），
-    这里调用检索配套服务的 es-documents/by-ids 补齐文档字段；解析失败时透传原始响应，
+    详版 `searchPersonFull` 已在 `data.data.result.similar_persons` 直接返回 ES 全量文档，
+    此时原样透传；仅当上游按简版 `searchPersonBrief` 只回 es_ids + index_name 时，
+    才调用检索配套服务的 es-documents/by-ids 补齐文档字段。解析失败时透传原始响应，
     不影响任务状态轮询。
     """
     result = ((response.get("data") or {}).get("data") or {}).get("result")

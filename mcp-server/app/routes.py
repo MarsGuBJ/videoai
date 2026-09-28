@@ -13,14 +13,12 @@ from .context import channel_lookup, hcnetsdk_playback, known_nvr_hosts, mcp, nv
 from .nvr_devices import resolve_device_credentials
 from .tools import (
     detect_persons,
-    detect_persons_with_id,
     dino_events,
     download_recording,
     export_recording,
     gait_feature_compare,
     gait_feature_extract_and_insert,
     get_live_stream,
-    get_person_bbox,
     get_person_search_result,
     # get_recording_stream 只暴露 HTTP 兼容接口，未注册为 MCP tool（见 tools/recordings.py）
     get_recording_stream,
@@ -56,8 +54,6 @@ def register_http_tool_routes() -> None:
         "detect_persons": detect_persons,
         "search_person_by_bbox": search_person_by_bbox,
         "get_person_search_result": get_person_search_result,
-        "detect_persons_with_id": detect_persons_with_id,
-        "get_person_bbox": get_person_bbox,
         "gait_feature_compare": gait_feature_compare,
         "gait_feature_extract_and_insert": gait_feature_extract_and_insert,
         "dino_events": dino_events,

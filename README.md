@@ -108,10 +108,8 @@ HIKVISION_NVR_PASSWORD=change-me
 - `download_recording`：按时间区间使用 `NET_DVR_GetFileByTime` 下载 `192.168.11.198` 通道 1 录像，转为 MP4 后保存到 MinIO，并返回 MP4 文件 URL。
 - `upload_face_image`：通过图片 URL 上传人脸照片到人脸库，并创建默认开启的人脸布控任务。
 - `detect_persons`：调用人员检测接口，返回图片中的行人 bbox。
-- `search_person_by_bbox`：提交图搜人异步任务，可按 bbox、时间范围、相似度阈值和 topK 搜索。
+- `search_person_by_bbox`：提交图搜人异步任务（上游 `searchPersonFull`），可按 bbox、时间范围、相似度阈值和 topK 搜索。
 - `get_person_search_result`：按 taskId 轮询图搜人任务状态和结果。
-- `detect_persons_with_id`：检测行人并返回可缓存查询的 personId。
-- `get_person_bbox`：按 personId 查询缓存中的人员 bbox。
 - `gait_feature_compare`：调用步态特征比对接口，返回相似人员 ID。
 - `dino_events`：返回 10 条 DINO Object Detection 视觉事件 mock 数据。
 

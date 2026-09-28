@@ -5,10 +5,8 @@ from .dino import dino_events
 from .faces import query_face_matches, upload_face_image
 from .persons import (
     detect_persons,
-    detect_persons_with_id,
     gait_feature_compare,
     gait_feature_extract_and_insert,
-    get_person_bbox,
     get_person_search_result,
     search_person_by_bbox,
 )
@@ -18,14 +16,12 @@ from .understanding import video_understanding
 
 __all__ = [
     "detect_persons",
-    "detect_persons_with_id",
     "dino_events",
     "download_recording",
     "export_recording",
     "gait_feature_compare",
     "gait_feature_extract_and_insert",
     "get_live_stream",
-    "get_person_bbox",
     "get_person_search_result",
     # HTTP-only：未注册为 MCP tool（见 app/routes.py）
     "get_recording_stream",

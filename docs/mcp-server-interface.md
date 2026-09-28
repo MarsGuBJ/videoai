@@ -49,8 +49,6 @@ http://192.168.11.194:8097/query_face_matches-http
 http://192.168.11.194:8097/detect_persons-http
 http://192.168.11.194:8097/search_person_by_bbox-http
 http://192.168.11.194:8097/get_person_search_result-http
-http://192.168.11.194:8097/detect_persons_with_id-http
-http://192.168.11.194:8097/get_person_bbox-http
 http://192.168.11.194:8097/gait_feature_compare-http
 http://192.168.11.194:8097/dino_events-http
 ```
@@ -68,7 +66,7 @@ streamable-http
 MCP Server 依赖以下服务：
 
 - VideoAI Backend（backend-media）：读取摄像头列表、获取摄像头详情、启动直播。
-- Person API：封装 `192.168.11.192:18890` 的图搜人和步态识别接口。
+- Person API：封装 `192.168.11.192:15501` 的图搜人和步态识别接口（2026-09 重构后上游基址为 `:15501`，接口前缀 `/vlm-application`）。
 - 文搜图检索服务：`192.168.11.194:15011` 的自然语言图片检索接口（`text_search_images`）。
 - 视频理解结构化展示服务：`10.10.3.100:8780` 的视频理解结构化接口（`video_understanding`，上游为 `POST /api/v1/video-understanding/structure`）。
 - ZLMediaKit：把海康回放码流转为 FLV/HLS 播放地址。
@@ -81,7 +79,7 @@ MCP Server 依赖以下服务：
 | --- | --- | --- |
 | `VIDEOAI_BACKEND_URL` | `http://localhost:8081` | VideoAI 后端地址。Docker Compose 中默认为 `http://backend:8081`。 |
 | `VIDEOAI_MEDIA_BACKEND_URL` | 空（回退 `VIDEOAI_BACKEND_URL`） | Java backend-media 地址，摄像头列表/直播实际来源；Compose 中为 `http://backend-media:8081`。 |
-| `PERSON_API_BASE_URL` | `http://192.168.11.192:18890` | 图搜人和步态识别上游服务地址。 |
+| `PERSON_API_BASE_URL` | `http://192.168.11.192:15501` | 图搜人和步态识别上游服务地址（192 研发环境；10.10 现场为 `http://10.10.3.100:15501`，团结湖为 `http://172.17.136.189:15501`）。 |
 | `RETRIEVE_API_BASE_URL` | `http://192.168.11.194:15011` | 文搜图（自然语言图片检索）上游服务地址。 |
 | `RETRIEVE_API_TIMEOUT_SECONDS` | `120` | 文搜图检索请求超时时间，单位秒。 |
 | `VIDEO_UNDERSTANDING_API_BASE_URL` | `http://10.10.3.100:8780` | 视频理解结构化展示服务地址（`video_understanding`，上游 `POST /api/v1/video-understanding/structure`）。 |
@@ -620,24 +618,24 @@ H.265 直通把设备原码流（现场 NVR 多为 smart265/HEVC）直接封进 
 | Tool | 输入 | 上游接口 |
 | --- | --- | --- |
 | `text_search_images` | `{"message":"穿红衣服的人","startTime":"2026-08-31 09:00","endTime":"2026-08-31 10:00","location":"园区南门","page":1,"pageSize":10}` | `POST {RETRIEVE_API_BASE_URL}/v1/retrieve/query` |
-| `search_person_by_image` | `{"imageUrl":"http://.../query.jpg","bbox":[{"x":550,"y":198}],"searchMethod":"reid","startTime":"2024-12-12 07:51:15","endTime":"2026-12-12 08:50:17","similarityThreshold":0.6,"topK":10,"waitTimeoutSeconds":120}` | 组合调用 detectPersons → searchPersonByBbox → searchPersonResult |
+| `search_person_by_image` | `{"imageUrl":"http://.../query.jpg","bbox":[{"x":550,"y":198}],"searchMethod":"reid","startTime":"2024-12-12 07:51:15","endTime":"2026-12-12 08:50:17","similarityThreshold":0.6,"topK":10,"waitTimeoutSeconds":120}` | 组合调用 detectPersons → searchPersonFull → searchPersonResult |
 
 `text_search_images`（文搜图）：按自然语言描述检索人员/车辆图片，`message` 必填；`startTime`/`endTime`/`location` 可空；`pageSize` 上限 100。返回值透传检索服务响应（`data.items` 为命中图片及属性）。
 
-`search_person_by_image`（图搜图）：一站式以图搜人。未传 `bbox` 时先调用 `detect_persons` 取第一个人形框；随后提交搜索任务并每 2 秒轮询，直到任务成功（返回含 `similar_persons` 的最终结果）或失败/超时（`waitTimeoutSeconds` 默认 120 秒）。已传 `bbox` 时跳过检测直接提交。`startTime`/`endTime` 可选，透传给上游 `searchPersonByBbox` 限定检索时间范围；提交任务失败时报 `搜索任务提交失败`。
+`search_person_by_image`（图搜图）：一站式以图搜人。未传 `bbox` 时先调用 `detect_persons` 取第一个人形框；随后提交搜索任务并每 2 秒轮询，直到任务成功（返回含 `similar_persons` 的最终结果）或失败/超时（`waitTimeoutSeconds` 默认 120 秒）。已传 `bbox` 时跳过检测直接提交。`startTime`/`endTime` 可选，透传给上游 `searchPersonFull` 限定检索时间范围；提交任务失败时报 `搜索任务提交失败`。
 
 ### 6.9 图搜人和步态识别 tools
 
-以下 tools 封装 `PERSON_API_BASE_URL` 指向的人员检索服务，默认上游为 `http://192.168.11.192:18890`。返回值透传上游 JSON；上游 4xx 业务响应会额外包含 `upstreamStatusCode` 字段。
+以下 tools 封装 `PERSON_API_BASE_URL` 指向的人员检索服务，默认上游为 `http://192.168.11.192:15501`。返回值透传上游 JSON；上游 4xx 业务响应会额外包含 `upstreamStatusCode` 字段。
 
 | Tool | 输入 | 上游接口 |
 | --- | --- | --- |
 | `detect_persons` | `{"imageUrl":"http://.../query.jpg"}` | `POST /vlm-application/search/detectPersons` |
-| `search_person_by_bbox` | `{"imageUrl":"http://.../query.jpg","bbox":[{"x":550,"y":198},{"x":786,"y":198},{"x":786,"y":667},{"x":550,"y":667}],"searchMethod":"reid","startTime":"2024-12-12 07:51:15","endTime":"2026-12-12 08:50:17","similarityThreshold":0.6,"topK":10}` | `POST /vlm-application/search/searchPersonByBbox` |
+| `search_person_by_bbox` | `{"imageUrl":"http://.../query.jpg","bbox":[{"x":550,"y":198},{"x":786,"y":198},{"x":786,"y":667},{"x":550,"y":667}],"searchMethod":"reid","startTime":"2024-12-12 07:51:15","endTime":"2026-12-12 08:50:17","similarityThreshold":0.6,"topK":10}` | `POST /vlm-application/search/searchPersonFull` |
 | `get_person_search_result` | `{"taskId":"550e8400-e29b-41d4-a716-446655440000"}` | `GET /vlm-application/search/searchPersonResult/{task_id}` |
-| `detect_persons_with_id` | `{"imageUrl":"http://.../query.jpg"}` | `POST /vlm-application/search/detectPersonsWithId` |
-| `get_person_bbox` | `{"personId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890"}` | `GET /vlm-application/search/getPersonBbox/{person_id}` |
 | `gait_feature_compare` | `{"persons":[{"id":"person_001","isWalking":true},{"id":"person_002","isWalking":true}]}` | `POST /vlm-application/gait/gaitFeaCompare` |
+
+> 2026-09 上游重构：`searchPersonByBbox` 更名为 `searchPersonBrief`（简版：只回 `es_ids` + `similarity_scores`）/ `searchPersonFull`（详版：直接回 ES 全量文档组成的 `similar_persons`），本项目统一走详版；`detectPersonsWithId`、`getPersonBbox` 两个接口已下线（404），对应的 MCP tool 已移除。详见 [person-api.md](./person-api.md)。
 
 `search_person_by_bbox` 会把 MCP 参数转换为上游字段名：`imageUrl` -> `image_url`、`searchMethod` -> `search_method`、`startTime` -> `start_time`、`endTime` -> `end_time`、`similarityThreshold` -> `similarity_threshold`、`topK` -> `top_k`。
 
@@ -753,7 +751,7 @@ videoai://recordings/b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22
 
 ```bash
 VIDEOAI_MCP_PLAYBACK_TTL_SECONDS=1800
-PERSON_API_BASE_URL=http://192.168.11.192:18890
+PERSON_API_BASE_URL=http://192.168.11.192:15501
 RETRIEVE_API_BASE_URL=http://192.168.11.194:15011
 RETRIEVE_API_TIMEOUT_SECONDS=120
 VIDEO_UNDERSTANDING_API_BASE_URL=http://10.10.3.100:8780

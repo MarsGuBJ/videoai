@@ -40,18 +40,6 @@ async def get_person_search_result(taskId: str) -> dict:
 
 
 @mcp.tool()
-async def detect_persons_with_id(imageUrl: str) -> dict:
-    """Detect persons in an image URL and return cached person IDs with bounding boxes."""
-    return await person_api.detect_persons_with_id(imageUrl)
-
-
-@mcp.tool()
-async def get_person_bbox(personId: str) -> dict:
-    """Return cached bbox information for a personId from detect_persons_with_id."""
-    return await person_api.get_person_bbox(personId)
-
-
-@mcp.tool()
 async def gait_feature_extract_and_insert(
     personId: str,
     imageUrl: str,

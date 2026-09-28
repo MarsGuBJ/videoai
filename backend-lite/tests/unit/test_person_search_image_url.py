@@ -109,6 +109,8 @@ def test_search_by_bbox_forwards_absolute_image_url(client: TestClient, monkeypa
     )
 
     assert response.status_code == 200
+    # 2026-09 上游重构：searchPersonByBbox 下线，改调详版 searchPersonFull
+    assert captured["url"] == f"{PERSON_BASE}/vlm-application/search/searchPersonFull"
     assert captured["json"]["image_url"] == (
         f"{PUBLIC_BASE}/api/video-analysis/frame?videoUrl=http://minio/a.mp4&seconds=12"
     )

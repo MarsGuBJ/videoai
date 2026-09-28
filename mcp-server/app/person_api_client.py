@@ -34,20 +34,13 @@ class PersonApiClient:
             payload["start_time"] = start_time
         if end_time:
             payload["end_time"] = end_time
-        return await self._post("/vlm-application/search/searchPersonByBbox", payload)
+        # 2026-09 接口重构：searchPersonByBbox 已下线，改用详版 searchPersonFull
+        # （上游直接回 ES 全量文档组成的 similar_persons，不再需要另调 ES 文档查询接口）。
+        return await self._post("/vlm-application/search/searchPersonFull", payload)
 
     async def get_person_search_result(self, task_id: str) -> dict:
         safe_task_id = required(task_id, "taskId")
         return await self._get(f"/vlm-application/search/searchPersonResult/{safe_task_id}")
-
-    async def detect_persons_with_id(self, image_url: str) -> dict:
-        return await self._post(
-            "/vlm-application/search/detectPersonsWithId", {"image_url": required(image_url, "imageUrl")}
-        )
-
-    async def get_person_bbox(self, person_id: str) -> dict:
-        safe_person_id = required(person_id, "personId")
-        return await self._get(f"/vlm-application/search/getPersonBbox/{safe_person_id}")
 
     async def gait_feature_extract_and_insert(
         self,
