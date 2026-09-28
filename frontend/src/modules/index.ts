@@ -87,7 +87,7 @@ function fullApp(): ResolvedApp {
       ...controlNav.routeNames,
       ...shellNav.routeNames
     },
-    defaultRoute: "/home"
+    defaultRoute: "/overview"
   };
 }
 
