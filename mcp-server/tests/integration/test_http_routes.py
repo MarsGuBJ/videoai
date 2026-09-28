@@ -282,7 +282,13 @@ def test_download_recording_http_requires_nvr():
     assert "nvr" in response.json()["error"]["message"]
 
 
-def test_download_recording_http_rejects_unknown_nvr():
+def test_download_recording_http_rejects_unknown_nvr(monkeypatch):
+    """不在下载白名单内的 nvr 必须 400，并在报错里列出当前允许的设备。
+
+    白名单默认值随部署网段变化（见 settings._ENV_DEVICE_DEFAULTS），这里固定成单台设备，
+    避免用例与某个网段的默认值耦合。
+    """
+    monkeypatch.setattr("app.tools.recordings.hcnetsdk_downloaders", {"10.10.7.252": object()})
     response = post(
         "/download_recording-http",
         json={
@@ -293,9 +299,7 @@ def test_download_recording_http_rejects_unknown_nvr():
     )
 
     assert response.status_code == 400
-    assert response.json()["error"]["message"] == (
-        "nvr must be one of: 10.10.7.252, 10.10.7.253, 172.21.200.21, 172.21.200.22, 172.21.200.23"
-    )
+    assert response.json()["error"]["message"] == "nvr must be one of: 10.10.7.252"
 
 
 def test_download_recording_mcp_schema_nvr_optional():

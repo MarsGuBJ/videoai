@@ -44,6 +44,17 @@ def test_device_defaults_follow_172_segment(monkeypatch):
     assert settings.cvr_hosts == ("172.21.200.21", "172.21.200.22", "172.21.200.23")
 
 
+def test_device_defaults_follow_192_segment(monkeypatch):
+    """192 网段部署（MCP 对外基址 192.*，如 192.168.11.194 现场）：只有 NVR，不反查 CVR。"""
+    _clear_device_env(monkeypatch)
+    monkeypatch.setenv("VIDEOAI_MCP_PUBLIC_BASE_URL", "http://192.168.11.194:8097")
+
+    settings = load_settings()
+
+    assert settings.hcnetsdk_download_nvr_hosts == ("192.168.11.251",)
+    assert settings.cvr_hosts == ()
+
+
 def test_device_defaults_fall_back_to_legacy_on_unknown_segment(monkeypatch):
     """未知网段（域名/本机地址）：保持历史默认（NVR+CVR 全配），避免新环境起不来。"""
     _clear_device_env(monkeypatch)
