@@ -1208,7 +1208,7 @@ export default {
       }
       if (this.modal.type === "reviewTask") {
         if (this.reviewTaskSubmitting) return;
-        if (!this.reviewTypeId) { this.showToast("请选择事件编码"); return; }
+        if (!this.reviewTypeId) { this.showToast("请选择复核类型"); return; }
         if (!this.reviewLlmId) { this.showToast("请选择大模型"); return; }
         if (!this.reviewImageFile) { this.showToast("请上传图片"); return; }
         this.$emit("submit", "reviewTask", {
@@ -1590,10 +1590,10 @@ export default {
       <div class="modal-body">
         <template v-if="modal.type === 'reviewTask'">
           <div class="modal-form-row">
-            <label><span class="required">*</span>事件编码：</label>
+            <label><span class="required">*</span>复核类型：</label>
             <select class="select" v-model="reviewTypeId">
-              <option value="">请选择事件编码</option>
-              <option v-for="item in reviewTypeOptions" :key="item.id" :value="item.id">{{ item.name }}（{{ item.code }}）</option>
+              <option value="">请选择复核类型</option>
+              <option v-for="item in reviewTypeOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
             </select>
           </div>
           <div class="modal-form-row">
