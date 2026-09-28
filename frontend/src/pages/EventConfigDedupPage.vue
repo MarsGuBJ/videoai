@@ -20,9 +20,10 @@
       <div class="event-config-page-board" style="min-height:0;margin-bottom:14px;">
         <h4 class="event-config-section-title">执行策略</h4>
         <div class="event-config-radio-row"><label v-for="tab in tabs" :key="tab"><input type="radio" name="event-config-dedup-strategy" :value="tab" v-model="form.tab" /> {{ tab }}</label></div>
+        <!-- 时间维度去重只配置时间长度；实时重叠图像去重只配置相似度；区间重叠图像去重两者都要 -->
         <div class="event-config-form-grid">
-          <label class="event-config-field"><span><span class="required">*</span>时间长度</span><span class="event-config-input-group"><input v-model="form.duration" class="input" /><em class="event-config-input-addon">分钟</em></span></label>
-          <label class="event-config-field"><span><span class="required">*</span>相似度</span><input v-model="form.similarity" class="input" /></label>
+          <label v-if="needsDuration" class="event-config-field"><span><span class="required">*</span>时间长度</span><span class="event-config-input-group"><input v-model="form.duration" class="input" /><em class="event-config-input-addon">分钟</em></span></label>
+          <label v-if="needsSimilarity" class="event-config-field"><span><span class="required">*</span>相似度</span><span class="event-config-input-group"><input v-model="form.similarity" class="input" placeholder="0-100" /><em class="event-config-input-addon">%</em></span></label>
         </div>
       </div>
       <div class="event-config-page-board" style="min-height:0;">
@@ -42,7 +43,7 @@
     <div v-if="modal === 'detail'" class="event-config-modal-mask" @click.self="modal = null">
       <section class="event-config-modal" role="dialog" aria-modal="true" aria-label="事件规则详情">
         <div class="event-config-modal-head"><h3><button class="link-blue" style="padding:0;" aria-label="返回规则日志" @click="modal = 'logs'">←</button> 事件规则详情</h3><button class="event-config-modal-close" aria-label="关闭" @click="modal = null">×</button></div>
-        <div class="event-config-detail-grid"><span><b>规则名称：</b>{{ selectedRule ? selectedRule.name : "--" }}</span><span><b>规则状态：</b>{{ selectedRule && selectedRule.enabled ? "已生效" : "未生效" }}</span><span><b>关联算法：</b>{{ selectedRule ? selectedRule.algorithm : "--" }}</span><span><b>过滤类型：</b>{{ selectedRule ? selectedRule.strategy : "--" }}</span><span><b>过滤时长：</b>{{ selectedRule && selectedRule.durationMinutes != null ? selectedRule.durationMinutes + " 分钟" : "--" }}</span><span><b>相似度：</b>{{ selectedRule && selectedRule.similarity != null ? selectedRule.similarity : "--" }}</span><span><b>设备名称：</b>{{ selectedRule ? detailCameras(selectedRule) : "--" }}</span></div>
+        <div class="event-config-detail-grid"><span><b>规则名称：</b>{{ selectedRule ? selectedRule.name : "--" }}</span><span><b>规则状态：</b>{{ selectedRule && selectedRule.enabled ? "已生效" : "未生效" }}</span><span><b>关联算法：</b>{{ selectedRule ? selectedRule.algorithm : "--" }}</span><span><b>过滤类型：</b>{{ selectedRule ? selectedRule.strategy : "--" }}</span><span><b>过滤时长：</b>{{ selectedRule && selectedRule.durationMinutes != null ? selectedRule.durationMinutes + " 分钟" : "--" }}</span><span><b>相似度：</b>{{ selectedRule ? similarityText(selectedRule) : "--" }}</span><span><b>设备名称：</b>{{ selectedRule ? detailCameras(selectedRule) : "--" }}</span></div>
         <h4 class="event-config-section-title">过滤详情</h4>
         <div class="event-config-filter-preview"><em>已保留</em><b><span>相似度</span><span>95</span></b><strong>2024-09-27 13:33:46</strong></div>
       </section>
@@ -82,6 +83,9 @@ export default defineComponent({
     };
   },
   computed: {
+    // 时间维度去重只保留时间长度；实时重叠图像去重只保留相似度；区间重叠图像去重两者都要
+    needsDuration(): boolean { return this.form.tab !== "实时重叠图像去重"; },
+    needsSimilarity(): boolean { return this.form.tab !== "时间维度去重"; },
     cameraChoices(): string[] {
       // 接口失败时降级为手输：勾选列表直接回显已手输的摄像头名
       if (this.camerasFailed) return this.form.cameras;
@@ -128,9 +132,14 @@ export default defineComponent({
       }
     },
     cardParams(rule: DedupRule): string {
+      const similarity = this.similarityText(rule);
       if (rule.strategy === "时间维度去重") return `过滤时长 ${rule.durationMinutes ?? 0}m`;
-      if (rule.strategy === "区间重叠图像去重") return `过滤时长 ${rule.durationMinutes ?? 0}m / 相似度 ${rule.similarity ?? "-"}`;
-      return `相似度 ${rule.similarity ?? "-"}`;
+      if (rule.strategy === "区间重叠图像去重") return `过滤时长 ${rule.durationMinutes ?? 0}m / 相似度 ${similarity}`;
+      return `相似度 ${similarity}`;
+    },
+    // 去重相似度是两张快照的相似度百分比（0-100），与布控任务的人物/车辆相似度无关
+    similarityText(rule: DedupRule): string {
+      return rule.similarity != null ? `${rule.similarity}%` : "-";
     },
     detailCameras(rule: DedupRule): string {
       return rule.allCameras ? "全部摄像头" : (rule.cameras || []).join("、") || "--";
@@ -169,10 +178,15 @@ export default defineComponent({
     onCameraSelectionChange() {
       if (this.form.cameras.length) this.form.allCameras = false;
     },
+    // 去重相似度按百分比配置，必须是 0-100 的数值
+    validSimilarity(): boolean {
+      const value = Number(this.form.similarity);
+      return this.form.similarity !== "" && Number.isFinite(value) && value >= 0 && value <= 100;
+    },
     buildPayload(enabled: boolean): DedupRulePayload {
       // 时间维度只送时长，实时图像只送相似度，区间图像两者都需要
-      const needsDuration = this.form.tab !== "实时重叠图像去重";
-      const needsSimilarity = this.form.tab !== "时间维度去重";
+      const needsDuration = this.needsDuration;
+      const needsSimilarity = this.needsSimilarity;
       return {
         name: this.form.name.trim(),
         algorithm: this.form.algorithm,
@@ -189,6 +203,8 @@ export default defineComponent({
       if (!this.form.name.trim()) { this.showToast("请填写规则名称"); return; }
       if (!this.form.algorithm) { this.showToast("请选择关联算法"); return; }
       if (!this.form.allCameras && !this.form.cameras.length) { this.showToast("请选择摄像头或勾选全选"); return; }
+      if (this.needsDuration && this.form.duration === "") { this.showToast("请填写时间长度"); return; }
+      if (this.needsSimilarity && !this.validSimilarity()) { this.showToast("请填写 0-100 的相似度"); return; }
       if (this.saving) return;
       const editing = this.editingId ? this.rules.find(rule => rule.id === this.editingId) : null;
       const payload = this.buildPayload(editing ? editing.enabled : true);
