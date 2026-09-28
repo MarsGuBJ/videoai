@@ -2,7 +2,7 @@
 import * as XLSX from "xlsx";
 import { api, sameOriginAssetUrl } from "../api";
 import type { RecordingSegment } from "../api";
-import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceProfile, LlmConfig, NvrImportPrecheck, ReviewType } from "../types";
+import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceLibraryRecord, LlmConfig, NvrImportPrecheck, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { deviceStatusLabel, onlineStatusOf, streamStatusLabel } from "../utils/device-status";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
@@ -86,17 +86,21 @@ export default {
       deployCycleStart: "00:00",
       deployCycleEnd: "23:59",
       deploySimilarity: 50,
-      deployFaceProfileId: "",
       deployTargetFile: null as File | null,
       deployTargetImageUrl: "",
       deployTargetLocalPreview: "",
-      deployFaceFilter: "",
-      deployFaceDropdownOpen: false,
+      // 从人脸库选取（外部人脸照片模块）：已选照片与选择器状态
+      deployFaceLibraryPhoto: null as { id: string; name: string; url: string } | null,
+      facePickerOpen: false,
+      facePickerLoading: false,
+      facePickerKeyword: "",
+      facePickerPage: { current: 1, size: 12, total: 0 },
+      facePickerRecords: [] as FaceLibraryRecord[],
+      facePickerSelected: null as FaceLibraryRecord | null,
       deployDesc: "",
       deployAlgorithms: [] as Algorithm[],
       deployEventInfos: [] as EventInfo[],
       deployCameras: [] as Camera[],
-      faceProfiles: [] as FaceProfile[],
       versionFileName: "",
       deployCameraTreeOpen: false,
       deploySelectedCameras: [] as string[],
@@ -241,19 +245,6 @@ export default {
     deployTargetPreview(): string {
       return this.deployTargetLocalPreview || this.deployTargetImageUrl;
     },
-    deploySelectedFaceProfile(): FaceProfile | undefined {
-      return this.faceProfiles.find((face) => face.id === this.deployFaceProfileId);
-    },
-    filteredFaceProfiles(): FaceProfile[] {
-      const keyword = this.deployFaceFilter.trim().toLowerCase();
-      const selected = this.deploySelectedFaceProfile;
-      // 输入内容就是已选人姓名时视为未筛选，展示全部
-      const list =
-        !keyword || (selected && selected.name.toLowerCase() === keyword)
-          ? this.faceProfiles
-          : this.faceProfiles.filter((face) => face.name.toLowerCase().includes(keyword));
-      return list.slice(0, 50);
-    },
     deployTargetCrop(): any {
       return (this.state && this.state.imageCrop) || null;
     },
@@ -360,9 +351,8 @@ export default {
       if (this.modal && this.modal.item) this.modal.item.area = value;
     },
     deployAlgorithmCode() {
-      // 切换算法后重置布控目标，避免人脸库错挂到其他引擎
-      this.deployFaceProfileId = "";
-      this.deployFaceFilter = "";
+      // 切换算法后重置布控目标，避免人脸错挂到其他引擎
+      this.deployFaceLibraryPhoto = null;
     },
     "modal.open"(open: boolean) {
       if (!open) {
@@ -1052,30 +1042,35 @@ export default {
       this.deployCycleStart = (item && item.cycleStart) || "00:00";
       this.deployCycleEnd = (item && item.cycleEnd) || "23:59";
       this.deploySimilarity = item && item.similarity != null ? item.similarity : 50;
-      this.deployFaceProfileId = (item && item.faceProfileId) || "";
       this.deployDesc = (item && item.desc) || "";
       // 布控目标图：快速布防带入，或编辑回填（仅当目标图不是来自人脸库时）
       this.deployTargetFile = null;
       if (this.deployTargetLocalPreview) URL.revokeObjectURL(this.deployTargetLocalPreview);
       this.deployTargetLocalPreview = "";
-      const itemPhotoUrl = item && item.faceProfilePhotoUrl && !item.faceProfileId ? sameOriginAssetUrl(item.faceProfilePhotoUrl) : "";
+      // 人脸库来源的任务（外部选取或旧的内部人脸库）回填到「从人脸库选取」chip，
+      // 其余（本地上传/快速布防来源）回填到上传预览
+      const fromFaceLibrary = !!(item && (item.faceProfileId || item.faceProfileName));
+      this.deployFaceLibraryPhoto = fromFaceLibrary
+        ? {
+            id: item.faceProfileId || "",
+            name: item.faceProfileName || "已选人脸",
+            url: item.faceProfilePhotoUrl ? sameOriginAssetUrl(item.faceProfilePhotoUrl) : ""
+          }
+        : null;
+      const itemPhotoUrl = item && item.faceProfilePhotoUrl && !fromFaceLibrary ? sameOriginAssetUrl(item.faceProfilePhotoUrl) : "";
       this.deployTargetImageUrl = itemPhotoUrl || this.deployTargetImage || "";
-      this.deployFaceFilter = "";
-      this.deployFaceDropdownOpen = false;
+      this.facePickerOpen = false;
       const targetInput: any = this.$refs.deployTargetFileInput;
       if (targetInput) targetInput.value = "";
       this.deployCameraTreeOpen = false;
       this.deployAreaExpanded = {};
-      Promise.all([api.cameras(), api.algorithms(), api.faces(), api.eventInfos()])
-        .then(([cameras, algorithms, faces, eventInfos]) => {
+      Promise.all([api.cameras(), api.algorithms(), api.eventInfos()])
+        .then(([cameras, algorithms, eventInfos]) => {
           this.deployCameras = cameras;
           this.deployAlgorithms = algorithms;
-          this.faceProfiles = faces;
           this.deployEventInfos = eventInfos;
           const areas = this.deployCameraAreas.map((area: any) => area.name);
           if (areas.length) this.deployAreaExpanded = { [areas[0]]: true };
-          const selectedFace = this.deploySelectedFaceProfile;
-          if (selectedFace) this.deployFaceFilter = selectedFace.name;
         })
         .catch((error) => this.showToast(`布控基础数据加载失败：${error instanceof Error ? error.message : error}`));
     },
@@ -1100,19 +1095,52 @@ export default {
       const input: any = this.$refs.deployTargetFileInput;
       if (input) input.value = "";
     },
-    selectDeployFace(face: FaceProfile) {
-      this.deployFaceProfileId = face.id;
-      this.deployFaceFilter = face.name;
-      this.deployFaceDropdownOpen = false;
+    // 从人脸库选取：打开外部人脸照片选择器并加载第一页
+    openFacePicker() {
+      this.facePickerOpen = true;
+      this.facePickerKeyword = "";
+      this.facePickerSelected = null;
+      this.loadFacePickerPage(1);
     },
-    clearDeployFace() {
-      this.deployFaceProfileId = "";
-      this.deployFaceFilter = "";
+    closeFacePicker() {
+      this.facePickerOpen = false;
     },
-    closeDeployFaceDropdownSoon() {
-      window.setTimeout(() => {
-        this.deployFaceDropdownOpen = false;
-      }, 150);
+    searchFacePicker() {
+      this.loadFacePickerPage(1);
+    },
+    async loadFacePickerPage(current: number) {
+      this.facePickerLoading = true;
+      try {
+        const page = await api.faceLibraryPage({
+          current,
+          size: this.facePickerPage.size,
+          keyword: this.facePickerKeyword.trim() || undefined
+        });
+        this.facePickerRecords = page.records || [];
+        this.facePickerPage = {
+          current: page.current || current,
+          size: page.size || this.facePickerPage.size,
+          total: page.total || 0
+        };
+      } catch (error) {
+        this.facePickerRecords = [];
+        this.facePickerPage = { ...this.facePickerPage, current: 1, total: 0 };
+        this.showToast(`人脸库查询失败：${error instanceof Error ? error.message : error}`);
+      } finally {
+        this.facePickerLoading = false;
+      }
+    },
+    selectFacePickerRecord(record: FaceLibraryRecord) {
+      this.facePickerSelected = record;
+    },
+    confirmFacePicker() {
+      const record = this.facePickerSelected;
+      if (!record) return;
+      this.deployFaceLibraryPhoto = { id: record.id, name: record.name || "未命名", url: record.url || "" };
+      this.facePickerOpen = false;
+    },
+    clearDeployFaceLibraryPhoto() {
+      this.deployFaceLibraryPhoto = null;
     },
     async handleSubmit() {
       if (this.modal.type === "algorithm") {
@@ -1144,8 +1172,8 @@ export default {
             return;
           }
         }
-        const faceProfile = this.deploySelectedFaceProfile;
-        if (!photoUrl && faceProfile) photoUrl = faceProfile.photoUrl || "";
+        const facePhoto = this.deployFaceLibraryPhoto;
+        if (!photoUrl && facePhoto) photoUrl = facePhoto.url || "";
         if (!photoUrl) {
           this.showToast("请上传布控图像或从人脸库选取");
           return;
@@ -1162,7 +1190,9 @@ export default {
           algorithmCode: this.deployAlgorithmCode || null,
           engineType: algorithm ? algorithm.engineType : null,
           cameraIds: [...this.deploySelectedCameras],
-          faceProfileId: this.deployTargetPreview ? null : faceProfile ? faceProfile.id : null,
+          // 人脸库选取的是外部照片，无内部 faceProfileId；有本地上传预览时上传图优先
+          faceProfileId: null,
+          faceProfileName: this.deployTargetPreview ? null : facePhoto ? facePhoto.name : null,
           faceProfilePhotoUrl: photoUrl || null,
           recognitionPerMinute: this.deployRecognitionPerMinute,
           similarity: Math.min(100, Math.max(0, Math.floor(Number(this.deploySimilarity) || 0))),
@@ -1697,15 +1727,12 @@ export default {
           </div>
           <div class="modal-form-row">
             <label>从人脸库选取：</label>
-            <div class="face-combo">
-              <input class="input" v-model="deployFaceFilter" placeholder="输入姓名筛选人脸库" @focus="deployFaceDropdownOpen = true" @input="deployFaceDropdownOpen = true" @blur="closeDeployFaceDropdownSoon" />
-              <button v-if="deployFaceProfileId" class="face-combo-clear" type="button" aria-label="清除人脸库选择" @mousedown.prevent="clearDeployFace">×</button>
-              <div v-if="deployFaceDropdownOpen" class="face-combo-list">
-                <button v-for="face in filteredFaceProfiles" :key="face.id" class="face-combo-item" :class="{ active: face.id === deployFaceProfileId }" type="button" @mousedown.prevent="selectDeployFace(face)">
-                  <img v-if="face.photoUrl" :src="face.photoUrl" :alt="face.name" />
-                  <span>{{ face.name }}</span>
-                </button>
-                <div v-if="!filteredFaceProfiles.length" class="face-combo-empty">无匹配人脸</div>
+            <div class="face-pick-field">
+              <button class="btn" type="button" @click="openFacePicker">从人脸库选取</button>
+              <div v-if="deployFaceLibraryPhoto" class="face-pick-chip">
+                <img v-if="deployFaceLibraryPhoto.url" :src="deployFaceLibraryPhoto.url" :alt="deployFaceLibraryPhoto.name" />
+                <span>{{ deployFaceLibraryPhoto.name }}</span>
+                <button class="face-combo-clear" type="button" aria-label="清除人脸库选择" @click="clearDeployFaceLibraryPhoto">×</button>
               </div>
             </div>
           </div>
@@ -2138,5 +2165,38 @@ export default {
         </template>
       </div>
     </section>
+    <div v-if="facePickerOpen" class="face-picker-mask" @click.self="closeFacePicker">
+      <section class="face-picker-dialog" aria-label="从人脸库选取">
+        <div class="modal-head">
+          <h3>从人脸库选取</h3>
+          <button class="modal-close" aria-label="关闭" @click="closeFacePicker">×</button>
+        </div>
+        <div class="face-picker-body">
+          <div class="face-picker-toolbar">
+            <input class="input" v-model="facePickerKeyword" placeholder="输入关键字筛选（如姓名）" @keyup.enter="searchFacePicker" />
+            <button class="btn" type="button" :disabled="facePickerLoading" @click="searchFacePicker">查询</button>
+          </div>
+          <div v-if="facePickerLoading" class="face-picker-empty">加载中…</div>
+          <div v-else-if="!facePickerRecords.length" class="face-picker-empty">暂无人脸照片</div>
+          <div v-else class="face-picker-grid">
+            <button v-for="record in facePickerRecords" :key="record.id" class="face-picker-card" :class="{ active: facePickerSelected && facePickerSelected.id === record.id }" type="button" @click="selectFacePickerRecord(record)">
+              <img v-if="record.url" :src="record.url" :alt="record.name" />
+              <span v-else class="face-picker-noimg">无图片</span>
+              <span class="face-picker-name">{{ record.name || '未命名' }}</span>
+              <span class="face-picker-time">{{ record.createTime }}</span>
+            </button>
+          </div>
+          <div class="face-picker-pager">
+            <button class="btn" type="button" :disabled="facePickerLoading || facePickerPage.current <= 1" @click="loadFacePickerPage(facePickerPage.current - 1)">上一页</button>
+            <span>第 {{ facePickerPage.current }} 页 / 共 {{ facePickerPage.total }} 条</span>
+            <button class="btn" type="button" :disabled="facePickerLoading || facePickerPage.current * facePickerPage.size >= facePickerPage.total" @click="loadFacePickerPage(facePickerPage.current + 1)">下一页</button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" @click="closeFacePicker">取消</button>
+          <button class="btn primary" :disabled="!facePickerSelected" @click="confirmFacePicker">确定</button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>

@@ -139,14 +139,14 @@ export default defineComponent({
     },
     // 从人脸库选取的布控目标：优先用任务落库的 faceProfileName，缺失时按 ID 回查人脸库
     targetFaceName(): string {
-      if (!this.task || !this.task.faceProfileId) return "";
+      if (!this.task || (!this.task.faceProfileId && !this.task.faceProfileName)) return "";
       if (this.task.faceProfileName) return this.task.faceProfileName;
       const profile = this.faces.find(item => item.id === this.task.faceProfileId);
       return profile ? profile.name : String(this.task.faceProfileId);
     },
     // 布控目标来源：与新增弹窗的「布控目标 / 从人脸库选取」两个字段对应
     targetSourceText(): string {
-      if (this.task && this.task.faceProfileId) return `人脸库「${this.targetFaceName}」`;
+      if (this.task && (this.task.faceProfileId || this.task.faceProfileName)) return `人脸库「${this.targetFaceName}」`;
       if (this.targetPhoto) return "本地上传或搜索页带入的图像";
       return "—";
     },

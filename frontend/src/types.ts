@@ -269,6 +269,22 @@ export type FaceProfile = {
   updatedAt: string;
 };
 
+// 外部人脸照片模块（/api/face-library/page 代理 /face/es/label/facePage）
+export type FaceLibraryRecord = {
+  id: string;
+  name: string;
+  url: string;
+  createTime: string;
+  description?: { keyName: string; val: string }[] | null;
+};
+
+export type FaceLibraryPage = {
+  total: number;
+  current: number;
+  size: number;
+  records: FaceLibraryRecord[];
+};
+
 export type FaceEvent = {
   id: string;
   cameraId: string;

@@ -1,4 +1,4 @@
-import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, NvrImportItem, NvrImportPrecheck, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, SpatialConfig, SpatialRegionSyncResult, WindowsCameraStatus, WorkerNode } from '../types';
+import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceLibraryPage, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, NvrImportItem, NvrImportPrecheck, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, SpatialConfig, SpatialRegionSyncResult, WindowsCameraStatus, WorkerNode } from '../types';
 
 export type {
   AccessCertificate,
@@ -429,6 +429,10 @@ export const api = {
   createFace: (form: FormData) => request<FaceProfile>('/api/faces', { method: 'POST', body: form }),
   updateFace: (id: string, form: FormData) => request<FaceProfile>(`/api/faces/${id}`, { method: 'PATCH', body: form }),
   deleteFace: (id: string) => request<void>(`/api/faces/${id}`, { method: 'DELETE' }),
+
+  // 外部人脸照片模块分页查询（布控弹窗「从人脸库选取」）
+  faceLibraryPage: (params: { current: number; size: number; keyword?: string }) =>
+    request<FaceLibraryPage>('/api/face-library/page', { method: 'POST', body: JSON.stringify(params) }),
 
   events: () => request<FaceEvent[]>('/api/events?limit=100'),
   deploymentEvents: (params: DeploymentEventQuery = {}) => {

@@ -368,6 +368,7 @@ export default defineComponent({
         engineType: payload.engineType,
         cameraIds: payload.cameraIds,
         faceProfileId: payload.faceProfileId,
+        faceProfileName: payload.faceProfileName ?? null,
         faceProfilePhotoUrl: payload.faceProfilePhotoUrl || null,
         recognitionPerMinute: payload.recognitionPerMinute,
         similarity: payload.similarity,
