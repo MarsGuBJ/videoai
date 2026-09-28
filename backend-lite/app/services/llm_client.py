@@ -18,6 +18,11 @@ JUDGE_INSTRUCTION = (
     '只回复 JSON：{"verdict":"有效"或"无效","reason":"简要说明"}，不要输出其他内容。'
 )
 
+JUDGE_VIDEO_INSTRUCTION = (
+    "以下图片是同一视频按时间抽取的画面，请判断视频中是否存在上述目标事件。"
+    '只回复 JSON：{"verdict":"有效"或"无效","reason":"简要说明"}，不要输出其他内容。'
+)
+
 
 def _extract_content(data: dict[str, Any]) -> str:
     """从 chat completions 响应中取 choices[0].message.content 文本。
@@ -82,11 +87,12 @@ def judge_event(
     model: str | None,
     prompt: str,
     image_bytes: bytes,
+    extra_frames: list[bytes] | None = None,
     timeout: int,
     temperature: float,
     max_tokens: int,
 ) -> tuple[str, str]:
-    """调用 OpenAI 兼容视觉模型判定图片中是否存在目标事件。
+    """调用 OpenAI 兼容视觉模型判定图片/视频抽帧中是否存在目标事件。
 
     Args:
         base_url: OpenAI 兼容服务 base URL（不含 /chat/completions）。
@@ -94,7 +100,8 @@ def judge_event(
         model: 模型名；None/空串时不在请求中携带 model 字段
             （交由服务端默认模型处理）。
         prompt: 复核类型的判定提示词（作为 system 消息）。
-        image_bytes: 待判定图片字节（按 JPEG data URL 上送）。
+        image_bytes: 待判定图片字节（按 JPEG data URL 上送）；视频任务传首帧。
+        extra_frames: 视频任务的其余抽帧；非空时按视频口径判定（多帧一起上送）。
         timeout: 请求超时秒数。
         temperature: 采样温度。
         max_tokens: 最大输出 token 数。
@@ -108,16 +115,14 @@ def judge_event(
     """
     url = f"{base_url.rstrip('/')}/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    frames = [image_bytes, *(extra_frames or [])]
+    instruction = JUDGE_VIDEO_INSTRUCTION if extra_frames else JUDGE_INSTRUCTION
+    content: list[dict[str, Any]] = [{"type": "text", "text": instruction}]
+    content.extend({"type": "image_url", "image_url": {"url": jpeg_data_url(frame)}} for frame in frames)
     payload: dict[str, Any] = {
         "messages": [
             {"role": "system", "content": prompt},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": JUDGE_INSTRUCTION},
-                    {"type": "image_url", "image_url": {"url": jpeg_data_url(image_bytes)}},
-                ],
-            },
+            {"role": "user", "content": content},
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,

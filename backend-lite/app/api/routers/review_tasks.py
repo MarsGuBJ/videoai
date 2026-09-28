@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from app import state
 from app.core.config import get_settings
 from app.schemas.review_task import ReviewTaskOut
+from app.services.review_media import extract_video_frames, save_review_frame, validate_video_upload
 from app.services.review_tasks import (
     delete_review_task_from_db,
     persist_review_task,
@@ -34,16 +35,32 @@ def list_review_tasks() -> list[ReviewTaskOut]:
 async def create_review_task(
     review_type_id: str = Form(..., alias="reviewTypeId"),  # noqa: B008  # FastAPI Form 依赖注入惯例
     llm_config_id: str = Form(..., alias="llmConfigId"),  # noqa: B008  # FastAPI Form 依赖注入惯例
-    image: UploadFile = File(...),  # noqa: B008  # FastAPI File 依赖注入惯例
+    image: UploadFile | None = File(None),  # noqa: B008  # FastAPI File 依赖注入惯例
+    video: UploadFile | None = File(None),  # noqa: B008  # FastAPI File 依赖注入惯例
 ) -> ReviewTaskOut:
-    """创建复核任务：校验复核类型与大模型配置，存图入内存并落库，后台线程执行大模型判定。"""
+    """创建复核任务：校验复核类型与大模型配置，图片/视频二选一上传，
+    视频抽帧（首帧存为缩略图），后台线程按复核类型提示词执行大模型判定。"""
     review_type = require_review_type(review_type_id)
     llm_cfg = state.llm_configs_store.get(llm_config_id)
     if not llm_cfg:
         raise HTTPException(status_code=404, detail="LLM config not found")
-    image_bytes = await image.read()
-    await image.seek(0)
-    image_url = await save_review_image(image)
+    if image is None and video is None:
+        raise HTTPException(status_code=400, detail="请上传图片或视频")
+    if image is not None and video is not None:
+        raise HTTPException(status_code=400, detail="图片与视频只上传一项")
+    extra_frames: list[bytes] = []
+    if video is not None:
+        video_bytes = await video.read()
+        validate_video_upload(video, len(video_bytes))
+        frames = extract_video_frames(video_bytes, video.filename or "")
+        image_bytes = frames[0]
+        extra_frames = frames[1:]
+        image_url = save_review_frame(frames[0])
+    else:
+        assert image is not None  # noqa: S101  # 上面已排除两者皆空
+        image_bytes = await image.read()
+        await image.seek(0)
+        image_url = await save_review_image(image)
     task_id = str(uuid4())
     now = datetime.now(timezone.utc)
     record = {
@@ -62,7 +79,7 @@ async def create_review_task(
     }
     state.review_tasks_store[task_id] = record
     persist_review_task(record)
-    threading.Thread(target=run_review_task_judgment, args=(task_id, image_bytes), daemon=True).start()
+    threading.Thread(target=run_review_task_judgment, args=(task_id, image_bytes, extra_frames), daemon=True).start()
     return review_task_out(record)
 
 

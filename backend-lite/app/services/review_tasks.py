@@ -140,12 +140,13 @@ def delete_review_task_from_db(task_id: str) -> None:
         logger.error("review task delete failed: %s", exc)
 
 
-def run_review_task_judgment(task_id: str, image_bytes: bytes) -> None:
+def run_review_task_judgment(task_id: str, image_bytes: bytes, extra_frames: list[bytes] | None = None) -> None:
     """执行复核任务的大模型判定并更新内存态与数据库（后台线程调用，永不抛异常）。
 
     Args:
         task_id: 复核任务 ID。
-        image_bytes: 待判定图片字节。
+        image_bytes: 待判定图片字节；视频任务传首帧。
+        extra_frames: 视频任务的其余抽帧（非空时按视频口径判定）。
     """
     try:
         record = state.review_tasks_store.get(task_id)
@@ -164,6 +165,7 @@ def run_review_task_judgment(task_id: str, image_bytes: bytes) -> None:
             model=llm_cfg.get("model"),
             prompt=str(review_type["prompt"]),
             image_bytes=image_bytes,
+            extra_frames=extra_frames,
             timeout=int(llm_cfg.get("timeout") or 30),
             temperature=float(llm_cfg.get("temperature") or 0.0),
             max_tokens=int(llm_cfg.get("max_tokens") or 1024),

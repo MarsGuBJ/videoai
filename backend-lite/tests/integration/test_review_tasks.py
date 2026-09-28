@@ -46,7 +46,7 @@ def _create_review_task(client: TestClient, monkeypatch, **overrides) -> dict:
     _seed_stores()
     monkeypatch.setattr(review_tasks_router, "persist_review_task", lambda record: None)
     monkeypatch.setattr(review_tasks_router, "save_review_image", _fake_save_review_image)
-    monkeypatch.setattr(review_tasks_router, "run_review_task_judgment", lambda task_id, image_bytes: None)
+    monkeypatch.setattr(review_tasks_router, "run_review_task_judgment", lambda task_id, image_bytes, extra_frames=None: None)
     data = {"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID, **overrides}
     response = client.post(
         "/api/review-tasks",
@@ -173,3 +173,87 @@ def test_delete_review_task_unknown_id_returns_404(client: TestClient):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Review task not found"
+
+
+FAKE_VIDEO_BYTES = b"\x00\x00\x00\x18fake-mp4-bytes"
+FAKE_FRAMES = [b"\xff\xd8\xff\xe0frame-1", b"\xff\xd8\xff\xe0frame-2", b"\xff\xd8\xff\xe0frame-3"]
+
+
+def test_create_review_task_with_video_judges_frames(client: TestClient, monkeypatch):
+    """视频上传：抽帧后首帧存为缩略图，后台判定收到首帧 + 其余抽帧。"""
+    _seed_stores()
+    monkeypatch.setattr(review_tasks_router, "persist_review_task", lambda record: None)
+    monkeypatch.setattr(review_tasks_router, "extract_video_frames", lambda video_bytes, filename="": FAKE_FRAMES)
+    monkeypatch.setattr(review_tasks_router, "save_review_frame", lambda frame: FAKE_IMAGE_URL)
+    captured: dict = {}
+    monkeypatch.setattr(
+        review_tasks_router,
+        "run_review_task_judgment",
+        lambda task_id, image_bytes, extra_frames=None: captured.update(
+            {"task_id": task_id, "image_bytes": image_bytes, "extra_frames": extra_frames}
+        ),
+    )
+
+    class _SyncThread:
+        """同步执行的假线程：避免断言与后台线程的竞态。"""
+
+        def __init__(self, target, args=(), daemon=None):
+            self._target = target
+            self._args = args
+
+        def start(self):
+            self._target(*self._args)
+
+    monkeypatch.setattr(review_tasks_router.threading, "Thread", _SyncThread)
+
+    response = client.post(
+        "/api/review-tasks",
+        data={"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID},
+        files={"video": ("clip.mp4", FAKE_VIDEO_BYTES, "video/mp4")},
+    )
+
+    assert response.status_code == 200
+    created = response.json()
+    assert created["imageUrl"] == FAKE_IMAGE_URL
+    assert created["status"] == "进行中"
+    assert captured["task_id"] == created["id"]
+    assert captured["image_bytes"] == FAKE_FRAMES[0]
+    assert captured["extra_frames"] == FAKE_FRAMES[1:]
+
+
+def test_create_review_task_without_media_returns_400(client: TestClient, monkeypatch):
+    _seed_stores()
+    response = client.post(
+        "/api/review-tasks",
+        data={"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID},
+    )
+
+    assert response.status_code == 400
+    assert "图片或视频" in response.json()["detail"]
+
+
+def test_create_review_task_with_both_image_and_video_returns_400(client: TestClient, monkeypatch):
+    _seed_stores()
+    response = client.post(
+        "/api/review-tasks",
+        data={"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID},
+        files={
+            "image": ("test.jpg", FAKE_IMAGE_BYTES, "image/jpeg"),
+            "video": ("clip.mp4", FAKE_VIDEO_BYTES, "video/mp4"),
+        },
+    )
+
+    assert response.status_code == 400
+    assert "只上传一项" in response.json()["detail"]
+
+
+def test_create_review_task_invalid_video_type_returns_400(client: TestClient, monkeypatch):
+    _seed_stores()
+    response = client.post(
+        "/api/review-tasks",
+        data={"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID},
+        files={"video": ("clip.txt", b"not-a-video", "text/plain")},
+    )
+
+    assert response.status_code == 400
+    assert "仅支持视频文件" in response.json()["detail"]

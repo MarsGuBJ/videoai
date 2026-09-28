@@ -286,8 +286,8 @@ export default defineComponent({
       if (type === "permissionRole") this.setRoute("permissions");
     },
     async submitReviewTask(payload: any) {
-      if (!payload.reviewTypeId || !payload.llmConfigId || !payload.image) {
-        this.showToast("请选择事件编码、大模型并上传图片");
+      if (!payload.reviewTypeId || !payload.llmConfigId || (!payload.image && !payload.video)) {
+        this.showToast("请选择复核类型、大模型并上传图片或视频");
         return;
       }
       // 提交中禁止重复提交，避免一次双击创建多条相同任务
@@ -296,7 +296,8 @@ export default defineComponent({
       const form = new FormData();
       form.append("reviewTypeId", payload.reviewTypeId);
       form.append("llmConfigId", payload.llmConfigId);
-      form.append("image", payload.image);
+      if (payload.image) form.append("image", payload.image);
+      if (payload.video) form.append("video", payload.video);
       try {
         await api.createReviewTask(form);
         this.closeModal();

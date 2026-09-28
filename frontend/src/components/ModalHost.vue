@@ -145,6 +145,10 @@ export default {
       reviewImageFile: null as File | null,
       reviewImageName: "",
       reviewImageUrl: "",
+      // 事件判断的视频上传（与图片互斥，二选一送大模型判定）
+      reviewVideoFile: null as File | null,
+      reviewVideoName: "",
+      reviewVideoUrl: "",
       // 云平台同步设备弹窗
       cloudPlatforms: [] as CloudPlatform[],
       cloudPlatformId: "",
@@ -1210,11 +1214,12 @@ export default {
         if (this.reviewTaskSubmitting) return;
         if (!this.reviewTypeId) { this.showToast("请选择复核类型"); return; }
         if (!this.reviewLlmId) { this.showToast("请选择大模型"); return; }
-        if (!this.reviewImageFile) { this.showToast("请上传图片"); return; }
+        if (!this.reviewImageFile && !this.reviewVideoFile) { this.showToast("请上传图片或视频"); return; }
         this.$emit("submit", "reviewTask", {
           reviewTypeId: this.reviewTypeId,
           llmConfigId: this.reviewLlmId,
-          image: this.reviewImageFile
+          image: this.reviewImageFile,
+          video: this.reviewVideoFile
         });
         return;
       }
@@ -1233,6 +1238,7 @@ export default {
         URL.revokeObjectURL(this.reviewImageUrl);
         this.reviewImageUrl = "";
       }
+      this.clearReviewVideo();
       const input: any = this.$refs.reviewImageInput;
       if (input) input.value = "";
     },
@@ -1258,6 +1264,49 @@ export default {
       this.reviewImageFile = file;
       this.reviewImageName = file.name;
       this.reviewImageUrl = URL.createObjectURL(file);
+      // 图片与视频互斥，只保留最后选择的一项
+      this.clearReviewVideo();
+    },
+    triggerReviewVideo() {
+      const input: any = this.$refs.reviewVideoInput;
+      if (input) input.click();
+    },
+    handleReviewVideo(event: any) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      // 与后端 validate_video_upload 校验一致：仅视频、不超过 100MB
+      if (!file.type || !file.type.startsWith("video/")) {
+        this.showToast("仅支持视频文件");
+        event.target.value = "";
+        return;
+      }
+      if (file.size > 100 * 1024 * 1024) {
+        this.showToast("视频大小不能超过 100MB");
+        event.target.value = "";
+        return;
+      }
+      if (this.reviewVideoUrl) URL.revokeObjectURL(this.reviewVideoUrl);
+      this.reviewVideoFile = file;
+      this.reviewVideoName = file.name;
+      this.reviewVideoUrl = URL.createObjectURL(file);
+      // 图片与视频互斥，只保留最后选择的一项
+      this.clearReviewImage();
+    },
+    clearReviewImage() {
+      this.reviewImageFile = null;
+      this.reviewImageName = "";
+      if (this.reviewImageUrl) URL.revokeObjectURL(this.reviewImageUrl);
+      this.reviewImageUrl = "";
+      const input: any = this.$refs.reviewImageInput;
+      if (input) input.value = "";
+    },
+    clearReviewVideo() {
+      this.reviewVideoFile = null;
+      this.reviewVideoName = "";
+      if (this.reviewVideoUrl) URL.revokeObjectURL(this.reviewVideoUrl);
+      this.reviewVideoUrl = "";
+      const input: any = this.$refs.reviewVideoInput;
+      if (input) input.value = "";
     },
     triggerVersionFile() {
       const input: any = this.$refs.versionFileInput;
@@ -1604,7 +1653,7 @@ export default {
             </select>
           </div>
           <div class="modal-form-row">
-            <label><span class="required">*</span>图片：</label>
+            <label>图片：</label>
             <div>
               <input ref="reviewImageInput" type="file" accept="image/*" style="display:none" @change="handleReviewImage" />
               <button class="modal-upload" @click="triggerReviewImage"><span><span class="plus">＋</span>上传</span></button>
@@ -1617,10 +1666,16 @@ export default {
           <div class="modal-form-row">
             <label>视频：</label>
             <div>
-              <button class="modal-upload" disabled style="opacity:.5;cursor:not-allowed;"><span><span class="plus">＋</span>上传</span></button>
-              <span style="font-size:12px;color:#999;margin-left:8px;">暂不支持</span>
+              <input ref="reviewVideoInput" type="file" accept="video/*" style="display:none" @change="handleReviewVideo" />
+              <button class="modal-upload" @click="triggerReviewVideo"><span><span class="plus">＋</span>上传</span></button>
+              <div v-if="reviewVideoUrl" style="margin-top:8px;">
+                <video :src="reviewVideoUrl" style="max-width:240px;max-height:135px;border-radius:6px;display:block;margin-bottom:4px;" muted controls></video>
+                <span style="font-size:12px;color:#888;">{{ reviewVideoName }}</span>
+                <span class="link-red" style="margin-left:10px;" @click="clearReviewVideo">清除</span>
+              </div>
             </div>
           </div>
+          <p class="modal-hint">图片或视频至少上传一项（两者只保留最后选择的一项），提交后由大模型按复核类型提示词判定是否有效</p>
         </template>
         <template v-if="modal.type === 'eventDetail' && modal.item">
           <div class="event-detail-grid">
