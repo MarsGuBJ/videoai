@@ -5,7 +5,7 @@
 ## 服务器信息
 
 - SSH 管理入口：`public@119.3.237.220 -p 3479`
-- 新现场（172.21 网段，cisdi-4090-2）：`user@172.17.136.189`（端口 22，即 `.tools/remote_ssh.py` / `remote_sync.py` 的默认目标），项目目录 `/home/user/videoai`，端口绑定 `172.17.136.189`。ZLM 使用宿主机共享实例（zlmmediakit_main_1，`0.0.0.0:1935`/`0.0.0.0:81`），因此本项目 compose 的 zlm **不能绑定主机 1935**（已在远程 compose 注释，RTMP 推流走 `rtmp://172.17.136.189:1935/live` 到共享 ZLM）；`VIDEOAI_ZLM_HTTP_URL`/`VIDEOAI_ZLM_PUBLIC_HTTP_URL` 指向 `http://172.17.136.189:81`。CVR 中心存储 `172.21.200.21/22/23`（admin/Sdtjh@2025）经 `CVR_HOSTS`/`CVR_USERNAME`/`CVR_PASSWORD` 注入 mcp-server。**现场绝大多数摄像头是 CVR 直连 IPC，不要用平台字段判断能否回放**：2026-09-22 实测 904 路摄像头中 481 路的 `sourceUrl` IPC 已注册在 CVR 输入通道表里（三台 CVR 分别 182/225/119 路，合计 526 个输入通道），而这些摄像头在平台里的 `nvrTrackId`/`nvrChannel` **全为空**——录像检索/回放/下载必须先拿 `sourceUrl` 的 IPC 地址去反查 CVR 的 `InputProxy/channels` 得到真实通道（例如 `B1-1F-4#楼梯间出入口2` 的 IPC `172.21.111.11` → CVR `172.21.200.21` 通道 108 / trackId 10801）。只按 `nvrTrackId`/`nvrChannel` 过滤会得出"没有可回放摄像头"的错误结论。本现场视频理解接口（文搜视频 `/api/v1/video-understanding/structure`）在宿主机 `http://172.17.136.189:8780`，`.env` 已配 `VIDEO_ANALYSIS_API_BASE_URL` 与 `VIDEO_UNDERSTANDING_API_BASE_URL` 指向它（compose 默认的 `192.168.11.192:8775` 为开发网段，本现场不可达）。文搜图检索服务在宿主机 `http://172.17.136.189:15009`（`.env` 的 `RETRIEVE_API_BASE_URL`，compose 的 backend 与 mcp-server 均注入），图搜图（以图搜人）服务在宿主机 `http://172.17.136.189:15501`（`.env` 的 `PERSON_API_BASE_URL`），图搜图结果图片文档的 ES 查询接口（`/api/v1/queries/es-documents/by-ids`，mcp-query 服务）在宿主机 `http://172.17.136.189:15010`（`.env` 的 `ES_DOCUMENT_API_BASE_URL`，backend 注入；vlm-application v3 检索只回 es_ids，由 backend-lite 调该接口解析为完整人员文档）。
+- 新现场（172.21 网段，cisdi-4090-2）：`user@172.17.136.189`（端口 22，即 `.tools/remote_ssh.py` / `remote_sync.py` 的默认目标），项目目录 `/home/user/videoai`，端口绑定 `172.17.136.189`。ZLM 使用宿主机共享实例（zlmmediakit_main_1，`0.0.0.0:1935`/`0.0.0.0:81`），因此本项目 compose 的 zlm **不能绑定主机 1935**（已在远程 compose 注释，RTMP 推流走 `rtmp://172.17.136.189:1935/live` 到共享 ZLM）；`VIDEOAI_ZLM_HTTP_URL`/`VIDEOAI_ZLM_PUBLIC_HTTP_URL` 指向 `http://172.17.136.189:81`。CVR 中心存储 `172.21.200.21/22/23`（admin/Sdtjh@2025）经 `CVR_HOSTS`/`CVR_USERNAME`/`CVR_PASSWORD` 注入 mcp-server。**现场绝大多数摄像头是 CVR 直连 IPC，不要用平台字段判断能否回放**：2026-09-22 实测 904 路摄像头中 481 路的 `sourceUrl` IPC 已注册在 CVR 输入通道表里（三台 CVR 分别 182/225/119 路，合计 526 个输入通道），而这些摄像头在平台里的 `nvrTrackId`/`nvrChannel` **全为空**——录像检索/回放/下载必须先拿 `sourceUrl` 的 IPC 地址去反查 CVR 的 `InputProxy/channels` 得到真实通道（例如 `B1-1F-4#楼梯间出入口2` 的 IPC `172.21.111.11` → CVR `172.21.200.21` 通道 108 / trackId 10801）。只按 `nvrTrackId`/`nvrChannel` 过滤会得出"没有可回放摄像头"的错误结论。本现场视频理解接口（文搜视频 `/api/v1/video-understanding/structure`）在宿主机 `http://172.17.136.189:8780`，`.env` 已配 `VIDEO_ANALYSIS_API_BASE_URL` 与 `VIDEO_UNDERSTANDING_API_BASE_URL` 指向它（compose 默认的 `192.168.11.192:8775` 为开发网段，本现场不可达）。文搜图检索服务在宿主机 `http://172.17.136.189:15009`（`.env` 的 `RETRIEVE_API_BASE_URL`，compose 的 backend 与 mcp-server 均注入），图搜图（以图搜人）服务在宿主机 `http://172.17.136.189:15501`（`.env` 的 `PERSON_API_BASE_URL`），图搜图结果图片文档的 ES 查询接口（`/api/v1/queries/es-documents/by-ids`，mcp-query 服务）在宿主机 `http://172.17.136.189:15010`（`.env` 的 `ES_DOCUMENT_API_BASE_URL`，backend 注入；**2026-09 起 backend-lite 改走详版 `searchPersonFull`，上游直接返回 ES 全量文档构成的 `similar_persons`，该接口仅作为简版 `searchPersonBrief` 结果的兜底，不再是必经链路**）。
 - 另一现场（10.10 网段）：`public@10.10.3.100`（端口 22），项目目录同为 `/home/public/videoai`，端口绑定与 `.env` 均使用 `10.10.3.100`，backend-media 绑定 `10.10.3.100:8083`。**仓库 `docker-compose.yml` 的绑定地址是 `192.168.11.194`，推送到 10.10 现场后必须立即执行 `sed -i "s/192\.168\.11\.194/10.10.3.100/g" docker-compose.yml`** 再重建容器，否则容器绑定不存在的地址无法启动。文搜图检索服务（retrieve 容器 `retrieve-py310-amd64`）实际监听宿主机 `http://10.10.3.100:15009`，`.env` 已配 `RETRIEVE_API_BASE_URL=http://10.10.3.100:15009`（compose 默认的 15000 无服务监听，2026-09-23 曾因此导致文搜图 502）；图搜图服务在 `http://10.10.3.100:15501`，ES 文档查询接口在 `http://10.10.3.100:15010`。ZLM 与 172 现场一样使用宿主机共享实例（`zlmmediakit_main_1`，占用 1935），本 compose 的 zlm 起不来，**mcp-server 依赖 zlm，启动必须加 `--no-deps`**（`docker compose up -d --no-deps mcp-server`），否则 compose 连带启动 zlm 报 1935 绑定冲突导致 mcp-server 起不来。**重建/重启 backend 容器后必须 `docker compose restart frontend frontend-control frontend-media frontend-review`**：前端 nginx 的 `proxy_pass http://backend:8081` 在启动时解析一次并缓存 IP，backend 重建后容器 IP 变化，不重启前端会导致所有 `/api` 请求返回 nginx 502 错误页（2026-09-23 实测踩坑）。
 - 项目目录：`/home/public/videoai`
 - 内网访问地址：`192.168.11.194`
@@ -18,10 +18,11 @@
 
 | 服务 | 内网地址 | 公网开放 |
 | --- | --- | --- |
-| Frontend（全量） | `http://192.168.11.194:5173/` | 否 |
-| Frontend Media 子包 | `http://192.168.11.194:5175/` | 否 |
-| Frontend Control 子包 | `http://192.168.11.194:5176/` | 否 |
-| Frontend Review 子包 | `http://192.168.11.194:5177/` | 否 |
+| Frontend（全量，默认部署） | `http://192.168.11.194:5173/` | 否 |
+| Frontend Search 子包（modular，按需） | `http://192.168.11.194:5178/` | 否 |
+| Frontend Media 子包（modular，按需） | `http://192.168.11.194:5175/` | 否 |
+| Frontend Control 子包（modular，按需） | `http://192.168.11.194:5176/` | 否 |
+| Frontend Review 子包（modular，按需） | `http://192.168.11.194:5177/` | 否 |
 | SXin Proxy | `http://192.168.11.194:10997/` | 否 |
 | Backend API（backend-lite） | `http://192.168.11.194:8081/` | 否 |
 | Backend Media API（Java） | `http://192.168.11.194:8083/` | 否 |
@@ -51,6 +52,9 @@
 - `ZLM_PUBLIC_HTTP_URL`、`ZLM_HTTP_URL`、`ZLM_RTMP_PUSH_BASE`
 - `VIDEOAI_MCP_PUBLIC_BASE_URL`：录像动态链接（`/recording-live`）对外基址，必须是客户端可访问的 MCP 地址（10.10 现场为 `http://10.10.3.100:8097`）；compose 默认值的开发网段地址在现场不可达，会导致回放页/文搜返回的播放链接打不开
 - `HIKVISION_NVR_BASE_URL=http://192.168.11.251`
+- `PERSON_API_BASE_URL=http://192.168.11.192:15501`（**192 研发环境**图搜图/步态识别上游；2026-09 接口重构后由 `:18890` 迁到 `:15501`，统一前缀 `/vlm-application`，图搜人提交走详版 `searchPersonFull`。枢纽港现场为 `http://10.10.3.100:15501`，团结湖现场为 `http://172.17.136.189:15501` 且**仅支持 reid**）
+- `MEDIA_PUBLIC_URL=http://192.168.11.194:8083`（MCP `list_cameras` 返回的按需拉流代理链接对外基址；compose 默认值是别的项目占用的 8082，必须覆盖）
+- `RETRIEVE_API_BASE_URL=http://192.168.11.194:15011`、`ES_DOCUMENT_API_BASE_URL=http://192.168.11.194:15010`（文搜图检索与 ES 文档接口；**2026-09-28 未随图搜图一起调整，待拿到新接口说明后再改**）
 - `VIDEOAI_MCP_RECORDING_FALLBACK_FILE=/data/demo-recording-601.ps`
 - `VIDEOAI_MCP_RECORDING_FALLBACK_FILE_HOST=/home/public/videoai/demo-recording-601.ps`
 - NVR、数据库等账号密码类配置
@@ -87,7 +91,7 @@
 - 前端录像回放页 → backend-lite `POST /api/recordings/search|stream|download`（body 均为 `{cameraId, startTime, endTime}`，北京时间）→ MCP `search_recordings-http` / `download_recording-http`（均支持 `cameraId`）；`/api/recordings/stream` 只调 `search_recordings-http`（autoProxy=true）取 `/recording-live` 动态链接并追加 `&speed=` 倍速参数。MCP 侧 `get_recording_stream` **不再作为 MCP tool**，但仍保留 `POST /get_recording_stream-http` 兼容入口：对缓存过的 `recordingId` 返回 **H.265 直通**流，只支持等速（`speed=1`）。
 - 多 NVR 能力：MCP 按摄像头的 `nvrId`/`nvrTrackId`/`nvrChannel` 定位设备，凭据从摄像头 `sourceUrl`（`rtsp://user:pass@host:554/...`）解析，无需额外配置；ISAPI 检索录像段、HCNetSDK 按时间回放/下载，设备时钟偏差自动测量补偿。
 - CVR 中心存储（DS-A80348S，如 172.21.200.21/22/23 集群）复用同一套反查机制：compose 注入 `CVR_HOSTS`/`CVR_USERNAME`/`CVR_PASSWORD`（CVR 凭据通常与 NVR 不同，`NvrChannelLookup` 按设备主机取专属凭据），直连 IPC 的摄像头回放/检索/下载时会反查 IPC→CVR 通道映射（CVR 的 `InputProxy/channels` 同样给出 IPC 地址与通道号），`CVR_HOSTS` 也并入 `known_nvr_hosts` 与下载白名单 `hcnetsdk_downloaders`。
-- 录像设备列表按部署网段自动选择（2026-09-22 新增）：`HCNETSDK_DOWNLOAD_NVR_HOSTS`/`CVR_HOSTS` 置空（或不设置）时，mcp-server 按 `VIDEOAI_MCP_PUBLIC_BASE_URL` 主机网段取默认设备——10 网段（如 10.10.3.100 现场）→ 仅 NVR `10.10.7.252/253`；172 网段（如 cisdi-4090-2 现场）→ 仅 CVR `172.21.200.21/22/23`；未知网段兜底为两者全配（保持历史行为）并打告警日志。**反查会等每台配置设备的连接超时（15s），给某环境配了不可达的设备会把回放/检索拖慢 15s+（10.10 现场曾因误配 172 CVR 出现回放灰屏 20s）**；新环境在 `mcp-server/app/settings.py` 的 `_ENV_DEVICE_DEFAULTS` 追加映射行。
+- 录像设备列表按部署网段自动选择（2026-09-22 新增）：`HCNETSDK_DOWNLOAD_NVR_HOSTS`/`CVR_HOSTS` 置空（或不设置）时，mcp-server 按 `VIDEOAI_MCP_PUBLIC_BASE_URL` 主机网段取默认设备——10 网段（如 10.10.3.100 现场）→ 仅 NVR `10.10.7.252/253`；172 网段（如 cisdi-4090-2 现场）→ 仅 CVR `172.21.200.21/22/23`；未知网段兜底为两者全配（保持历史行为）并打告警日志。**反查会等每台配置设备的连接超时（15s），给某环境配了不可达的设备会把回放/检索拖慢 15s+（10.10 现场曾因误配 172 CVR 出现回放灰屏 20s）**；新环境在 `mcp-server/app/settings.py` 的 `_ENV_DEVICE_DEFAULTS` 追加映射行（现有映射：`10` → NVR `10.10.7.252/253`、无 CVR；`172` → 仅 CVR `172.21.200.21/22/23`；`192`（192.168.11.194 现场，**现场无 CVR**）→ 仅 NVR `192.168.11.251`、CVR 留空即完全不反查 CVR）。
 - 回放链路：SDK 回放 → ffmpeg `-re` 节流 + **libx264 转码**（现场 NVR 多为 smart265/HEVC，浏览器 flv.js 不支持，禁止改回 `-c:v copy`）→ ZLM FLV。等速流不支持倍速与真正的 seek，前端通过按新 startTime 重新起流实现跳转。ffmpeg 输入固定为 MPEG-PS（SDK 回调），已强制 `-f mpeg` 并限制 `-probesize 1000000 -analyzeduration 1000000`：`-re` 限速下 find_stream_info 会按实时速率分析输入，不限探测会拖慢首帧约 1.2s（2026-09-22 实测优化前 1713ms → 优化后 521ms）。输出固定 `-an` 无音轨（NVR 回放伴音是 G.711，浏览器无法解码）。
 - 起播花屏与首帧等待（2026-09-22）：SDK 按请求时刻起播，起点常落在 GOP 中间，首个源 IDR 之前解码器只能输出掩盖花屏（smart265 长 GOP 下花屏可达 10s）。`PlaybackSession._write_ffmpeg_stdin` 起播 primer：先缓冲 PS 数据，`find_first_video_idr` 定位首个含 IDR/CRA（H.264 type5 / H.265 type 19/20/21）的视频 PES，从该 PES 起喂 ffmpeg，之前的数据丢弃；超过 16MB 无 IDR 兜底全量喂入。**代价是首帧前有一段静默期（等源关键帧，实测 4~12s）——期间 ZLM 连接已建立但无任何媒体数据，这是正常的，前端/客户端不得以「连接后 N 秒无画面」为由重连**：`VideoPlayer` 出帧看门狗以 mpegts `media_info`（真实视频数据到达）为武装时机，load 后 30s 无视频数据才兜底重连；过早重连会新建回放会话（每次重连都重新 primer），把一次慢起播放大成一分钟以上（实测 56~84s）。
 - 浏览器播放 `/recording-live` 动态链接的两个硬性条件（2026-09-16 修复）：① MCP `GET /recording-live` 的 302/错误响应必须带 `Access-Control-Allow-Origin: *`（前端 5173 → 8097 跨源，302 第一跳无 CORS 头浏览器直接拦截；ZLM :82 自身会回 ACAO）；② 该链接不以 `.flv` 结尾，前端 `VideoPlayer` 只靠 URL 后缀识别 FLV 会落到原生 `<video>` 分支导致无法播放——录像回放三处调用（录像回放页、文搜在线回放、即时回放弹窗）必须显式传 `format="flv"` prop 走 mpegts.js。
@@ -151,12 +155,21 @@ rsync -az -e 'ssh -p 3479 -o StrictHostKeyChecking=no' \
   public@119.3.237.220:/home/public/videoai/docs/
 ```
 
-2. 前端变更部署（全量 + 3 个子包）：
+2. 前端变更部署（**默认只部署全量 frontend**）：
 
 ```bash
 ssh -p 3479 public@119.3.237.220 \
-  'cd /home/public/videoai && docker compose build frontend frontend-media frontend-control frontend-review && docker compose up -d --no-deps frontend frontend-media frontend-control frontend-review'
+  'cd /home/public/videoai && docker compose build frontend && docker compose up -d --no-deps frontend'
 ```
+
+`frontend-search` / `frontend-media` / `frontend-control` / `frontend-review` 四个子包在 compose 里属于 `modular` profile，**不随默认部署构建与启动，也不需要部署**。仅在明确需要时才按需部署（例如只起 search 子包）：
+
+```bash
+ssh -p 3479 public@119.3.237.220 \
+  'cd /home/public/videoai && docker compose --profile modular build frontend-search && docker compose --profile modular up -d --no-deps frontend-search'
+```
+
+即使之前用 `modular` profile 起过子包，`docker compose up -d`（不带 profile）也不会再把它们拉起来；需要彻底停掉时 `docker compose stop frontend-search frontend-media frontend-control frontend-review`。
 
 3. backend-lite（Python 后端，容器名 backend，端口 8081）/ worker 变更部署：
 
