@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request as UrlRequest
@@ -20,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 WORKER_STREAMS_TIMEOUT_SECONDS = 5
 WORKER_REQUEST_TIMEOUT_SECONDS = 10
+# 同一路摄像头两次"状态不对就重启"的最小间隔（秒）：避免对确实拉不起来的设备反复重建流
+WORKER_RESTART_COOLDOWN_SECONDS = 120.0
+# 最近一次重启时间（camera_id -> monotonic），仅用于上面的冷却判断
+_last_restart_at: dict[str, float] = {}
 WORKER_GUARD_INTERVAL_SECONDS = 30
 
 
@@ -257,11 +262,20 @@ def worker_stream_guard_loop() -> None:
 
 
 def ensure_worker_streams() -> None:
-    """把 worker 实际流集合对齐到摄像头缓存应有的状态。"""
+    """把 worker 实际流集合对齐到摄像头缓存应有的状态。
+
+    只判断"worker 里有没有这个 key"是不够的：流可能仍然存在但已卡在 reconnecting/error
+    （摄像头换了编码、解码器不支持、拉流中断等），此时必须重启才能恢复。因此除了缺失，
+    状态不是 running 的一律重启；为避免对确实拉不起来的设备反复重建，单路加冷却间隔，
+    冷却期内交给 worker 自身的重开自愈（见 worker stream_manager._run）。
+    """
     statuses = worker_stream_statuses()
+    now = time.monotonic()
     for camera in camera_cache.all():
+        key = str(camera.id)
         if camera.status != "RUNNING" or not should_worker_stream(camera):
-            if str(camera.id) in statuses:
+            if key in statuses:
+                _last_restart_at.pop(key, None)
                 try:
                     stop_worker_stream(camera.id)
                 except HTTPException as exc:
@@ -269,10 +283,19 @@ def ensure_worker_streams() -> None:
                 except Exception as exc:  # noqa: BLE001  # 单路失败不阻断其余摄像头
                     logger.error("ensure_worker_streams failed to stop %s: %s", camera.streamName, exc)
             continue
-        if str(camera.id) in statuses:
+        if statuses.get(key) == "running":
+            continue
+        if key in statuses and now - _last_restart_at.get(key, 0.0) < WORKER_RESTART_COOLDOWN_SECONDS:
             continue
         try:
             start_worker_stream(camera)
+            _last_restart_at[key] = now
+            if key in statuses:
+                logger.warning(
+                    "ensure_worker_streams restarted a non-running stream for %s (status=%s)",
+                    camera.streamName,
+                    statuses.get(key),
+                )
         except HTTPException as exc:
             logger.error("ensure_worker_streams failed for %s: %s", camera.streamName, exc.detail)
         except Exception as exc:  # noqa: BLE001  # 单路失败不阻断其余摄像头
