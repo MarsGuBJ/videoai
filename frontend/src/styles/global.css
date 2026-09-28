@@ -1558,6 +1558,144 @@
       font-size: 13px;
     }
 
+    /* 布控弹窗「从人脸库选取」（外部人脸照片模块）：已选 chip 与照片选择器 */
+    .face-pick-field {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+    }
+
+    .face-pick-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 10px;
+      border: 1px solid #d8e1ee;
+      border-radius: 8px;
+      background: #f8fafc;
+      font-size: 13px;
+      color: #1d2939;
+    }
+
+    .face-pick-chip img {
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      object-fit: cover;
+      background: #101828;
+      flex-shrink: 0;
+    }
+
+    .face-pick-chip .face-combo-clear {
+      position: static;
+      transform: none;
+    }
+
+    .face-picker-mask {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(17, 24, 39, .48);
+    }
+
+    .face-picker-dialog {
+      display: flex;
+      flex-direction: column;
+      width: 720px;
+      max-width: calc(100vw - 64px);
+      max-height: calc(100vh - 74px);
+      overflow: hidden;
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 20px 54px rgba(16, 24, 40, .28);
+    }
+
+    .face-picker-body {
+      padding: 16px 24px;
+      overflow-y: auto;
+    }
+
+    .face-picker-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .face-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 12px;
+    }
+
+    .face-picker-card {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 8px;
+      border: 1px solid #d8e1ee;
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .face-picker-card:hover,
+    .face-picker-card.active {
+      border-color: #2e6df6;
+      background: #f0f7ff;
+    }
+
+    .face-picker-card img,
+    .face-picker-noimg {
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #101828;
+    }
+
+    .face-picker-noimg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #98a2b3;
+      font-size: 12px;
+    }
+
+    .face-picker-name {
+      font-size: 13px;
+      color: #1d2939;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .face-picker-time {
+      font-size: 12px;
+      color: #98a2b3;
+    }
+
+    .face-picker-empty {
+      padding: 24px;
+      text-align: center;
+      color: #98a2b3;
+      font-size: 13px;
+    }
+
+    .face-picker-pager {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 12px;
+      font-size: 13px;
+      color: #344054;
+    }
+
     .upload-image-hint {
       position: absolute;
       right: 0;
@@ -4876,6 +5014,12 @@
       border-left: 1px solid #e5eaf2;
     }
 
+    /* 区域下无直属设备时子容器仍渲染（仅 v-if 展开状态控制），
+       其上下外边距会在一二级节点间形成多余空隙，空容器直接隐藏 */
+    .exact-tree-children:empty {
+      display: none;
+    }
+
     .exact-tree-device {
       display: flex;
       align-items: center;
@@ -4923,6 +5067,22 @@
 
     .media-tree-status.offline {
       color: #98a2b3;
+    }
+
+    /* 实时预览/录像回放设备树：选中监控点的明显高亮。
+       原 .exact-tree-device.active 只有 #eef6ff 浅底，在树上几乎看不出选中态 */
+    .media-playback-tree .exact-tree-device.active {
+      background: #1677ff;
+      color: #fff;
+    }
+
+    .media-playback-tree .exact-tree-device.active .media-tree-status,
+    .media-playback-tree .exact-tree-device.active .media-fav-star {
+      color: rgba(255, 255, 255, .85);
+    }
+
+    .media-playback-tree .exact-tree-device.active .media-fav-star.is-favorite {
+      color: #ffd666;
     }
 
     /* 状态居左后，收藏星标仍居右；可点击，悬停显示手型；星标图标放大便于点击 */
@@ -9906,6 +10066,12 @@
       gap: 8px;
     }
 
+    /* 「录像资源/监控资源」标题行：原 margin-bottom 10px 叠加网格 gap 后与树拉开 20px，
+       去掉下外边距让标题贴近设备树 */
+    .media-playback-tree .media-panel-head {
+      margin-bottom: 0;
+    }
+
     .media-playback-tree-list {
       max-height: 320px;
       overflow-y: auto;
@@ -9913,6 +10079,11 @@
     }
 
     .media-preview-page .media-playback-tree {
+      margin-top: 10px;
+    }
+
+    /* 录像回放页：标题行与上方搜索输入框拉开距离（与实时预览页一致） */
+    .media-playback-page .media-playback-tree {
       margin-top: 10px;
     }
 
