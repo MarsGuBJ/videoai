@@ -284,7 +284,13 @@ def _install_face_stubs() -> None:
         except (ImportError, ValueError):
             found = False
         if not found:
-            sys.modules[name] = types.ModuleType(name)
+            stub = types.ModuleType(name)
+            if name == "aiohttp":
+                # ImageUtil.fetchImageAsync 的**类型注解** `session: aiohttp.ClientSession`
+                # 在模块导入期求值：桩只给空模块会抛 AttributeError 导致 face_engine
+                # 整个导入失败（2026-09-08 起 face 算法布控任务因此从未产出事件）。
+                stub.ClientSession = type("ClientSession", (), {})  # type: ignore[attr-defined]
+            sys.modules[name] = stub
 
     # flask 桩：src.config.InitLogger 顶层 `from flask import request`（仅日志用），
     # 桩模块需提供 request 属性使 import 成功
