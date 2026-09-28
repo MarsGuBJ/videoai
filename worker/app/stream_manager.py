@@ -24,7 +24,19 @@ from .schemas import (
 )
 from .triton_models import DinoDetectionClient, TritonFaceClient, draw_object_boxes
 
+# OpenCV 日志压到 ERROR：默认级别会把每次读帧/打开失败都以 WARN/ERROR 刷进容器日志
+# （2026-09-28 实测 worker 日志 51.4 万行里 27.2 万行是这类噪声）。
+# 说明：FFmpeg 自身（libavcodec，如 "[h264 @ ...] no frame!"）的消息不走 OpenCV 日志，
+# 且其符号静态链接进 cv2 扩展、Python 侧无法关闭；那部分靠 _run 的重开自愈避免刷屏。
+cv2.setLogLevel(2)  # 2 = ERROR（该 OpenCV 构建未导出 cv2.LOG_LEVEL_* 常量）
+
 logger = logging.getLogger(__name__)
+
+# 解码失败后重开 OpenCV 视频源的最小间隔（秒）：兜底 ffmpeg 在镜像内不可用时靠它自愈
+CAPTURE_RETRY_INTERVAL_SECONDS = 10.0
+# 同一路流处理失败日志的最小间隔（秒）：DINO/人脸/算法是按帧或按秒调用的，
+# 上游持续故障（例如 Triton 缺模型）时会每帧吐一条 traceback（实测 2096 次/10 分钟）
+FAILURE_LOG_COOLDOWN_SECONDS = 60.0
 
 
 @dataclass
@@ -48,6 +60,9 @@ class StreamManager:
         self.lock = threading.Lock()
         self.detection_cooldowns: dict[str, float] = {}
         self.latest_annotated_frames: dict[str, np.ndarray] = {}
+        # 失败日志限流：key -> 上次打印时间 / 被抑制的条数
+        self._failure_log_at: dict[str, float] = {}
+        self._failure_log_suppressed: dict[str, int] = {}
 
     def start(self, request: StreamStartRequest) -> None:
         """Start the processing loop for a stream, replacing any existing one."""
@@ -90,6 +105,26 @@ class StreamManager:
         with self.lock:
             return {key: task.status for key, task in self.tasks.items()}
 
+    def _log_throttled(self, key: str, message: str, exc: Exception | None = None) -> None:
+        """按 FAILURE_LOG_COOLDOWN_SECONDS 限流同一条流的失败日志。
+
+        处理失败是按帧/按秒发生的，上游持续故障时逐条 traceback 会把日志刷爆
+        （实测 Triton 缺 dino_coco 模型时 2096 条/10 分钟）。这里每个 key 每 60s
+        只打一条，并附上期间被抑制的条数。
+        """
+        now = time.monotonic()
+        with self.lock:
+            if now - self._failure_log_at.get(key, 0.0) < FAILURE_LOG_COOLDOWN_SECONDS:
+                self._failure_log_suppressed[key] = self._failure_log_suppressed.get(key, 0) + 1
+                return
+            suppressed = self._failure_log_suppressed.pop(key, 0)
+            self._failure_log_at[key] = now
+        suffix = f"（期间另有 {suppressed} 次同类失败未打印）" if suppressed else ""
+        if exc is None:
+            logger.warning("%s%s", message, suffix)
+        else:
+            logger.warning("%s: %s%s", message, exc, suffix)
+
     def _set_status(self, key: str, status: str) -> None:
         with self.lock:
             task = self.tasks.get(key)
@@ -103,16 +138,14 @@ class StreamManager:
             self.detection_cooldowns.pop(key, None)
 
     def _run(self, key: str, request: StreamStartRequest, stop_event: threading.Event) -> None:
-        capture = cv2.VideoCapture(request.streamUrl)
-        if not capture.isOpened():
-            capture.release()
-            capture = None
-        else:
+        capture = self._open_capture(request.streamUrl)
+        if capture is not None:
             self._set_status(key, "running")
         frame_interval = 0.0 if self.settings.frame_sample_fps <= 0 else 1.0 / self.settings.frame_sample_fps
         last_frame_at = 0.0
         ffmpeg_proc = None
         failed_reads = 0
+        retry_capture_at = 0.0
         try:
             while not stop_event.is_set():
                 frame = None
@@ -127,11 +160,22 @@ class StreamManager:
                     failed_reads = 1
 
                 if frame is None and ffmpeg_proc is None and failed_reads >= 2:
-                    self._set_status(key, "reconnecting")
                     if capture is not None:
                         capture.release()
                         capture = None
-                    ffmpeg_proc = self._start_ffmpeg_pipe(request.streamUrl)
+                    now = time.monotonic()
+                    if now >= retry_capture_at:
+                        # 优先重开 OpenCV；打不开再退回 ffmpeg 兜底管道。必须周期性重试：
+                        # 否则一次解码失败（如摄像头 H.265 且本机 OpenCV 无 HEVC 解码器）会让该路
+                        # 流永久停在 reconnecting，布控任务再也不抽帧、不产生事件。
+                        capture = self._open_capture(request.streamUrl)
+                        if capture is not None:
+                            self._set_status(key, "running")
+                        else:
+                            ffmpeg_proc = self._start_ffmpeg_pipe(request.streamUrl)
+                        retry_capture_at = now + CAPTURE_RETRY_INTERVAL_SECONDS
+                    if capture is None and ffmpeg_proc is None:
+                        self._set_status(key, "reconnecting")
 
                 if frame is None and ffmpeg_proc is not None:
                     frame = self._read_ffmpeg_frame(ffmpeg_proc, 1920, 1080)
@@ -154,6 +198,14 @@ class StreamManager:
             if ffmpeg_proc is not None:
                 ffmpeg_proc.kill()
             self._set_status(key, "stopped")
+
+    def _open_capture(self, stream_url: str):
+        """打开 OpenCV 视频源；打不开时释放并返回 None（调用方按间隔重试）。"""
+        capture = cv2.VideoCapture(stream_url)
+        if not capture.isOpened():
+            capture.release()
+            return None
+        return capture
 
     def _start_ffmpeg_pipe(self, stream_url: str):
         try:
@@ -228,7 +280,9 @@ class StreamManager:
                         )
                         self._ingest_event(event)
             except Exception as exc:
-                logger.exception("face processing failed for camera %s", request.cameraId)
+                self._log_throttled(
+                    f"{request.cameraId}:face", f"face processing failed for camera {request.cameraId}", exc
+                )
                 self._set_status(str(request.cameraId), f"face processing error: {exc}")
 
         if request.objectDetectionEnabled:
@@ -254,7 +308,11 @@ class StreamManager:
                 return
             self._ingest_algorithm_event(request, spec, engine, raw, objects, frame)
         except Exception as exc:
-            logger.exception("algorithm %s processing failed for camera %s", spec.engineType, camera_key)
+            self._log_throttled(
+                f"{camera_key}:algo:{spec.engineType}",
+                f"algorithm {spec.engineType} processing failed for camera {camera_key}",
+                exc,
+            )
             self._set_status(camera_key, f"algorithm processing error: {exc}")
 
     def _algorithm_due(self, spec: AlgorithmSpec, camera_key: str, now: float) -> bool:
@@ -305,8 +363,8 @@ class StreamManager:
                 timeout=10,
             )
             response.raise_for_status()
-        except Exception:  # noqa: S110, BLE001  # 事件上报失败不阻断拉流，丢弃本帧事件
-            pass
+        except Exception as exc:  # noqa: BLE001  # 上报失败不阻断拉流，但必须留日志（原先静默 pass 导致问题无法定位）
+            logger.warning("algorithm event ingest failed for camera %s: %s", request.cameraId, exc)
 
     def _process_dino_frame(self, request: StreamStartRequest, frame, snapshot_base64: str = "") -> None:
         camera_key = str(request.cameraId)
@@ -324,7 +382,7 @@ class StreamManager:
                 self._ingest_object_events(request, object_detections, frame, snapshot_base64)
             self.latest_annotated_frames[camera_key] = annotated
         except Exception as exc:
-            logger.exception("dino processing failed for camera %s", camera_key)
+            self._log_throttled(f"{camera_key}:dino", f"dino processing failed for camera {camera_key}", exc)
             self._set_status(camera_key, f"dino processing error: {exc}")
 
     def _match(self, embedding, face_profile_id=None) -> MatchResponse:
@@ -407,8 +465,8 @@ class StreamManager:
                 timeout=10,
             )
             response.raise_for_status()
-        except Exception:  # noqa: S110, BLE001  # 事件上报失败不阻断拉流，丢弃本帧事件
-            pass
+        except Exception as exc:  # noqa: BLE001  # 上报失败不阻断拉流，但必须留日志（原先静默 pass 导致问题无法定位）
+            logger.warning("dino event ingest failed for camera %s: %s", request.cameraId, exc)
 
     def get_annotated_frame(self, camera_id: str) -> np.ndarray | None:
         """Return the latest annotated frame for a camera, or None."""
