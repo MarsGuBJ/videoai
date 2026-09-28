@@ -13,7 +13,8 @@ class DedupRuleCreate(BaseModel):
     algorithm: str = ""
     strategy: DedupStrategy = "时间维度去重"
     durationMinutes: int | None = None
-    similarity: float | None = None
+    # 快照相似度百分比（0-100，如 96 表示两张截图相似度 96%），与布控任务的人物/车辆相似度无关
+    similarity: float | None = Field(default=None, ge=0, le=100)
     allCameras: bool = True
     cameras: list[str] = Field(default_factory=list)
     remark: str = ""
@@ -27,7 +28,8 @@ class DedupRuleUpdate(BaseModel):
     algorithm: str | None = None
     strategy: DedupStrategy | None = None
     durationMinutes: int | None = None
-    similarity: float | None = None
+    # 快照相似度百分比（0-100，如 96 表示两张截图相似度 96%），与布控任务的人物/车辆相似度无关
+    similarity: float | None = Field(default=None, ge=0, le=100)
     allCameras: bool | None = None
     cameras: list[str] | None = None
     remark: str | None = None

@@ -358,12 +358,21 @@ def test_create_dedup_rule_image_strategy_with_similarity(client: TestClient, mo
         monkeypatch,
         strategy="实时重叠图像去重",
         durationMinutes=None,
-        similarity=0.85,
+        similarity=85,
     )
 
     assert created["strategy"] == "实时重叠图像去重"
     assert created["durationMinutes"] is None
-    assert created["similarity"] == 0.85
+    assert created["similarity"] == 85
+
+
+def test_create_dedup_rule_similarity_out_of_percent_range_returns_422(client: TestClient, monkeypatch):
+    """去重相似度是按百分比配置的 0-100，超出范围直接拒绝。"""
+    monkeypatch.setattr(dedup_rules_router, "persist_dedup_rule", lambda record: None)
+
+    response = client.post("/api/event-dedup-rules", json={**DEDUP_RULE_PAYLOAD, "similarity": 150})
+
+    assert response.status_code == 422
 
 
 def test_update_dedup_rule_keeps_untouched_fields(client: TestClient, monkeypatch):

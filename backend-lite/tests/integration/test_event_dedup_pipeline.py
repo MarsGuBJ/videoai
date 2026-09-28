@@ -2,10 +2,12 @@
 
 与 test_deployment_events_api.py 不同，这里不打桩 passes_dedup_rules，
 而是走 worker 上报布控事件的实际入口 create_object_event：
-入内存队列 / SSE 广播 → passes_dedup_rules（真实规则判定）→ 落库门控。
+passes_dedup_rules（真实规则判定）→ 命中去重即完全丢弃（不写快照 / 不入内存队列 /
+不推 SSE / 不入库），未命中才写快照并落库。
 """
 
 import base64
+import queue
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -148,7 +150,7 @@ def test_time_window_strategy_scoped_per_camera(dedup_env):
 
 def test_interval_image_strategy_window_then_similarity(dedup_env):
     """区间重叠图像去重：窗口内除首个外都丢弃（不比图）；出窗首个事件与上一个已存事件比相似度。"""
-    _add_rule(strategy="区间重叠图像去重", duration_minutes=10, similarity=0.9)
+    _add_rule(strategy="区间重叠图像去重", duration_minutes=10, similarity=90)
 
     _ingest(occurred_at=T0, snapshot=NOISE_SNAPSHOT)  # 窗口首个事件，保留
     assert _stored_count(dedup_env) == 1
@@ -175,7 +177,7 @@ def test_interval_image_strategy_window_then_similarity(dedup_env):
 
 def test_realtime_image_strategy_filters_by_similarity_ignoring_time(dedup_env):
     """实时重叠图像去重：忽略时间长度，与历史事件截图比较，相似度达阈值则去重。"""
-    _add_rule(strategy="实时重叠图像去重", duration_minutes=None, similarity=0.9)
+    _add_rule(strategy="实时重叠图像去重", duration_minutes=None, similarity=90)
 
     _ingest(occurred_at=T0, snapshot=BASE_SNAPSHOT)
     assert _stored_count(dedup_env) == 1
@@ -191,7 +193,7 @@ def test_realtime_image_strategy_filters_by_similarity_ignoring_time(dedup_env):
 
 def test_realtime_image_strategy_compares_only_with_last_saved(dedup_env):
     """实时重叠图像去重只与上一个保存事件比较，更早的相似历史不影响判定。"""
-    _add_rule(strategy="实时重叠图像去重", duration_minutes=None, similarity=0.9)
+    _add_rule(strategy="实时重叠图像去重", duration_minutes=None, similarity=90)
 
     _ingest(occurred_at=T0, snapshot=BASE_SNAPSHOT)
     _ingest(occurred_at=T0 + timedelta(hours=1), snapshot=NOISE_SNAPSHOT)  # 与 BASE 不同 → 保留
@@ -221,6 +223,40 @@ def test_disabled_rule_does_not_filter(dedup_env):
     _ingest(occurred_at=T0, snapshot=BASE_SNAPSHOT)
     _ingest(occurred_at=T0 + timedelta(minutes=1), snapshot=BASE_SNAPSHOT)
     assert _stored_count(dedup_env) == 2
+
+
+# ---------------- 去重命中不留任何产物 ----------------
+
+
+def test_realtime_deduped_event_leaves_no_trace(dedup_env, monkeypatch):
+    """实时图像去重命中的事件完全丢弃：不写快照、不入内存队列、不推 SSE、不入库。"""
+    _add_rule(strategy="实时重叠图像去重", duration_minutes=None, similarity=90)
+
+    _ingest(occurred_at=T0, snapshot=BASE_SNAPSHOT)  # 首个事件正常保存
+    assert _stored_count(dedup_env) == 1
+
+    saved_snapshots: list[str] = []
+    monkeypatch.setattr(
+        events_service,
+        "save_snapshot",
+        lambda _: saved_snapshots.append("x") or "/api/assets/snapshots/should-not-exist.jpg",
+    )
+    subscriber: queue.Queue[str] = queue.Queue()
+    with state.event_lock:
+        state.event_subscribers.append(subscriber)
+        memory_before = len(state.object_events_store)
+    try:
+        # 与上一个已保存事件截图相同 → 命中实时图像去重
+        _ingest(occurred_at=T0 + timedelta(hours=5), snapshot=BASE_SNAPSHOT)
+    finally:
+        with state.event_lock:
+            if subscriber in state.event_subscribers:
+                state.event_subscribers.remove(subscriber)
+
+    assert _stored_count(dedup_env) == 1, "命中去重的事件不应入库"
+    assert saved_snapshots == [], "命中去重的事件不应写快照文件"
+    assert len(state.object_events_store) == memory_before, "命中去重的事件不应入内存队列"
+    assert subscriber.empty(), "命中去重的事件不应推送 SSE"
 
 
 # ---------------- 相似度计算 ----------------

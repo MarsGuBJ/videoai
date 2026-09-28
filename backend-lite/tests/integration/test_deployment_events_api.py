@@ -293,7 +293,8 @@ def test_object_ingest_skips_storage_when_dedup_blocks(client: TestClient, monke
 
     response = client.post("/api/events/object-ingest", json=_object_payload())
 
-    assert response.status_code == 200  # 实时事件照常返回，仅不落库
+    assert response.status_code == 200  # 命中去重：事件完全丢弃（响应体为 null），也不落库
+    assert response.json() is None
     assert fake_session.added == []
     assert fake_session.commits == 0
 

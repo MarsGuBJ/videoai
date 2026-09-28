@@ -120,20 +120,82 @@ def _camera_area(camera_id: UUID) -> str | None:
     return cam_obj.area if cam_obj else None
 
 
+def _passes_dedup(
+    *,
+    camera_id: UUID,
+    camera_name: str,
+    event_type: str,
+    occurred_at: datetime,
+    snapshot_hash: str | None,
+    log_context: str,
+    face_profile_id: UUID | None = None,
+) -> bool:
+    """按去重规则判断事件是否应保留。
+
+    去重在写快照之前调用，命中即表示事件应被完全丢弃。数据库不可达时放行，
+    保持"数据库异常不阻断事件主流程"的既有语义。
+
+    Args:
+        camera_id: 摄像头 ID。
+        camera_name: 摄像头名称。
+        event_type: 事件类型。
+        occurred_at: 事件发生时间。
+        snapshot_hash: 快照感知哈希。
+        log_context: 命中去重时写入日志的上下文描述。
+        face_profile_id: 人脸档案 ID（人脸事件同人判定用）。
+
+    Returns:
+        事件应保留返回 True，命中任一去重规则返回 False。
+    """
+    try:
+        with SessionLocal() as pgdb:
+            if passes_dedup_rules(
+                pgdb,
+                camera_id=camera_id,
+                camera_name=camera_name,
+                event_type=event_type,
+                face_profile_id=face_profile_id,
+                occurred_at=occurred_at,
+                snapshot_hash=snapshot_hash,
+            ):
+                return True
+    except SQLAlchemyError as exc:
+        logger.error("dedup check failed, event kept: %s", exc)
+        return True
+    logger.info("event skipped by dedup rules: %s", log_context)
+    return False
+
+
 def create_face_event(event_input: FaceEventInput) -> FaceEventResponse | None:
-    """创建人脸事件：冷却去重、存快照、入内存队列、广播 SSE、按去重规则落库。
+    """创建人脸事件：冷却去重、按去重规则门控、存快照、入内存队列、广播 SSE、落库。
+
+    去重判定在写快照之前完成：命中去重规则的事件完全丢弃（不写快照、不入内存队列、
+    不推 SSE、不入库）。
 
     Args:
         event_input: 事件入参封装。
 
     Returns:
-        新建的事件；命中冷却去重时返回 None。
+        新建的事件；命中冷却去重或去重规则时返回 None。
     """
     if recent_duplicate_event(event_input.camera_id, event_input.face_profile_id, event_input.deployment_task_id):
         return None
     now = datetime.now(timezone.utc)
-    snapshot_url = save_snapshot(event_input.snapshot_base64)
+    occurred_at = event_input.video_time if isinstance(event_input.video_time, datetime) else now
     snapshot_hash = compute_snapshot_hash(event_input.snapshot_base64)
+
+    if not _passes_dedup(
+        camera_id=event_input.camera_id,
+        camera_name=event_input.camera_name,
+        event_type=EVENT_TYPE_FACE_MATCH,
+        face_profile_id=event_input.face_profile_id,
+        occurred_at=occurred_at,
+        snapshot_hash=snapshot_hash,
+        log_context=f"camera={event_input.camera_id} profile={event_input.face_profile_id}",
+    ):
+        return None
+
+    snapshot_url = save_snapshot(event_input.snapshot_base64)
     event = FaceEventResponse(
         id=uuid4(),
         cameraId=event_input.camera_id,
@@ -153,24 +215,8 @@ def create_face_event(event_input: FaceEventInput) -> FaceEventResponse | None:
         del state.events_store[EVENTS_STORE_MAX_SIZE:]
     broadcast_event(payload)
 
-    occurred_at = event_input.video_time if isinstance(event_input.video_time, datetime) else now
     try:
         with SessionLocal() as pgdb:
-            if not passes_dedup_rules(
-                pgdb,
-                camera_id=event_input.camera_id,
-                camera_name=event_input.camera_name,
-                event_type=EVENT_TYPE_FACE_MATCH,
-                face_profile_id=event_input.face_profile_id,
-                occurred_at=occurred_at,
-                snapshot_hash=snapshot_hash,
-            ):
-                logger.info(
-                    "face event skipped by dedup rules: camera=%s profile=%s",
-                    event_input.camera_id,
-                    event_input.face_profile_id,
-                )
-                return event
             row = DeploymentEventORM(
                 deployment_task_id=event_input.deployment_task_id,
                 event_type=EVENT_TYPE_FACE_MATCH,
@@ -195,13 +241,16 @@ def create_face_event(event_input: FaceEventInput) -> FaceEventResponse | None:
 
 
 def create_object_event(event_input: ObjectEventInput) -> ObjectEventResponse | None:
-    """创建目标检测事件：同摄像头 2 秒冷却、入内存队列、广播 SSE、按去重规则落库。
+    """创建目标检测事件：冷却去重、按去重规则门控、存快照、入内存队列、广播 SSE、落库。
+
+    去重判定在写快照之前完成：命中去重规则的事件完全丢弃（不写快照、不入内存队列、
+    不推 SSE、不入库）。
 
     Args:
         event_input: 事件入参封装。
 
     Returns:
-        新建的事件；冷却期内直接丢弃返回 None。
+        新建的事件；命中冷却期或去重规则时返回 None。
     """
     camera_key = str(event_input.camera_id)
     now_ts = time.time()
@@ -212,9 +261,21 @@ def create_object_event(event_input: ObjectEventInput) -> ObjectEventResponse | 
         state.object_event_cooldowns[camera_key] = now_ts
 
     now = datetime.now(timezone.utc)
-    snapshot_url = save_snapshot(event_input.snapshot_base64)
-    snapshot_hash = compute_snapshot_hash(event_input.snapshot_base64)
     event_type = event_input.event_type or EVENT_TYPE_OBJECT_DETECTION
+    occurred_at = event_input.video_time if isinstance(event_input.video_time, datetime) else now
+    snapshot_hash = compute_snapshot_hash(event_input.snapshot_base64)
+
+    if not _passes_dedup(
+        camera_id=event_input.camera_id,
+        camera_name=event_input.camera_name,
+        event_type=event_type,
+        occurred_at=occurred_at,
+        snapshot_hash=snapshot_hash,
+        log_context=f"camera={event_input.camera_id}",
+    ):
+        return None
+
+    snapshot_url = save_snapshot(event_input.snapshot_base64)
     event = ObjectEventResponse(
         id=uuid4(),
         cameraId=event_input.camera_id,
@@ -234,19 +295,8 @@ def create_object_event(event_input: ObjectEventInput) -> ObjectEventResponse | 
         del state.object_events_store[EVENTS_STORE_MAX_SIZE:]
     broadcast_event(payload)
 
-    occurred_at = event_input.video_time if isinstance(event_input.video_time, datetime) else now
     try:
         with SessionLocal() as pgdb:
-            if not passes_dedup_rules(
-                pgdb,
-                camera_id=event_input.camera_id,
-                camera_name=event_input.camera_name,
-                event_type=event_type,
-                occurred_at=occurred_at,
-                snapshot_hash=snapshot_hash,
-            ):
-                logger.info("object event skipped by dedup rules: camera=%s", event_input.camera_id)
-                return event
             row = DeploymentEventORM(
                 deployment_task_id=event_input.deployment_task_id,
                 event_type=event_type,

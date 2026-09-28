@@ -10,7 +10,10 @@
 - 实时重叠图像去重：忽略时间长度，只与上一个已保存事件比较快照哈希，
   相似度达到阈值则不存。
 
-去重只门控落库，不影响 SSE 实时推送与内存态事件队列。
+规则里的 ``similarity`` 是**两张快照的相似度百分比**（0-100，例如 96 表示 96%），
+与布控任务里"人物/车辆相似度"无关；判定时统一换算为 0-1 再与哈希相似度比较。
+
+去重命中即完全丢弃事件：不写快照、不入内存队列、不推 SSE、不入库。
 """
 
 import base64
@@ -73,7 +76,7 @@ def compute_snapshot_hash(snapshot_base64: str | None) -> str | None:
 
 
 def hash_similarity(hash_a: str, hash_b: str) -> float:
-    """两个 64bit 十六进制哈希的相似度（1 - 汉明距离/64）。"""
+    """两个 64bit 十六进制哈希的相似度（1 - 汉明距离/64），取值 0-1。"""
     try:
         bits_a = int(hash_a, 16)
         bits_b = int(hash_b, 16)
@@ -81,6 +84,29 @@ def hash_similarity(hash_a: str, hash_b: str) -> float:
         return 0.0
     distance = bin(bits_a ^ bits_b).count("1")
     return 1.0 - distance / 64.0
+
+
+def similarity_ratio(similarity: Any) -> float | None:
+    """把规则里的快照相似度百分比（0-100）换算为 0-1 的哈希相似度阈值。
+
+    规则配置沿用界面口径的百分比（例如 96 表示 96%），而 ``hash_similarity``
+    返回 0-1，直接在判定处比较会出现"100% 也达不到阈值"的错配，故统一在此换算。
+
+    Args:
+        similarity: 规则中的相似度百分比，可为 None。
+
+    Returns:
+        0-1 的阈值；未配置或超出 0-100 时返回 None（该规则不做图像比对）。
+    """
+    if similarity is None:
+        return None
+    try:
+        value = float(similarity)
+    except (TypeError, ValueError):
+        return None
+    if value < 0 or value > 100:
+        return None
+    return value / 100.0
 
 
 def _rule_matches_scope(rule: dict[str, Any], camera_id: UUID | None, camera_name: str | None) -> bool:
@@ -234,7 +260,7 @@ def passes_dedup_rules(
                 return False
         elif strategy == STRATEGY_INTERVAL_IMAGE:
             duration = rule.get("duration_minutes")
-            threshold = rule.get("similarity")
+            threshold = similarity_ratio(rule.get("similarity"))
             if duration is None or threshold is None:
                 continue
             if _duplicate_by_interval_image(
@@ -244,11 +270,11 @@ def passes_dedup_rules(
                 occurred_at=occurred_at,
                 duration_minutes=int(duration),
                 snapshot_hash=snapshot_hash,
-                threshold=float(threshold),
+                threshold=threshold,
             ):
                 return False
         elif strategy == STRATEGY_REALTIME_IMAGE:
-            threshold = rule.get("similarity")
+            threshold = similarity_ratio(rule.get("similarity"))
             if threshold is None:
                 continue
             if _duplicate_with_last_image(
@@ -256,7 +282,7 @@ def passes_dedup_rules(
                 camera_id=camera_id,
                 event_type=event_type,
                 snapshot_hash=snapshot_hash,
-                threshold=float(threshold),
+                threshold=threshold,
             ):
                 return False
     return True

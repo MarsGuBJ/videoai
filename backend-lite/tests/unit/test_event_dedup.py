@@ -12,6 +12,7 @@ from app.services.event_dedup import (
     compute_snapshot_hash,
     hash_similarity,
     passes_dedup_rules,
+    similarity_ratio,
 )
 
 CAMERA_ID = uuid4()
@@ -126,7 +127,7 @@ def test_time_window_without_duration_ignored(dedup_store):
 
 
 def test_realtime_image_blocks_when_last_event_similar(dedup_store):
-    _add_rule(dedup_store, strategy="实时重叠图像去重", duration_minutes=None, similarity=0.9)
+    _add_rule(dedup_store, strategy="实时重叠图像去重", duration_minutes=None, similarity=90)
 
     last = (OCCURRED_AT - timedelta(hours=5), "ffffffffffffffff")
     db = _mock_db(last_event=last)
@@ -134,7 +135,7 @@ def test_realtime_image_blocks_when_last_event_similar(dedup_store):
 
 
 def test_realtime_image_allows_when_last_event_dissimilar(dedup_store):
-    _add_rule(dedup_store, strategy="实时重叠图像去重", duration_minutes=None, similarity=0.9)
+    _add_rule(dedup_store, strategy="实时重叠图像去重", duration_minutes=None, similarity=90)
 
     last = (OCCURRED_AT - timedelta(minutes=1), "0000000000000000")
     db = _mock_db(last_event=last)
@@ -142,13 +143,13 @@ def test_realtime_image_allows_when_last_event_dissimilar(dedup_store):
 
 
 def test_realtime_image_allows_without_history(dedup_store):
-    _add_rule(dedup_store, strategy="实时重叠图像去重", duration_minutes=None, similarity=0.9)
+    _add_rule(dedup_store, strategy="实时重叠图像去重", duration_minutes=None, similarity=90)
 
     assert _passes(_mock_db(last_event=None), snapshot_hash="ffffffffffffffff") is True
 
 
 def test_realtime_image_allows_without_snapshot_hash(dedup_store):
-    _add_rule(dedup_store, strategy="实时重叠图像去重", duration_minutes=None, similarity=0.9)
+    _add_rule(dedup_store, strategy="实时重叠图像去重", duration_minutes=None, similarity=90)
 
     last = (OCCURRED_AT - timedelta(minutes=1), "ffffffffffffffff")
     assert _passes(_mock_db(last_event=last), snapshot_hash=None) is True
@@ -156,7 +157,7 @@ def test_realtime_image_allows_without_snapshot_hash(dedup_store):
 
 def test_interval_image_within_window_blocks_without_comparing(dedup_store):
     """窗口内事件不比较截图直接丢弃，即使截图完全不同。"""
-    _add_rule(dedup_store, strategy="区间重叠图像去重", duration_minutes=10, similarity=0.9)
+    _add_rule(dedup_store, strategy="区间重叠图像去重", duration_minutes=10, similarity=90)
 
     last = (OCCURRED_AT - timedelta(minutes=5), "0000000000000000")
     db = _mock_db(last_event=last)
@@ -165,7 +166,7 @@ def test_interval_image_within_window_blocks_without_comparing(dedup_store):
 
 def test_interval_image_out_of_window_similar_blocks(dedup_store):
     """出窗首个事件与上一个已存事件相似则丢弃（比纯时间窗更严格）。"""
-    _add_rule(dedup_store, strategy="区间重叠图像去重", duration_minutes=10, similarity=0.9)
+    _add_rule(dedup_store, strategy="区间重叠图像去重", duration_minutes=10, similarity=90)
 
     last = (OCCURRED_AT - timedelta(minutes=11), "ffffffffffffffff")
     db = _mock_db(last_event=last)
@@ -173,7 +174,7 @@ def test_interval_image_out_of_window_similar_blocks(dedup_store):
 
 
 def test_interval_image_out_of_window_dissimilar_allows(dedup_store):
-    _add_rule(dedup_store, strategy="区间重叠图像去重", duration_minutes=10, similarity=0.9)
+    _add_rule(dedup_store, strategy="区间重叠图像去重", duration_minutes=10, similarity=90)
 
     last = (OCCURRED_AT - timedelta(minutes=11), "0000000000000000")
     db = _mock_db(last_event=last)
@@ -181,15 +182,38 @@ def test_interval_image_out_of_window_dissimilar_allows(dedup_store):
 
 
 def test_interval_image_without_duration_ignored(dedup_store):
-    _add_rule(dedup_store, strategy="区间重叠图像去重", duration_minutes=None, similarity=0.9)
+    _add_rule(dedup_store, strategy="区间重叠图像去重", duration_minutes=None, similarity=90)
 
     last = (OCCURRED_AT - timedelta(minutes=1), "ffffffffffffffff")
     assert _passes(_mock_db(last_event=last), snapshot_hash="ffffffffffffffff") is True
 
 
+def test_similarity_ratio_is_percent():
+    """规则相似度按百分比解释：96 -> 0.96。"""
+    assert similarity_ratio(96) == pytest.approx(0.96)
+    assert similarity_ratio(0) == pytest.approx(0.0)
+    assert similarity_ratio(100) == pytest.approx(1.0)
+
+
+def test_similarity_ratio_rejects_unset_and_out_of_range():
+    """未配置或超出 0-100 时不做图像比对（返回 None）。"""
+    assert similarity_ratio(None) is None
+    assert similarity_ratio(150) is None
+    assert similarity_ratio(-1) is None
+    assert similarity_ratio("abc") is None
+
+
+def test_realtime_image_threshold_follows_percent(dedup_store):
+    """阈值 96(%)：与上一张保存图差异 2bit（相似度 96.875%）拦截，差异 3bit（95.3125%）放行。"""
+    _add_rule(dedup_store, strategy="实时重叠图像去重", duration_minutes=None, similarity=96)
+
+    last = (OCCURRED_AT - timedelta(minutes=1), "ffffffffffffffff")
+    assert _passes(_mock_db(last_event=last), snapshot_hash="fffffffffffffffc") is False
+    assert _passes(_mock_db(last_event=last), snapshot_hash="fffffffffffffff8") is True
+
+
 def test_hash_similarity_identical_is_one():
     assert hash_similarity("ffffffffffffffff", "ffffffffffffffff") == pytest.approx(1.0)
-
 
 def test_hash_similarity_opposite_is_zero():
     assert hash_similarity("0000000000000000", "ffffffffffffffff") == pytest.approx(0.0)
