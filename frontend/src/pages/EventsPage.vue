@@ -3,13 +3,12 @@
     <div class="review-titlebar"><div><h1>事件列表</h1><p>统一管理视觉告警事件、复核状态和处置结果</p></div></div>
     <summary-cards :cards="cards"></summary-cards>
     <div class="review-board">
-      <div class="page-actions"><div class="left"><button class="btn" @click="applyFilters">查询</button><button class="btn" @click="resetFilters">重置</button><input class="input" style="width:260px;" v-model="keyword" placeholder="搜索事件名称、事件ID" @keyup.enter="applyFilters" /><select class="select" style="width:140px;" v-model="reviewStatusFilter"><option value="">全部状态</option><option value="待复核">待复核</option><option value="有效">有效</option><option value="无效">无效</option></select><select class="select" style="width:150px;" v-model="eventTypeFilter"><option value="">全部类型</option><option value="face_match">人脸比对</option><option value="object_detection">目标检测</option></select><select class="select" style="width:150px;" v-model="areaFilter"><option value="">全部区域</option><option v-for="area in areas" :key="area" :value="area">{{ area }}</option></select><select class="select" style="width:170px;" v-model="taskFilter"><option value="">全部布控任务</option><option v-for="task in tasks" :key="task.id" :value="task.id">{{ task.name }}</option></select><input class="input" style="width:190px;" type="datetime-local" v-model="startTime" aria-label="开始时间" /><input class="input" style="width:190px;" type="datetime-local" v-model="endTime" aria-label="结束时间" /></div></div>
+      <div class="page-actions"><div class="left"><button class="btn" @click="applyFilters">查询</button><button class="btn" @click="resetFilters">重置</button><input class="input" style="width:260px;" v-model="keyword" placeholder="搜索事件名称、摄像头名称" @keyup.enter="applyFilters" /><select class="select" style="width:140px;" v-model="reviewStatusFilter"><option value="">全部状态</option><option value="待复核">待复核</option><option value="有效">有效</option><option value="无效">无效</option></select><select class="select" style="width:150px;" v-model="eventTypeFilter"><option value="">全部类型</option><option value="face_match">人脸比对</option><option value="object_detection">目标检测</option></select><select class="select" style="width:150px;" v-model="areaFilter"><option value="">全部区域</option><option v-for="area in areas" :key="area" :value="area">{{ area }}</option></select><select class="select" style="width:170px;" v-model="taskFilter"><option value="">全部布控任务</option><option v-for="task in tasks" :key="task.id" :value="task.id">{{ task.name }}</option></select><input class="input" style="width:190px;" type="datetime-local" v-model="startTime" aria-label="开始时间" /><input class="input" style="width:190px;" type="datetime-local" v-model="endTime" aria-label="结束时间" /></div></div>
       <table class="prototype-table">
-        <colgroup><col style="width:132px;" /><col style="width:220px;" /><col style="width:92px;" /><col style="width:72px;" /><col style="width:150px;" /><col style="width:130px;" /><col style="width:82px;" /><col style="width:112px;" /></colgroup>
-        <thead><tr><th>事件ID</th><th class="left">事件信息</th><th>事件类型</th><th>等级</th><th class="left">事件来源</th><th>区域/点位</th><th>状态</th><th>操作</th></tr></thead>
+        <colgroup><col style="width:220px;" /><col style="width:92px;" /><col style="width:72px;" /><col style="width:150px;" /><col style="width:130px;" /><col style="width:82px;" /><col style="width:112px;" /></colgroup>
+        <thead><tr><th class="left">事件信息</th><th>事件类型</th><th>等级</th><th class="left">事件来源</th><th>区域/点位</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
-            <td class="ellipsis" :title="row.id">{{ row.id }}</td>
             <td class="left"><div class="event-name-cell"><div class="event-thumb-wrap"><img v-if="row.image" class="event-thumb" :src="row.image" :alt="row.name" style="cursor:pointer;" @click="setRoute('imageSearch', { prefill: row.image })" /><div v-else class="event-thumb"></div></div><div><h4>{{ row.name }}</h4><p>{{ row.time }}</p></div></div></td>
             <td>{{ row.type }}</td>
             <td><span class="level-pill" :class="levelClass(row.level)">{{ row.level }}</span></td>
@@ -18,8 +17,8 @@
             <td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td>
             <td><button class="link-blue" @click="openEventDetail(row)">详情</button><button v-if="row.status !== '待复核'" class="link-blue" :disabled="handling" @click="handleEvent(row)">处理</button></td>
           </tr>
-          <tr v-if="!loading && !rows.length"><td colspan="8" class="empty-cell">暂无事件</td></tr>
-          <tr v-if="loading"><td colspan="8" class="empty-cell">加载中...</td></tr>
+          <tr v-if="!loading && !rows.length"><td colspan="7" class="empty-cell">暂无事件</td></tr>
+          <tr v-if="loading"><td colspan="7" class="empty-cell">加载中...</td></tr>
         </tbody>
       </table>
       <div class="event-config-pagination"><span style="color:#98a2b3;font-size:11px;margin-right:auto;">共 {{ total }} 条</span><button type="button" aria-label="上一页" :disabled="page <= 1" @click="gotoPage(page - 1)">‹</button><button v-for="p in pageList" :key="p" type="button" :class="{ active: page === p }" @click="gotoPage(p)">{{ p }}</button><button type="button" aria-label="下一页" :disabled="page >= totalPages" @click="gotoPage(page + 1)">›</button><select class="select" v-model.number="size" aria-label="每页条数" @change="changeSize"><option :value="10">10条/页</option><option :value="20">20条/页</option><option :value="50">50条/页</option></select></div>
