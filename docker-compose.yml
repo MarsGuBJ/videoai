@@ -100,7 +100,9 @@ services:
       HIKVISION_NVR_USERNAME: ${HIKVISION_NVR_USERNAME:-}
       HIKVISION_NVR_PASSWORD: ${HIKVISION_NVR_PASSWORD:-}
       VIDEOAI_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-videoai}:${POSTGRES_PASSWORD:-videoai}@postgres:5432/${POSTGRES_DB:-videoai}
-      FFMPEG_BIN: /app/ffmpeg-wrapper.sh
+      # 用镜像内真实 ffmpeg（Dockerfile 已安装）：复核任务视频抽帧按文件路径调用，
+      # chroot wrapper 看不到容器内临时文件，且 MP4 无法从管道解析
+      FFMPEG_BIN: ${FFMPEG_BIN:-ffmpeg}
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
