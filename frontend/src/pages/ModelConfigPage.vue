@@ -12,11 +12,19 @@
         <div class="model-config-section-title">基础配置</div>
         <div class="modal-form-row">
           <label><span class="required">*</span>模型名称：</label>
-          <input v-model="form.name" class="input" placeholder="请输入模型名称" />
+          <input v-model="form.name" class="input" list="llm-provider-options" placeholder="请选择或输入模型名称" @input="onNameInput" />
+          <datalist id="llm-provider-options"><option v-for="provider in llmProviders" :key="provider.name" :value="provider.name"></option></datalist>
         </div>
         <div class="modal-form-row">
           <label><span class="required">*</span>接口地址：</label>
           <input v-model="form.baseUrl" class="input" placeholder="请输入接口地址" />
+        </div>
+        <div class="modal-form-row">
+          <label><span class="required">*</span>API Key：</label>
+          <div class="model-api-field">
+            <input v-model="form.apiKey" class="input" :type="showApiKey ? 'text' : 'password'" :placeholder="editing && editing.apiKeyConfigured ? '已配置，留空则不修改' : '请输入API Key'" />
+            <button class="model-api-toggle" type="button" aria-label="显示或隐藏 API Key" @click="showApiKey = !showApiKey">&#xf06e;</button>
+          </div>
         </div>
         <div class="modal-form-row">
           <label>模型标识：</label>
@@ -28,13 +36,6 @@
         <p class="model-config-field-note" v-if="modelsLoading">正在根据接口地址和 API Key 查询可用模型...</p>
         <p class="model-config-field-note" v-else-if="modelsError">模型自动查询失败（{{ modelsError }}），可手工输入模型标识</p>
         <p class="model-config-field-note" v-else-if="modelOptions.length">已查询到 {{ modelOptions.length }} 个可用模型，请下拉选择</p>
-        <div class="modal-form-row">
-          <label><span class="required">*</span>API Key：</label>
-          <div class="model-api-field">
-            <input v-model="form.apiKey" class="input" :type="showApiKey ? 'text' : 'password'" :placeholder="editing && editing.apiKeyConfigured ? '已配置，留空则不修改' : '请输入API Key'" />
-            <button class="model-api-toggle" type="button" aria-label="显示或隐藏 API Key" @click="showApiKey = !showApiKey">&#xf06e;</button>
-          </div>
-        </div>
         <div class="modal-form-row">
           <label><span class="required">*</span>部署方式：</label>
           <div class="model-config-radio-group">
@@ -80,6 +81,17 @@ import { statusClass } from "../utils/prototype-helpers";
 
 type RowCheck = { status: string; latency: string };
 
+// 常用国内大模型供应商预设：选中后自动填入 OpenAI 兼容接口地址
+const LLM_PROVIDERS = [
+  { name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1" },
+  { name: "智谱", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+  { name: "Kimi", baseUrl: "https://api.moonshot.cn/v1" },
+  { name: "阿里百炼", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+  { name: "Minimax", baseUrl: "https://api.minimax.chat/v1" },
+  { name: "百度千帆", baseUrl: "https://qianfan.baidubce.com/v2" },
+  { name: "SiliconFlow", baseUrl: "https://api.siliconflow.cn/v1" }
+];
+
 export default defineComponent({
   name: "ModelConfigPage",
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
@@ -104,6 +116,7 @@ export default defineComponent({
       modelsError: "",
       modelsQuerySeq: 0,
       modelsDebounce: null as number | null,
+      llmProviders: LLM_PROVIDERS,
       form: {
         name: "",
         baseUrl: "",
@@ -148,6 +161,12 @@ export default defineComponent({
   },
   methods: {
     statusClass,
+    // 名称与某个供应商预设完全匹配时，自动带入其接口地址（baseUrl 的 watch 会触发模型查询）
+    onNameInput() {
+      const name = this.form.name.trim();
+      const provider = this.llmProviders.find(item => item.name === name);
+      if (provider && this.form.baseUrl !== provider.baseUrl) this.form.baseUrl = provider.baseUrl;
+    },
     statusOf(row: LlmConfig): string {
       return this.checks[row.id]?.status || "未检测";
     },
