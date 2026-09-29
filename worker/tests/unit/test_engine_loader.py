@@ -71,6 +71,25 @@ class FaceDetectionEngine:
         return {"eventType": "SD_身份验证"}
 '''
 
+# 通过 src 包读取安装目录内标记文件，模拟真实引擎用 file-relative 配置定位模型路径，
+# 用于并发加载回归测试：src 全局命名空间被污染时 model_path 会串到对方目录
+FAKE_MARKER_ENGINE = '''
+import onnxruntime as ort
+from src.marker import MODEL_PATH
+
+
+class SmokeDetectionEngine:
+    def __init__(self):
+        self.model_path = MODEL_PATH
+        self.session = ort.InferenceSession("placeholder.onnx", providers=["CPUExecutionProvider"])
+
+    def inference(self, frame):
+        return []
+
+    def build_result(self, raw):
+        return {"eventType": "SD_测试"}
+'''
+
 
 class _FakeInferenceSession:
     def __init__(self, path, providers=None):
@@ -190,6 +209,58 @@ def test_acquire_engine_caches_per_camera_and_release(tmp_path):
     third = loader.acquire_engine(camera_key, spec)
     assert third is not first
     loader.release_engine(camera_key)
+
+
+def test_acquire_engine_isolates_algorithms_per_camera(tmp_path):
+    """同一摄像头绑定多个算法任务（如 face + helmet）时，各引擎独立缓存、一并释放。"""
+    smoke_install = make_install_dir(tmp_path, "smoke", FAKE_SMOKE_ENGINE, ["yolov26_1126.onnx"])
+    helmet_install = make_install_dir(tmp_path / "helmet", "helmet", FAKE_HELMET_ENGINE, ["helmet_v6.onnx"])
+    smoke_spec = make_spec("smoke", smoke_install)
+    helmet_spec = make_spec("helmet", helmet_install)
+    camera_key = str(uuid4())
+
+    smoke_engine = loader.acquire_engine(camera_key, smoke_spec)
+    helmet_engine = loader.acquire_engine(camera_key, helmet_spec)
+    assert smoke_engine is not helmet_engine
+    assert loader.acquire_engine(camera_key, smoke_spec) is smoke_engine
+
+    loader.release_engine(camera_key)
+    assert loader.acquire_engine(camera_key, helmet_spec) is not helmet_engine
+    loader.release_engine(camera_key)
+
+
+def test_concurrent_engine_loads_bind_src_to_own_install_dir(tmp_path):
+    """并发加载不同目录的引擎时，src 包解析不得串目录（否则读到对方 demo /workspace 配置路径）。
+
+    回归用例：引擎加载在锁外并行时，_prepare_imports 切换 sys.path 与逐出 src.* 缓存
+    会交错，使 import 绑定到其它算法目录的副本，真实 face 引擎因此读到 helmet 目录
+    inference.yaml 中的 /workspace 路径而初始化失败。
+    """
+    import threading
+
+    mismatches: list[tuple[str, str]] = []
+
+    def worker(root: Path) -> None:
+        camera_key = str(uuid4())
+        install = make_install_dir(root, "smoke", FAKE_MARKER_ENGINE, ["yolov26_1126.onnx"])
+        make_src_packages(install, "src")
+        (install / "src" / "marker.py").write_text(f'MODEL_PATH = r"{install}"\n', encoding="utf-8")
+        for _ in range(20):
+            spec = make_spec("smoke", install)
+            try:
+                engine = loader.acquire_engine(camera_key, spec)
+                if engine.model_path != str(install):
+                    mismatches.append((engine.model_path, str(install)))
+            finally:
+                loader.release_engine(camera_key)
+
+    threads = [threading.Thread(target=worker, args=(tmp_path / name,)) for name in ("a", "b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert mismatches == []
 
 
 def test_raw_to_objects_kpt_uses_bbox():

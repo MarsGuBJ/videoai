@@ -5,7 +5,7 @@ import time
 from uuid import uuid4
 
 from app.config import Settings
-from app.schemas import StreamStartRequest
+from app.schemas import AlgorithmSpec, StreamStartRequest
 from app.stream_manager import StreamManager
 
 
@@ -63,6 +63,46 @@ def test_face_targets_falls_back_to_legacy_face_profile_id():
     assert len(targets) == 1
     assert targets[0].faceProfileId == request.faceProfileId
     assert targets[0].deploymentTaskId == deployment_task_id
+
+
+def test_algorithm_specs_merge_and_dedup():
+    """algorithms 与旧字段 algorithm 合并去重：同摄像头并行多算法（如 face + helmet）。"""
+    legacy = AlgorithmSpec(algorithmId=uuid4(), engineType="face", version="1.0.0", installPath="/a")
+    helmet = AlgorithmSpec(algorithmId=uuid4(), engineType="helmet", version="1.0.0", installPath="/b")
+    request = StreamStartRequest(
+        cameraId=uuid4(),
+        cameraName="走廊",
+        streamUrl="rtsp://camera/live",
+        algorithm=legacy,
+        algorithms=[helmet, helmet.model_copy()],
+    )
+
+    assert request.algorithm_specs == [helmet, legacy]
+
+
+def test_process_frame_runs_algorithms_when_no_face_target_due(monkeypatch):
+    """人脸采样未到期不再整帧早退：并行算法（安全帽检测）仍按各自限频执行。"""
+    manager = make_manager()
+    request = StreamStartRequest(
+        cameraId=uuid4(),
+        cameraName="走廊",
+        streamUrl="rtsp://camera/live",
+        faceProfileId=uuid4(),
+        algorithms=[
+            AlgorithmSpec(algorithmId=uuid4(), engineType="helmet", version="1.0.0", installPath="/b")
+        ],
+    )
+    # 预置人脸采样冷却，模拟“人脸目标未到期”分支
+    manager._due_face_targets(request, time.monotonic())
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        manager, "_process_algorithm_frame", lambda req, spec, frame: calls.append(spec.engineType)
+    )
+
+    manager._process_frame(request, frame=None)
+
+    assert calls == ["helmet"]
 
 
 class _FakeOpenCvCapture:

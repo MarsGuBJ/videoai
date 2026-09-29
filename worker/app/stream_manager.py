@@ -299,47 +299,50 @@ class StreamManager:
 
     def _process_frame(self, request: StreamStartRequest, frame) -> None:
         snapshot_base64 = ""
+        dino_done = False
         if request.faceDetectionEnabled:
             try:
                 targets = self._due_face_targets(request, time.monotonic())
                 if not targets:
+                    # 人脸未到采样时间不能整帧丢弃：算法引擎有自己的限频，照常放行
                     if request.objectDetectionEnabled:
                         self._process_dino_frame(request, frame, snapshot_base64)
-                    return
-                detections = self.face_client.detect_faces(frame)
-                for detection in detections:
-                    aligned = self.face_client.align_detection(frame, detection)
-                    embedding = self.face_client.embed(aligned).tolist()
-                    for target in targets:
-                        match = self._match(embedding, target.faceProfileId)
-                        if not match.matched or match.id is None:
-                            continue
-                        if not snapshot_base64:
-                            snapshot_base64 = encode_jpeg(frame)
-                        event = FaceEventIngestRequest(
-                            cameraId=request.cameraId,
-                            faceProfileId=match.id,
-                            cameraName=request.cameraName,
-                            profileName=match.name or "",
-                            profileDescription=match.description,
-                            facePhotoPath=match.photoPath or "",
-                            snapshotBase64=snapshot_base64,
-                            videoTime=utc_now(),
-                            similarity=match.similarity,
-                            deploymentTaskId=target.deploymentTaskId,
-                        )
-                        self._ingest_event(event)
+                        dino_done = True
+                else:
+                    detections = self.face_client.detect_faces(frame)
+                    for detection in detections:
+                        aligned = self.face_client.align_detection(frame, detection)
+                        embedding = self.face_client.embed(aligned).tolist()
+                        for target in targets:
+                            match = self._match(embedding, target.faceProfileId)
+                            if not match.matched or match.id is None:
+                                continue
+                            if not snapshot_base64:
+                                snapshot_base64 = encode_jpeg(frame)
+                            event = FaceEventIngestRequest(
+                                cameraId=request.cameraId,
+                                faceProfileId=match.id,
+                                cameraName=request.cameraName,
+                                profileName=match.name or "",
+                                profileDescription=match.description,
+                                facePhotoPath=match.photoPath or "",
+                                snapshotBase64=snapshot_base64,
+                                videoTime=utc_now(),
+                                similarity=match.similarity,
+                                deploymentTaskId=target.deploymentTaskId,
+                            )
+                            self._ingest_event(event)
             except Exception as exc:
                 self._log_throttled(
                     f"{request.cameraId}:face", f"face processing failed for camera {request.cameraId}", exc
                 )
                 self._set_status(str(request.cameraId), f"face processing error: {exc}")
 
-        if request.objectDetectionEnabled:
+        if request.objectDetectionEnabled and not dino_done:
             self._process_dino_frame(request, frame, snapshot_base64)
 
-        if request.algorithm is not None:
-            self._process_algorithm_frame(request, request.algorithm, frame)
+        for spec in request.algorithm_specs:
+            self._process_algorithm_frame(request, spec, frame)
 
     def _process_algorithm_frame(self, request: StreamStartRequest, spec: AlgorithmSpec, frame) -> None:
         """按识别间隔（秒）限频对抽样帧跑算法引擎，检出转 object-ingest 事件。

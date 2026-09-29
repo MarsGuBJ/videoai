@@ -120,29 +120,46 @@ def load_engine(spec: AlgorithmSpec, base_dir: str | None = None) -> Any:
         raise EngineLoadError(f"引擎 {entry.class_name} 初始化失败: {exc}") from exc
 
 
+def _engine_cache_key(camera_key: str, spec: AlgorithmSpec) -> str:
+    """同一摄像头可并行运行多个算法（如人脸识别 + 安全帽检测），缓存按 cameraId+algorithmId 隔离。"""
+    return f"{camera_key}:{spec.algorithmId}"
+
+
 def acquire_engine(camera_key: str, spec: AlgorithmSpec, base_dir: str | None = None) -> Any:
-    """按 cameraId 取缓存引擎；规格变化或首次调用时重新加载。"""
+    """按 cameraId+algorithmId 取缓存引擎；规格变化或首次调用时重新加载。"""
+    cache_key = _engine_cache_key(camera_key, spec)
     with _cache_lock:
-        cached = _engine_cache.get(camera_key)
+        cached = _engine_cache.get(cache_key)
         if cached is not None:
             cached_spec, engine = cached
             if _same_spec(cached_spec, spec):
                 return engine
             _shutdown_engine(engine)
-            _engine_cache.pop(camera_key, None)
-    # 加载较慢且可能失败，放在锁外，避免阻塞其它相机的取引擎操作
-    engine = load_engine(spec, base_dir)
-    with _cache_lock:
-        _engine_cache[camera_key] = (spec, engine)
+            _engine_cache.pop(cache_key, None)
+    # 加载较慢且可能失败，放在缓存锁外，避免阻塞其它相机的取引擎操作；
+    # 但引擎导入必须串行：各 zip 共用全局 src 包命名空间，_prepare_imports 会
+    # 切换 sys.path 首项并逐出其它安装目录的 src.* 缓存模块，并发加载会让
+    # import 绑定到其它算法目录的副本（读到其 demo /workspace 模型路径而初始化失败）
+    with _engine_load_lock:
+        # 加载期间缓存可能已被其它线程写入同规格引擎，直接复用
+        with _cache_lock:
+            cached = _engine_cache.get(cache_key)
+            if cached is not None and _same_spec(cached[0], spec):
+                return cached[1]
+        engine = load_engine(spec, base_dir)
+        with _cache_lock:
+            _engine_cache[cache_key] = (spec, engine)
     return engine
 
 
 def release_engine(camera_key: str) -> None:
-    """流停止时释放该相机的缓存引擎（face 引擎内部线程池一并 shutdown）。"""
+    """流停止时释放该相机的全部缓存引擎（face 引擎内部线程池一并 shutdown）。"""
+    prefix = f"{camera_key}:"
     with _cache_lock:
-        cached = _engine_cache.pop(camera_key, None)
-    if cached is not None:
-        _shutdown_engine(cached[1])
+        keys = [key for key in _engine_cache if key.startswith(prefix)]
+        engines = [_engine_cache.pop(key)[1] for key in keys]
+    for engine in engines:
+        _shutdown_engine(engine)
 
 
 def raw_to_objects(engine_type: str, raw: Any) -> list[dict[str, Any]]:
@@ -214,8 +231,12 @@ def _import_engine_module(entry: EngineEntry, module_path: Path) -> types.Module
 def _prepare_imports(entry: EngineEntry, install_dir: Path) -> None:
     """让引擎的 ``import src...`` 解析到自身安装目录，并按需注入 shim/桩模块。"""
     install_str = str(install_dir)
-    if install_str not in sys.path:
-        sys.path.insert(0, install_str)
+    # 必须置顶本引擎目录，不能仅在缺失时插入：多目录交替加载后 sys.path 首位会被
+    # 其它引擎目录占据，逐出 src.* 缓存后的重新 import 会解析到对方目录的副本，
+    # 读到其 demo /workspace 配置路径（真实案例：face 引擎串到 helmet 目录初始化失败）
+    if install_str in sys.path:
+        sys.path.remove(install_str)
+    sys.path.insert(0, install_str)
     _evict_foreign_src_modules(install_dir)
     if entry.kind == "face":
         _install_face_stubs()
@@ -473,3 +494,4 @@ _YAML_BUILDERS = {
 
 _engine_cache: dict[str, tuple[AlgorithmSpec, Any]] = {}
 _cache_lock = threading.Lock()
+_engine_load_lock = threading.Lock()

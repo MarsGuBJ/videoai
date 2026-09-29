@@ -68,49 +68,58 @@ def active_face_targets_for_camera(camera: CameraResponse) -> list[dict]:
     return targets
 
 
-def active_algorithm_task_for_camera(camera: CameraResponse) -> DeploymentTaskResponse | None:
-    """找到命中该摄像头且绑定了算法的运行中布控任务（取第一个）。
+def active_algorithm_tasks_for_camera(camera: CameraResponse) -> list[DeploymentTaskResponse]:
+    """找到命中该摄像头且绑定了算法的全部运行中布控任务。
+
+    同一摄像头可并行绑定多个算法任务（如人脸识别 + 安全帽检测），需全部下发 worker。
 
     Args:
         camera: 摄像头对象。
 
     Returns:
-        绑定算法的布控任务；无则 None。
+        绑定算法的运行中布控任务列表；无则空列表。
     """
     camera_id = str(camera.id)
-    for task in state.deployment_tasks_store.values():
-        if not task.enabled or task.taskStatus.lower() != "running" or task.algorithmId is None:
-            continue
-        if camera_id in set(task.cameraIds or []):
-            return task
-    return None
+    return [
+        task
+        for task in state.deployment_tasks_store.values()
+        if task.enabled
+        and task.taskStatus.lower() == "running"
+        and task.algorithmId is not None
+        and camera_id in set(task.cameraIds or [])
+    ]
 
 
-def algorithm_payload_for_camera(camera: CameraResponse) -> dict | None:
-    """组装 worker 启动 payload 的 algorithm 字段（仅当任务绑定算法且版本存在）。
+def algorithm_payloads_for_camera(camera: CameraResponse) -> list[dict]:
+    """组装 worker 启动 payload 的 algorithms 字段（按 algorithmId 去重，先到先得）。
 
     Args:
         camera: 摄像头对象。
 
     Returns:
-        algorithm payload 字典；无绑定时 None。installPath 为 worker 视角路径
-        （backend 与 worker 挂载同一目录，直接按 storage_algorithm_dir/<code>/<version> 拼接）。
+        algorithm payload 列表；无绑定时空列表。installPath 为 worker 视角路径
+        （backend 与 worker 挂载同一目录，直接按 storage_algorithm_dir/<code>/<currentVersion> 拼接）。
     """
-    task = active_algorithm_task_for_camera(camera)
-    if task is None or task.algorithmId is None:
-        return None
-    record = state.algorithms_store.get(task.algorithmId)
-    if record is None or record.currentVersion is None:
-        return None
-    install_path = get_settings().storage_algorithm_dir / record.code / record.currentVersion
-    return {
-        "algorithmId": str(record.id),
-        "engineType": record.engineType,
-        "version": record.currentVersion,
-        "installPath": str(install_path),
-        "recognitionPerMinute": max(1, int(task.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE)),
-        "deploymentTaskId": str(task.id),
-    }
+    payloads: list[dict] = []
+    seen: set[str] = set()
+    for task in active_algorithm_tasks_for_camera(camera):
+        assert task.algorithmId is not None
+        record = state.algorithms_store.get(task.algorithmId)
+        if record is None or record.currentVersion is None or str(record.id) in seen:
+            continue
+        seen.add(str(record.id))
+        install_path = get_settings().storage_algorithm_dir / record.code / record.currentVersion
+        payloads.append(
+            {
+                "algorithmId": str(record.id),
+                "engineType": record.engineType,
+                "version": record.currentVersion,
+                "installPath": str(install_path),
+                "recognitionPerMinute": max(1, int(task.recognitionPerMinute or DEFAULT_RECOGNITION_PER_MINUTE)),
+                "deploymentTaskId": str(task.id),
+            }
+        )
+    return payloads
 
 
 def should_worker_stream(camera: CameraResponse) -> bool:
@@ -118,7 +127,7 @@ def should_worker_stream(camera: CameraResponse) -> bool:
     return (
         is_dino_camera(camera)
         or bool(active_face_targets_for_camera(camera))
-        or active_algorithm_task_for_camera(camera) is not None
+        or bool(active_algorithm_tasks_for_camera(camera))
     )
 
 
@@ -166,6 +175,7 @@ def start_worker_stream(camera: CameraResponse) -> None:
     """
     object_detection_enabled = is_dino_camera(camera)
     face_targets = active_face_targets_for_camera(camera)
+    algorithms = algorithm_payloads_for_camera(camera)
     payload = {
         "cameraId": str(camera.id),
         "cameraName": camera.name,
@@ -175,7 +185,9 @@ def start_worker_stream(camera: CameraResponse) -> None:
         "faceTargets": face_targets,
         "faceDetectionEnabled": bool(face_targets),
         "objectDetectionEnabled": object_detection_enabled,
-        "algorithm": algorithm_payload_for_camera(camera),
+        # algorithms 为全量并行算法；algorithm 仅保留第一个作旧版 worker 兼容
+        "algorithm": algorithms[0] if algorithms else None,
+        "algorithms": algorithms,
     }
     worker_request("/v1/streams/start", payload)
 

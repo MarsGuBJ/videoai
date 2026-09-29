@@ -37,7 +37,21 @@ class StreamStartRequest(BaseModel):
     faceTargets: list[FaceTarget] = Field(default_factory=list)
     faceDetectionEnabled: bool = True
     objectDetectionEnabled: bool = False
+    # 旧字段：单一算法。同一摄像头绑定多个算法任务时由 backend-lite 下发 algorithms
     algorithm: AlgorithmSpec | None = None
+    algorithms: list[AlgorithmSpec] = Field(default_factory=list)
+
+    @property
+    def algorithm_specs(self) -> list[AlgorithmSpec]:
+        """合并 algorithms 与旧字段 algorithm，按 algorithmId 去重并保持顺序。"""
+        specs: list[AlgorithmSpec] = []
+        seen: set[UUID] = set()
+        for spec in [*self.algorithms, *(spec for spec in [self.algorithm] if spec is not None)]:
+            if spec.algorithmId in seen:
+                continue
+            seen.add(spec.algorithmId)
+            specs.append(spec)
+        return specs
 
 
 class StreamStopRequest(BaseModel):
