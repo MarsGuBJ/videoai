@@ -2,6 +2,7 @@
 
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.api.routers.deployment_tasks as deployment_tasks_router
@@ -34,8 +35,77 @@ def test_list_deployment_tasks_empty_store_returns_empty_list(client: TestClient
     assert response.json() == []
 
 
+def _deploy_payload(**overrides) -> dict:
+    """一份「必填项齐全」的建任务载荷；用例按需覆盖或删字段。"""
+    payload = {
+        "name": "北门布控",
+        "cameraIds": ["cam-1"],
+        "algorithmCode": "algo-gather-v1",
+        "faceProfilePhotoUrl": "/api/assets/query-images/target.jpg",
+        "similarity": 60,
+        "effectiveStart": "2026-10-01",
+        "effectiveEnd": "2026-12-31",
+        "cycleStart": "08:00",
+        "cycleEnd": "20:00",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_create_deployment_task_missing_name_returns_422(client: TestClient):
     response = client.post("/api/deployment-tasks", json={})
+
+    assert response.status_code == 422
+
+
+REQUIRED_CREATE_FIELDS = [
+    "name",
+    "cameraIds",
+    "algorithmCode",
+    "faceProfilePhotoUrl",
+    "similarity",
+    "effectiveStart",
+    "effectiveEnd",
+    "cycleStart",
+    "cycleEnd",
+]
+
+
+@pytest.mark.parametrize("missing", REQUIRED_CREATE_FIELDS)
+def test_create_deployment_task_missing_required_field_returns_422(client: TestClient, monkeypatch, missing: str):
+    """必填项缺失必须 422：不允许再建出缺图片/缺时间/缺相似度的半成品任务。"""
+    monkeypatch.setattr(deployment_tasks_router, "persist_deployment_task", lambda task: None)
+    monkeypatch.setattr(deployment_tasks_router, "sync_worker_streams_for_task", lambda task: None)
+    payload = _deploy_payload()
+    payload.pop(missing)
+
+    response = client.post("/api/deployment-tasks", json=payload)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("name", "   "),
+        ("cameraIds", []),
+        ("algorithmCode", ""),
+        ("faceProfilePhotoUrl", ""),
+        ("similarity", 120),
+        ("effectiveStart", "2026-13-45"),
+        ("effectiveEnd", "2026/12/31"),
+        ("cycleStart", "8:00"),
+        ("cycleEnd", "25:00"),
+    ],
+)
+def test_create_deployment_task_invalid_required_value_returns_422(
+    client: TestClient, monkeypatch, field: str, bad_value: object
+):
+    """必填项不仅要传，还要是合法值（空串/空点位/越界/非法日期时间都拦）。"""
+    monkeypatch.setattr(deployment_tasks_router, "persist_deployment_task", lambda task: None)
+    monkeypatch.setattr(deployment_tasks_router, "sync_worker_streams_for_task", lambda task: None)
+
+    response = client.post("/api/deployment-tasks", json=_deploy_payload(**{field: bad_value}))
 
     assert response.status_code == 422
 
@@ -47,10 +117,7 @@ def test_create_deployment_task_valid_payload_returns_camel_case_contract(client
     monkeypatch.setattr(deployment_tasks_router, "persist_deployment_task", persisted.append)
     monkeypatch.setattr(deployment_tasks_router, "sync_worker_streams_for_task", synced.append)
 
-    response = client.post(
-        "/api/deployment-tasks",
-        json={"name": "北门布控", "cameraIds": ["cam-1"], "algorithmCode": "algo-gather-v1"},
-    )
+    response = client.post("/api/deployment-tasks", json=_deploy_payload())
 
     assert response.status_code == 200
     payload = response.json()
@@ -75,8 +142,11 @@ def test_update_deployment_task_passes_through_algorithm_code(client: TestClient
     monkeypatch.setattr(deployment_tasks_router, "persist_deployment_task", persisted.append)
     monkeypatch.setattr(deployment_tasks_router, "sync_worker_streams_for_task", synced.append)
 
-    created = client.post("/api/deployment-tasks", json={"name": "东门布控", "cameraIds": []}).json()
-    assert created["algorithmCode"] is None
+    created = client.post(
+        "/api/deployment-tasks",
+        json=_deploy_payload(name="东门布控", algorithmCode="algo-old"),
+    ).json()
+    assert created["algorithmCode"] == "algo-old"
 
     response = client.patch(
         f"/api/deployment-tasks/{created['id']}",
@@ -102,15 +172,14 @@ def test_deployment_task_strategy_fields_round_trip(client: TestClient, monkeypa
 
     response = client.post(
         "/api/deployment-tasks",
-        json={
-            "name": "西门布控",
-            "cameraIds": ["cam-1"],
-            "similarity": 80,
-            "effectiveStart": "2026-10-01",
-            "effectiveEnd": "2026-12-31",
-            "cycleStart": "08:00",
-            "cycleEnd": "20:00",
-        },
+        json=_deploy_payload(
+            name="西门布控",
+            similarity=80,
+            effectiveStart="2026-10-01",
+            effectiveEnd="2026-12-31",
+            cycleStart="08:00",
+            cycleEnd="20:00",
+        ),
     )
 
     assert response.status_code == 200
@@ -120,12 +189,6 @@ def test_deployment_task_strategy_fields_round_trip(client: TestClient, monkeypa
     assert payload["effectiveEnd"] == "2026-12-31"
     assert payload["cycleStart"] == "08:00"
     assert payload["cycleEnd"] == "20:00"
-
-    # 缺省时给默认值
-    created = client.post("/api/deployment-tasks", json={"name": "南门布控", "cameraIds": []}).json()
-    assert created["similarity"] == 50
-    assert created["effectiveStart"] is None
-    assert created["cycleStart"] is None
 
     # 部分更新与显式置空
     response = client.patch(f"/api/deployment-tasks/{payload['id']}", json={"similarity": 65, "cycleEnd": "22:30"})
@@ -139,7 +202,11 @@ def test_deployment_task_strategy_fields_round_trip(client: TestClient, monkeypa
     assert response.json()["effectiveStart"] is None
 
     # 越界相似度按 422 拦截
-    response = client.post("/api/deployment-tasks", json={"name": "非法", "cameraIds": [], "similarity": 120})
+    response = client.post("/api/deployment-tasks", json=_deploy_payload(name="非法", similarity=120))
+    assert response.status_code == 422
+
+    # 显式传空点位同样按 422 拦截（PATCH 不允许把必填项改成空）
+    response = client.patch(f"/api/deployment-tasks/{payload['id']}", json={"cameraIds": []})
     assert response.status_code == 422
 
 

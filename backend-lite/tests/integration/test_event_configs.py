@@ -229,7 +229,18 @@ def _seed_algorithm(code: str, name: str, engine_type: str = "face") -> Algorith
 def _create_cascade_task(client: TestClient, monkeypatch, **overrides) -> dict:
     monkeypatch.setattr(deployment_tasks_router, "persist_deployment_task", lambda task: None)
     monkeypatch.setattr(deployment_tasks_router, "sync_worker_streams_for_task", lambda task: None)
-    payload = {"name": "级联验证任务", "cameraIds": ["cam-01"], "algorithmCode": "evt-cascade", **overrides}
+    payload = {
+        "name": "级联验证任务",
+        "cameraIds": ["cam-01"],
+        "algorithmCode": "evt-cascade",
+        "faceProfilePhotoUrl": "/api/assets/query-images/cascade.jpg",
+        "similarity": 60,
+        "effectiveStart": "2026-10-01",
+        "effectiveEnd": "2026-12-31",
+        "cycleStart": "08:00",
+        "cycleEnd": "20:00",
+        **overrides,
+    }
     response = client.post("/api/deployment-tasks", json=payload)
     assert response.status_code == 200
     return response.json()

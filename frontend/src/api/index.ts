@@ -290,6 +290,13 @@ function extractErrorMessage(text: string, response: Response): string {
     const body = JSON.parse(text);
     const detail = body && body.detail;
     if (typeof detail === 'string') return detail;
+    // FastAPI 校验失败：detail 是 [{loc, msg, type}] 数组，取第一条转成可读提示
+    if (Array.isArray(detail) && detail.length) {
+      const first = detail[0] as { loc?: unknown[]; msg?: string };
+      const field = Array.isArray(first.loc) ? String(first.loc[first.loc.length - 1] ?? '') : '';
+      const message = typeof first.msg === 'string' ? first.msg : '参数不合法';
+      return field ? `参数校验失败：${field} ${message}` : `参数校验失败：${message}`;
+    }
     if (detail && typeof detail.message === 'string') return detail.message;
     if (detail && detail.error && typeof detail.error.message === 'string') return detail.error.message;
     if (body && typeof body.message === 'string') return body.message;

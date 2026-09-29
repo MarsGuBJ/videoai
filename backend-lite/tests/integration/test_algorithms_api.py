@@ -26,6 +26,23 @@ def zip_bytes(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
+def _deploy_task_payload(**overrides) -> dict:
+    """建布控任务的必填项齐全载荷（POST /api/deployment-tasks 已强制校验必填）。"""
+    payload = {
+        "name": "绑定算法任务",
+        "cameraIds": ["cam-1"],
+        "algorithmCode": "face-01",
+        "faceProfilePhotoUrl": "/api/assets/query-images/target.jpg",
+        "similarity": 60,
+        "effectiveStart": "2026-10-01",
+        "effectiveEnd": "2026-12-31",
+        "cycleStart": "08:00",
+        "cycleEnd": "20:00",
+    }
+    payload.update(overrides)
+    return payload
+
+
 @pytest.fixture()
 def algo_storage(tmp_path, monkeypatch):
     """把算法安装目录指向 tmp_path，并屏蔽数据库持久化。"""
@@ -165,7 +182,7 @@ def test_bind_deployment_task_to_algorithm(client: TestClient, algo_storage):
 
     response = client.post(
         "/api/deployment-tasks",
-        json={"name": "绑定算法任务", "cameraIds": [], "algorithmId": created["id"]},
+        json=_deploy_task_payload(name="绑定算法任务", algorithmId=created["id"]),
     )
 
     assert response.status_code == 200
@@ -178,7 +195,7 @@ def test_bind_deployment_task_to_algorithm(client: TestClient, algo_storage):
 def test_bind_deployment_task_unknown_algorithm_returns_400(client: TestClient, algo_storage):
     response = client.post(
         "/api/deployment-tasks",
-        json={"name": "绑定不存在", "cameraIds": [], "algorithmId": str(uuid4())},
+        json=_deploy_task_payload(name="绑定不存在", algorithmId=str(uuid4())),
     )
 
     assert response.status_code == 400
@@ -193,7 +210,7 @@ def test_bind_deployment_task_missing_files_algorithm_returns_400(client: TestCl
 
     response = client.post(
         "/api/deployment-tasks",
-        json={"name": "绑定缺文件", "cameraIds": [], "algorithmId": created["id"]},
+        json=_deploy_task_payload(name="绑定缺文件", algorithmId=created["id"]),
     )
 
     assert response.status_code == 400
@@ -206,7 +223,7 @@ def test_bind_deployment_task_disabled_algorithm_returns_400(client: TestClient,
 
     response = client.post(
         "/api/deployment-tasks",
-        json={"name": "绑定停用", "cameraIds": [], "algorithmId": created["id"]},
+        json=_deploy_task_payload(name="绑定停用", algorithmId=created["id"]),
     )
 
     assert response.status_code == 400
