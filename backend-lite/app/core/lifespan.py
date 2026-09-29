@@ -18,7 +18,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
 from app.services import camera_cache
-from app.services.algorithms import load_algorithms_from_db
+from app.services.algorithms import ensure_algorithm_schema, load_algorithms_from_db
 from app.services.deployment_tasks import ensure_deployment_task_schema, load_deployment_tasks_from_db
 from app.services.event_dedup_rules import ensure_dedup_rule_schema, load_dedup_rules_from_db
 from app.services.event_infos import ensure_event_info_schema, load_event_infos_from_db
@@ -57,6 +57,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 
     try:
         Base.metadata.create_all(engine)
+        ensure_algorithm_schema()
         ensure_deployment_task_schema()
         ensure_deployment_event_schema()
         ensure_llm_config_schema()

@@ -99,6 +99,7 @@ def test_smoke_missing_optional_onnx_installs_as_missing_files(algo_storage):
         description=None,
         version_name=None,
         notes=None,
+        deploy_target=False,
         upload=make_upload({"smoke_engine.py": b"py"}),
     )
 
@@ -122,6 +123,7 @@ def test_install_strips_wrapper_and_preserves_structure(algo_storage):
         description=None,
         version_name=None,
         notes=None,
+        deploy_target=False,
         upload=make_upload(
             {
                 "pkg/head_engine.py": b"py",
@@ -169,6 +171,7 @@ def test_add_version_creates_backup_of_current_version(algo_storage):
         description=None,
         version_name=None,
         notes=None,
+        deploy_target=False,
         upload=make_upload({"smoke_engine.py": b"old", "yolov26_1126.onnx": b"v1"}),
     )
 
@@ -200,6 +203,7 @@ def test_activate_version_creates_backup_and_switches_pointer(algo_storage):
         description=None,
         version_name=None,
         notes=None,
+        deploy_target=False,
         upload=make_upload({"smoke_engine.py": b"v1"}),
     )
     added = algo_service.add_version(
@@ -237,6 +241,7 @@ def _create_smoke_algorithm(code: str):
         description=None,
         version_name=None,
         notes=None,
+        deploy_target=False,
         upload=make_upload({"smoke_engine.py": b"v1"}),
     )
 

@@ -11,6 +11,7 @@ class EmbeddingResponse(BaseModel):
 class FaceTarget(BaseModel):
     faceProfileId: UUID
     deploymentTaskId: UUID | None = None
+    # 字段名为历史遗留：语义为每次采样的间隔秒数（设置 x 则每 x 秒采样一次）
     recognitionPerMinute: int = Field(default=60, ge=1)
 
 
@@ -21,6 +22,7 @@ class AlgorithmSpec(BaseModel):
     engineType: str
     version: str
     installPath: str
+    # 字段名为历史遗留：语义为每次采样的间隔秒数
     recognitionPerMinute: int = Field(default=60, ge=1)
     # 算法事件归属的布控任务；缺省时回退到 StreamStartRequest.deploymentTaskId
     deploymentTaskId: UUID | None = None

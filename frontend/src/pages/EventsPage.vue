@@ -9,7 +9,7 @@
         <thead><tr><th class="left">事件信息</th><th>事件类型</th><th>等级</th><th class="left">事件来源</th><th>区域/点位</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
-            <td class="left"><div class="event-name-cell"><div class="event-thumb-wrap"><img v-if="row.image" class="event-thumb" :src="row.image" :alt="row.name" style="cursor:pointer;" @click="setRoute('imageSearch', { prefill: row.image })" /><div v-else class="event-thumb"></div></div><div><h4>{{ row.name }}</h4><p>{{ row.time }}</p></div></div></td>
+            <td class="left"><div class="event-name-cell"><div class="event-thumb-wrap"><img v-if="row.image" class="event-thumb" :src="row.image" :alt="row.name" style="cursor:pointer;" :title="'点击放大：' + row.name" @click="openImagePreview(row.image)" /><div v-else class="event-thumb"></div></div><div><h4>{{ row.name }}</h4><p>{{ row.time }}</p></div></div></td>
             <td>{{ row.type }}</td>
             <td><span class="level-pill" :class="levelClass(row.level)">{{ row.level }}</span></td>
             <td class="left ellipsis" :title="taskNameOf(row)">{{ taskNameOf(row) }}</td>
@@ -22,6 +22,10 @@
         </tbody>
       </table>
       <div class="event-config-pagination"><span style="color:#98a2b3;font-size:11px;margin-right:auto;">共 {{ total }} 条</span><button type="button" aria-label="上一页" :disabled="page <= 1" @click="gotoPage(page - 1)">‹</button><button v-for="p in pageList" :key="p" type="button" :class="{ active: page === p }" @click="gotoPage(p)">{{ p }}</button><button type="button" aria-label="下一页" :disabled="page >= totalPages" @click="gotoPage(page + 1)">›</button><select class="select" v-model.number="size" aria-label="每页条数" @change="changeSize"><option :value="10">10条/页</option><option :value="20">20条/页</option><option :value="50">50条/页</option></select></div>
+    </div>
+    <div v-if="previewImage" class="image-lightbox" @click.self="closeImagePreview">
+      <button class="image-lightbox-close" type="button" aria-label="关闭" @click="closeImagePreview">×</button>
+      <img class="image-lightbox-img" :src="previewImage" alt="事件大图" />
     </div>
   </section>
 </template>
@@ -92,7 +96,6 @@ export default defineComponent({
   components: { SummaryCards },
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
   inject: {
-    injectedSetRoute: { from: "setRoute", default: (_route: string, _options?: any) => {} },
     injectedOpenEventDetail: { from: "openEventDetail", default: (_row: any) => {} },
     injectedShowToast: { from: "showToast", default: (_m: string) => {} }
   },
@@ -114,7 +117,8 @@ export default defineComponent({
       endTime: "",
       page: 1,
       size: 20,
-      total: 0
+      total: 0,
+      previewImage: ""
     };
   },
   computed: {
@@ -145,8 +149,12 @@ export default defineComponent({
     this.loadTasks();
   },
   methods: {
-    setRoute(...args: any[]) {
-      (this as any).injectedSetRoute(...args);
+    // 点击事件缩略图仅放大查看，不跳转以图搜图
+    openImagePreview(image: string) {
+      this.previewImage = image;
+    },
+    closeImagePreview() {
+      this.previewImage = "";
     },
     openEventDetail(row: any) {
       // 事件来源列为布控任务名（任务列表异步加载，点击详情时再归一并带上）

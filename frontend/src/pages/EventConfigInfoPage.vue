@@ -13,7 +13,7 @@
           <div class="event-config-field"><span>事件来源</span><event-source-select v-model="form.source" /></div>
           <label class="event-config-field"><span><span class="required">*</span>事件名称</span><input v-model="form.name" class="input" placeholder="请输入内容" /></label>
           <label class="event-config-field"><span><span class="required">*</span>事件编码</span><input v-model="form.code" class="input" placeholder="请输入内容" /></label>
-          <label class="event-config-field"><span>算法</span><select v-model="form.algorithmCode" class="select" aria-label="算法"><option value="">不绑定算法</option><option v-for="item in algorithmOptions" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option></select></label>
+          <label class="event-config-field"><span>算法</span><select v-model="form.algorithmCode" class="select" aria-label="算法"><option value="">不绑定算法</option><option v-for="item in algorithmSelectOptions" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option></select></label>
           <label class="event-config-field"><span>事件等级</span><select v-model="form.level" class="select"><option>低</option><option>中</option><option>高</option></select></label>
           <label class="event-config-field"><span>事件分类</span><select v-model="form.category" class="select"><option>安防事件</option><option>消防事件</option><option>环境事件</option><option>行为事件</option><option>交通事件</option></select></label>
           <label class="event-config-field"><span>标注方式</span><select v-model="form.mark" class="select"><option>多边形</option><option>关键点</option></select></label>
@@ -73,6 +73,17 @@ export default defineComponent({
     paginatedRows(): EventInfo[] {
       const start = (this.activePage - 1) * this.pageSize;
       return this.filteredRows.slice(start, start + this.pageSize);
+    },
+    // 算法下拉只展示算法管理中勾选「是否布控目标」的算法；
+    // 编辑回填时已绑定算法若未勾选，保留当前项避免选中值丢失
+    algorithmSelectOptions(): Algorithm[] {
+      const flagged = this.algorithmOptions.filter(item => item.deployTarget);
+      const current = this.form.algorithmCode;
+      if (current && !flagged.some(item => item.code === current)) {
+        const bound = this.algorithmOptions.find(item => item.code === current);
+        if (bound) return [bound, ...flagged];
+      }
+      return flagged;
     },
   },
   mounted() {

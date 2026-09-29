@@ -28,6 +28,23 @@ def test_due_face_targets_applies_recognition_cooldown():
     assert second == []
 
 
+def test_due_face_targets_interval_is_seconds():
+    """recognitionPerMinute 字段语义为采样间隔秒数：设置 x 则每 x 秒到期一次。"""
+    from app.schemas import FaceTarget
+
+    manager = make_manager()
+    request = StreamStartRequest(
+        cameraId=uuid4(),
+        cameraName="北门",
+        streamUrl="rtsp://camera/live",
+        faceTargets=[FaceTarget(faceProfileId=uuid4(), recognitionPerMinute=10)],
+    )
+
+    assert len(manager._due_face_targets(request, now=1000.0)) == 1
+    assert manager._due_face_targets(request, now=1009.9) == []
+    assert len(manager._due_face_targets(request, now=1010.0)) == 1
+
+
 def test_face_targets_falls_back_to_legacy_face_profile_id():
     manager = make_manager()
     deployment_task_id = uuid4()

@@ -25,7 +25,7 @@
             <dt>算法编号</dt><dd>{{ task.algorithmCode || "—" }}</dd>
             <dt>布控区域</dt><dd>{{ task.area || "默认区域" }}</dd>
             <dt>监控点位</dt><dd>{{ cameraNames }}</dd>
-            <dt>识别频次</dt><dd>{{ task.recognitionPerMinute }} 次/分钟</dd>
+            <dt>识别间隔</dt><dd>每 {{ task.recognitionPerMinute }} 秒</dd>
             <dt>任务状态</dt><dd><span class="status-pill" :class="statusClass(task.enabled ? '运行中' : '已停止')">{{ task.enabled ? "运行中" : "已停止" }}</span></dd>
             <dt>任务ID</dt><dd class="ellipsis" :title="task.id">{{ task.id }}</dd>
             <dt>创建时间</dt><dd>{{ formatTime(task.createdAt) }}</dd>

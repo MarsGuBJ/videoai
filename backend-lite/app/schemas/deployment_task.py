@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+# recognitionPerMinute 为历史遗留字段名：语义为每次采样的间隔秒数（设置 x 则每 x 秒采样一次）
 DEFAULT_RECOGNITION_PER_MINUTE = 60
 DEFAULT_SIMILARITY = 50
 

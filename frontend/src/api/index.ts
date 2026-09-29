@@ -500,7 +500,7 @@ export const api = {
   algorithmEngines: () => request<AlgorithmEngine[]>('/api/algorithm-engines'),
   algorithms: () => request<Algorithm[]>('/api/algorithms'),
   createAlgorithm: (form: FormData) => request<Algorithm>('/api/algorithms', { method: 'POST', body: form }),
-  updateAlgorithm: (id: string, payload: { name?: string; scene?: string; owner?: string; description?: string; status?: 'RUNNING' | 'DISABLED' }) =>
+  updateAlgorithm: (id: string, payload: { name?: string; scene?: string; owner?: string; description?: string; status?: 'RUNNING' | 'DISABLED'; deployTarget?: boolean }) =>
     request<Algorithm>(`/api/algorithms/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteAlgorithm: (id: string) =>
     request<{ deleted: string }>(`/api/algorithms/${encodeURIComponent(id)}`, { method: 'DELETE' }),

@@ -41,6 +41,7 @@ class AlgorithmResponse(BaseModel):
     versionCount: int = 0
     currentVersionStatus: str | None = None
     missingFiles: list[str] = []
+    deployTarget: bool = False
     createdAt: datetime
     updatedAt: datetime
 
@@ -51,6 +52,7 @@ class AlgorithmUpdateRequest(BaseModel):
     owner: str | None = None
     description: str | None = None
     status: str | None = None
+    deployTarget: bool | None = None
 
 
 class AlgorithmRecord(BaseModel):
@@ -65,6 +67,7 @@ class AlgorithmRecord(BaseModel):
     owner: str | None = None
     description: str | None = None
     currentVersion: str | None = None
+    deployTarget: bool = False
     createdAt: datetime
     updatedAt: datetime
     versions: dict[UUID, AlgorithmVersionResponse] = {}

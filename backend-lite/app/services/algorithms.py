@@ -18,11 +18,12 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, UploadFile
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import state
 from app.core.config import get_settings
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.models.algorithm import AlgorithmORM, AlgorithmVersionORM
 from app.schemas.algorithm import (
     AlgorithmRecord,
@@ -86,6 +87,20 @@ def list_engine_types() -> list[EngineTypeInfo]:
     return list(ENGINE_TYPES.values())
 
 
+def ensure_algorithm_schema() -> None:
+    """轻量迁移：为 algorithms 补列（幂等）。"""
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE algorithms "
+                    "ADD COLUMN IF NOT EXISTS deploy_target BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+    except SQLAlchemyError as exc:  # 数据库不可达时跳过迁移，不阻断启动
+        logger.error("algorithm schema ensure failed: %s", exc)
+
+
 def current_version_of(record: AlgorithmRecord) -> AlgorithmVersionResponse | None:
     """返回当前版本记录；未设置或版本不存在时返回 None。
 
@@ -128,6 +143,7 @@ def algorithm_response(record: AlgorithmRecord) -> AlgorithmResponse:
         versionCount=len(record.versions),
         currentVersionStatus=current.status if current else None,
         missingFiles=list(current.missingFiles) if current else [],
+        deployTarget=record.deployTarget,
         createdAt=record.createdAt,
         updatedAt=record.updatedAt,
     )
@@ -348,6 +364,7 @@ def create_algorithm(
     description: str | None,
     version_name: str | None,
     notes: str | None,
+    deploy_target: bool,
     upload: UploadFile,
 ) -> AlgorithmRecord:
     """创建算法并安装首个版本，置 current_version。
@@ -362,6 +379,7 @@ def create_algorithm(
         description: 描述，可空。
         version_name: 版本名称，可空。
         notes: 备注，可空。
+        deploy_target: 是否布控目标（勾选后可用于事件配置绑定）。
         upload: 首个版本的 zip 包。
 
     Returns:
@@ -383,6 +401,7 @@ def create_algorithm(
         scene=scene,
         owner=owner,
         description=description,
+        deployTarget=deploy_target,
         createdAt=now,
         updatedAt=now,
     )
@@ -469,7 +488,7 @@ def activate_version(record: AlgorithmRecord, version_id: UUID) -> AlgorithmVers
 
 
 def update_algorithm(record: AlgorithmRecord, request: AlgorithmUpdateRequest) -> AlgorithmRecord:
-    """部分更新算法字段（名称/场景/负责人/描述/状态）。
+    """部分更新算法字段（名称/场景/负责人/描述/状态/是否布控目标）。
 
     Args:
         record: 算法内存记录。
@@ -484,7 +503,7 @@ def update_algorithm(record: AlgorithmRecord, request: AlgorithmUpdateRequest) -
     if request.status is not None and request.status not in (ALGORITHM_STATUS_RUNNING, ALGORITHM_STATUS_DISABLED):
         raise HTTPException(status_code=400, detail=f"Invalid status: {request.status}")
     update_payload: dict[str, Any] = {"updatedAt": datetime.now(timezone.utc)}
-    for field in ("name", "scene", "owner", "description", "status"):
+    for field in ("name", "scene", "owner", "description", "status", "deployTarget"):
         if field in request.model_fields_set:
             value = getattr(request, field)
             if value is not None:
@@ -586,6 +605,7 @@ def persist_algorithm(record: AlgorithmRecord) -> None:
             row.owner = record.owner
             row.description = record.description
             row.current_version = record.currentVersion
+            row.deploy_target = record.deployTarget
             row.created_at = record.createdAt
             row.updated_at = record.updatedAt
             for item in record.versions.values():
@@ -646,6 +666,7 @@ def load_algorithms_from_db() -> None:
                     owner=row.owner,
                     description=row.description,
                     currentVersion=row.current_version,
+                    deployTarget=bool(row.deploy_target),
                     createdAt=row.created_at,
                     updatedAt=row.updated_at,
                     versions=versions,

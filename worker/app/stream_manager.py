@@ -292,7 +292,7 @@ class StreamManager:
             self._process_algorithm_frame(request, request.algorithm, frame)
 
     def _process_algorithm_frame(self, request: StreamStartRequest, spec: AlgorithmSpec, frame) -> None:
-        """按 recognitionPerMinute 限频对抽样帧跑算法引擎，检出转 object-ingest 事件。
+        """按识别间隔（秒）限频对抽样帧跑算法引擎，检出转 object-ingest 事件。
 
         加载/推理/上报任何异常只记日志和状态，绝不让流线程崩溃。
         """
@@ -316,9 +316,8 @@ class StreamManager:
             self._set_status(camera_key, f"algorithm processing error: {exc}")
 
     def _algorithm_due(self, spec: AlgorithmSpec, camera_key: str, now: float) -> bool:
-        """与 _due_face_targets 同款的 recognitionPerMinute 限频，键复用 detection_cooldowns。"""
-        per_minute = max(1, int(spec.recognitionPerMinute or 60))
-        interval = 60.0 / per_minute
+        """与 _due_face_targets 同款的识别间隔（秒）限频，键复用 detection_cooldowns。"""
+        interval = float(max(1, int(spec.recognitionPerMinute or 60)))
         target_key = f"{camera_key}:algo:{spec.algorithmId}"
         with self.lock:
             last_seen = self.detection_cooldowns.get(target_key, 0.0)
@@ -411,8 +410,7 @@ class StreamManager:
         camera_key = str(request.cameraId)
         with self.lock:
             for target in self._face_targets(request):
-                per_minute = max(1, int(target.recognitionPerMinute or 60))
-                interval = 60.0 / per_minute
+                interval = float(max(1, int(target.recognitionPerMinute or 60)))
                 target_key = f"{camera_key}:{target.deploymentTaskId or 'legacy'}:{target.faceProfileId}"
                 last_seen = self.detection_cooldowns.get(target_key, 0.0)
                 if now - last_seen < interval:

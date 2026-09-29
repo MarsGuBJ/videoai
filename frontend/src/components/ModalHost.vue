@@ -74,6 +74,7 @@ export default {
       algorithmDesc: "",
       algorithmScene: "",
       algorithmOwner: "",
+      algorithmDeployTarget: false,
       algorithmPackageFile: null as File | null,
       algorithmPackageName: "",
       algorithmEngines: [] as AlgorithmEngine[],
@@ -90,7 +91,7 @@ export default {
       deployTargetImageUrl: "",
       deployTargetLocalPreview: "",
       // 从人脸库选取（外部人脸照片模块）：已选照片与选择器状态
-      deployFaceLibraryPhoto: null as { id: string; name: string; url: string } | null,
+      deployFaceLibraryPhoto: null as { id: string; name: string; url: string; description?: { keyName: string; val: string }[] | null } | null,
       facePickerOpen: false,
       facePickerLoading: false,
       facePickerKeyword: "",
@@ -1017,6 +1018,7 @@ export default {
       this.algorithmDesc = (item && item.description) || "";
       this.algorithmScene = (item && item.scene) || "";
       this.algorithmOwner = (item && item.owner) || "";
+      this.algorithmDeployTarget = !!(item && item.deployTarget);
       this.algorithmPackageFile = null;
       this.algorithmPackageName = "";
       const input: any = this.$refs.algorithmPackageInput;
@@ -1137,10 +1139,18 @@ export default {
     selectFacePickerRecord(record: FaceLibraryRecord) {
       this.facePickerSelected = record;
     },
+    // 人脸库照片描述字段（keyName/val 列表）格式化为单行展示
+    faceDescriptionOf(photo: { description?: { keyName: string; val: string }[] | null } | null): string {
+      if (!photo || !Array.isArray(photo.description)) return "";
+      return photo.description
+        .filter(item => item && (item.keyName || item.val))
+        .map(item => `${item.keyName || "描述"}：${item.val || ""}`)
+        .join("、");
+    },
     confirmFacePicker() {
       const record = this.facePickerSelected;
       if (!record) return;
-      this.deployFaceLibraryPhoto = { id: record.id, name: record.name || "未命名", url: record.url || "" };
+      this.deployFaceLibraryPhoto = { id: record.id, name: record.name || "未命名", url: record.url || "", description: record.description || null };
       this.facePickerOpen = false;
     },
     clearDeployFaceLibraryPhoto() {
@@ -1153,6 +1163,7 @@ export default {
           name: this.algorithmName.trim(),
           code: this.algorithmCode.trim(),
           engineType: this.algorithmEngineType,
+          deployTarget: this.algorithmDeployTarget,
           version: this.algorithmVersion.trim(),
           versionName: this.algorithmVersionName.trim(),
           notes: this.algorithmNotes.trim(),
@@ -1748,6 +1759,10 @@ export default {
             <input class="input" v-model="algorithmOwner" placeholder="请输入负责人" />
           </div>
           <div class="modal-form-row">
+            <label>是否布控目标：</label>
+            <label class="model-config-radio"><input type="checkbox" v-model="algorithmDeployTarget" />勾选后该算法可用于事件配置</label>
+          </div>
+          <div class="modal-form-row">
             <label><span class="required">*</span>{{ isAlgorithmEdit ? '当前版本：' : '初始版本：' }}</label>
             <input class="input" v-model="algorithmVersion" :disabled="isAlgorithmEdit" :placeholder="isAlgorithmEdit ? '' : '请输入初始版本，如 v1.0.0'" />
           </div>
@@ -1792,6 +1807,7 @@ export default {
               <div v-if="deployFaceLibraryPhoto" class="face-pick-chip">
                 <img v-if="deployFaceLibraryPhoto.url" :src="deployFaceLibraryPhoto.url" :alt="deployFaceLibraryPhoto.name" />
                 <span>{{ deployFaceLibraryPhoto.name }}</span>
+                <span v-if="faceDescriptionOf(deployFaceLibraryPhoto)" class="face-pick-chip-desc" :title="faceDescriptionOf(deployFaceLibraryPhoto)">{{ faceDescriptionOf(deployFaceLibraryPhoto) }}</span>
                 <button class="face-combo-clear" type="button" aria-label="清除人脸库选择" @click="clearDeployFaceLibraryPhoto">×</button>
               </div>
             </div>
@@ -1838,9 +1854,9 @@ export default {
             <div class="deploy-similarity-field"><input type="range" min="0" max="100" step="1" v-model.number="deploySimilarity" aria-label="相似度" /><output>{{ deploySimilarity }}%</output></div>
           </div>
           <div class="modal-form-row">
-            <label>识别频次：</label>
+            <label>识别间隔：</label>
             <div class="deploy-rate-field">
-              <input class="input" type="number" min="1" v-model.number="deployRecognitionPerMinute" placeholder="每分钟识别次数" />
+              <input class="input" type="number" min="1" v-model.number="deployRecognitionPerMinute" placeholder="每次采样间隔秒数" />
               <span class="deploy-rate-unit">秒</span>
             </div>
           </div>
@@ -2246,6 +2262,7 @@ export default {
               <img v-if="record.url" :src="record.url" :alt="record.name" />
               <span v-else class="face-picker-noimg">无图片</span>
               <span class="face-picker-name">{{ record.name || '未命名' }}</span>
+              <span v-if="faceDescriptionOf(record)" class="face-picker-desc" :title="faceDescriptionOf(record)">{{ faceDescriptionOf(record) }}</span>
               <span class="face-picker-time">{{ record.createTime }}</span>
             </button>
           </div>

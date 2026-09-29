@@ -318,7 +318,8 @@ export default defineComponent({
             name: payload.name || undefined,
             scene: payload.scene || undefined,
             owner: payload.owner || undefined,
-            description: payload.description || undefined
+            description: payload.description || undefined,
+            deployTarget: !!payload.deployTarget
           });
           this.showToast("算法已更新");
         } else {
@@ -340,6 +341,7 @@ export default defineComponent({
           if (payload.description) form.append("description", payload.description);
           if (payload.versionName) form.append("versionName", payload.versionName);
           if (payload.notes) form.append("notes", payload.notes);
+          form.append("deployTarget", payload.deployTarget ? "true" : "false");
           form.append("file", payload.file);
           await api.createAlgorithm(form);
           this.showToast("算法已创建");

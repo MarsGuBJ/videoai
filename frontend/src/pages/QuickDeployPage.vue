@@ -78,7 +78,7 @@
             <output>{{ form.similarity }}%</output>
           </div>
         </div>
-        <div class="deploy-field"><label>识别频次</label><input class="input" type="number" min="1" v-model.number="form.recognitionPerMinute" placeholder="每分钟识别次数" /></div>
+        <div class="deploy-field"><label>识别间隔（秒）</label><input class="input" type="number" min="1" v-model.number="form.recognitionPerMinute" placeholder="每次采样间隔秒数" /></div>
         <div class="deploy-field">
           <label>创建后启用</label>
           <div class="effective-row">

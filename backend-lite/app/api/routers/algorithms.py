@@ -38,6 +38,7 @@ def create_algorithm(
     description: str | None = Form(None),  # noqa: B008
     version_name: str | None = Form(None, alias="versionName"),  # noqa: B008
     notes: str | None = Form(None),  # noqa: B008
+    deploy_target: bool = Form(False, alias="deployTarget"),  # noqa: B008
     file: UploadFile = File(...),  # noqa: B008
 ) -> AlgorithmResponse:
     """创建算法并安装首个版本（multipart 上传 zip）。"""
@@ -51,6 +52,7 @@ def create_algorithm(
         description=description,
         version_name=version_name,
         notes=notes,
+        deploy_target=deploy_target,
         upload=file,
     )
     return algorithm_service.algorithm_response(record)

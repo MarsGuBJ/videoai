@@ -454,6 +454,8 @@ export type Algorithm = {
   versionCount: number;
   currentVersionStatus?: "READY" | "MISSING_FILES" | null;
   missingFiles: string[];
+  // 是否布控目标：勾选后可用于事件配置绑定
+  deployTarget?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -488,6 +490,7 @@ export type DeploymentTask = {
   algorithmCode?: string | null;
   engineType?: string | null;
   cameraIds: string[];
+  // 字段名为历史遗留：语义为每次采样的间隔秒数（设置 x 则每 x 秒采样一次）
   recognitionPerMinute: number;
   similarity?: number;
   effectiveStart?: string | null;
