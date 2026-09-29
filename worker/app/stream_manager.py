@@ -34,6 +34,11 @@ logger = logging.getLogger(__name__)
 
 # 解码失败后重开 OpenCV 视频源的最小间隔（秒）：兜底 ffmpeg 在镜像内不可用时靠它自愈
 CAPTURE_RETRY_INTERVAL_SECONDS = 10.0
+# OpenCV 能打开但持续读不出帧时（典型是摄像头 H.265 而本机 OpenCV 无 HEVC 解封装），
+# 允许重开 OpenCV 的最大次数；超过即弃用 OpenCV，强制走 ffmpeg 管道兜底
+OPENCV_MAX_RECOVERY_ATTEMPTS = 2
+# ffmpeg 兜底管道起播后最长无帧等待（秒）：超时判定管道卡死，杀掉重建
+FFMPEG_PIPE_STALL_SECONDS = 30.0
 # 同一路流处理失败日志的最小间隔（秒）：DINO/人脸/算法是按帧或按秒调用的，
 # 上游持续故障（例如 Triton 缺模型）时会每帧吐一条 traceback（实测 2096 次/10 分钟）
 FAILURE_LOG_COOLDOWN_SECONDS = 60.0
@@ -146,6 +151,13 @@ class StreamManager:
         ffmpeg_proc = None
         failed_reads = 0
         retry_capture_at = 0.0
+        # 第二种失败形态：OpenCV 能打开但持续读不出帧（典型是摄像头 H.265 而本机
+        # OpenCV 的 ffmpeg 无 HEVC 解封装——isOpened() 正常、read() 永远失败，2026-09-29
+        # 实测"1205有声摄像头" 30 次读取 0 帧）。旧逻辑只周期性重开 OpenCV，永远走不到
+        # ffmpeg 兜底，该路流永久停在 reconnecting，布控任务抽不到帧也不产生事件。
+        opencv_recovery_attempts = 0
+        opencv_broken = False
+        last_pipe_frame_at = time.monotonic()
         try:
             while not stop_event.is_set():
                 frame = None
@@ -156,23 +168,37 @@ class StreamManager:
                     else:
                         failed_reads += 1
                         frame = None
-                else:
-                    failed_reads = 1
-
-                if frame is None and ffmpeg_proc is None and failed_reads >= 2:
-                    if capture is not None:
+                    if frame is None and failed_reads >= 2 and not opencv_broken:
+                        # OpenCV 读流持续失败：释放句柄，进入下方恢复流程
                         capture.release()
                         capture = None
+
+                if frame is None and capture is None and ffmpeg_proc is None:
+                    # 恢复流程：先限次重开 OpenCV；用尽或打不开则弃用 OpenCV、强制走
+                    # ffmpeg 管道兜底。必须周期性重试：否则一次解码失败会让该路流
+                    # 永久停在 reconnecting，布控任务再也不产生事件。
                     now = time.monotonic()
                     if now >= retry_capture_at:
-                        # 优先重开 OpenCV；打不开再退回 ffmpeg 兜底管道。必须周期性重试：
-                        # 否则一次解码失败（如摄像头 H.265 且本机 OpenCV 无 HEVC 解码器）会让该路
-                        # 流永久停在 reconnecting，布控任务再也不抽帧、不产生事件。
-                        capture = self._open_capture(request.streamUrl)
-                        if capture is not None:
-                            self._set_status(key, "running")
-                        else:
+                        if opencv_broken or opencv_recovery_attempts >= OPENCV_MAX_RECOVERY_ATTEMPTS:
+                            opencv_broken = True
                             ffmpeg_proc = self._start_ffmpeg_pipe(request.streamUrl)
+                            if ffmpeg_proc is not None:
+                                last_pipe_frame_at = now
+                            else:
+                                self._log_throttled(
+                                    key, f"ffmpeg fallback unavailable for camera {key} (ffmpeg not on PATH?)"
+                                )
+                        else:
+                            opencv_recovery_attempts += 1
+                            capture = self._open_capture(request.streamUrl)
+                            if capture is not None:
+                                failed_reads = 0
+                                self._set_status(key, "running")
+                            else:
+                                opencv_broken = True
+                                ffmpeg_proc = self._start_ffmpeg_pipe(request.streamUrl)
+                                if ffmpeg_proc is not None:
+                                    last_pipe_frame_at = now
                         retry_capture_at = now + CAPTURE_RETRY_INTERVAL_SECONDS
                     if capture is None and ffmpeg_proc is None:
                         self._set_status(key, "reconnecting")
@@ -181,6 +207,26 @@ class StreamManager:
                     frame = self._read_ffmpeg_frame(ffmpeg_proc, 1920, 1080)
                     if frame is not None:
                         self._set_status(key, "running")
+                        last_pipe_frame_at = time.monotonic()
+                    elif ffmpeg_proc.poll() is not None:
+                        # 管道已退出（ffmpeg 崩溃或流结束）：杀掉残留，按冷却间隔重建
+                        try:
+                            ffmpeg_proc.kill()
+                        except OSError:
+                            pass
+                        ffmpeg_proc = None
+                        retry_capture_at = time.monotonic() + CAPTURE_RETRY_INTERVAL_SECONDS
+                        self._set_status(key, "reconnecting")
+                    elif time.monotonic() - last_pipe_frame_at > FFMPEG_PIPE_STALL_SECONDS:
+                        # 管道活着但长期无帧（流静默卡死）：杀掉重建，同样受冷却间隔约束
+                        try:
+                            ffmpeg_proc.kill()
+                        except OSError:
+                            pass
+                        ffmpeg_proc = None
+                        retry_capture_at = time.monotonic() + CAPTURE_RETRY_INTERVAL_SECONDS
+                        self._log_throttled(key, f"ffmpeg pipe stalled for camera {key}, restarting")
+                        self._set_status(key, "reconnecting")
 
                 if frame is None:
                     time.sleep(0.5)
@@ -209,7 +255,9 @@ class StreamManager:
 
     def _start_ffmpeg_pipe(self, stream_url: str):
         try:
-            # ffmpeg 可执行文件由部署环境 PATH 提供，URL 来自后端登记的流地址
+            # ffmpeg 可执行文件由部署环境 PATH 提供，URL 来自后端登记的流地址。
+            # 输出统一 scale+pad 到 1920x1080：_read_ffmpeg_frame 按固定字节数解析，
+            # 摄像头实际分辨率不同（如 720p）也能读出完整帧。
             return subprocess.Popen(  # noqa: S603
                 [  # noqa: S607
                     "ffmpeg",
@@ -223,6 +271,8 @@ class StreamManager:
                     "-i",
                     stream_url,
                     "-an",
+                    "-vf",
+                    "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
                     "-c:v",
                     "rawvideo",
                     "-pix_fmt",
