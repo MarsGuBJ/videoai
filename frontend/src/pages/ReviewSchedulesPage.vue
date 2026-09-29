@@ -7,7 +7,7 @@
         <colgroup><col style="width:180px;" /><col style="width:200px;" /><col style="width:150px;" /><col style="width:90px;" /><col style="width:80px;" /><col style="width:150px;" /><col /><col style="width:230px;" /></colgroup>
         <thead><tr><th class="left">任务名称</th><th class="left">复核类型</th><th class="left">cron 表达式</th><th>每批条数</th><th>状态</th><th>上次执行时间</th><th class="left">上次执行结果</th><th>操作</th></tr></thead>
         <tbody>
-          <tr v-for="row in rows" :key="row.id">
+          <tr v-for="row in paginatedRows" :key="row.id">
             <td class="left">{{ row.name }}</td><td class="left">{{ row.reviewTypeName }}（{{ row.reviewTypeCode }}）</td><td class="left">{{ row.cron }}</td><td>{{ row.batchSize }}</td><td><span class="status-pill" :class="statusClass(row.enabled ? '启用' : '停用')">{{ row.enabled ? "启用" : "停用" }}</span></td><td>{{ formatTime(row.lastRunAt) }}</td><td class="left ellipsis">{{ row.lastResult || "-" }}</td>
             <td><button class="link-blue" @click="openEdit(row)">编辑</button><button class="link-blue" @click="toggle(row)">{{ row.enabled ? "停用" : "启用" }}</button><button class="link-blue" @click="runNow(row)">立即执行</button><button class="link-red" @click="remove(row)">删除</button></td>
           </tr>
@@ -15,6 +15,7 @@
           <tr v-if="loading"><td colspan="8" class="empty-cell">加载中...</td></tr>
         </tbody>
       </table>
+      <div class="event-config-pagination"><span style="color:#98a2b3;font-size:11px;margin-right:auto;">共 {{ rows.length }} 条</span><button type="button" aria-label="上一页" :disabled="activePage === 1" @click="activePage--">‹</button><button v-for="page in pageCount" :key="page" type="button" :class="{ active: activePage === page }" @click="activePage = page">{{ page }}</button><button type="button" aria-label="下一页" :disabled="activePage === pageCount" @click="activePage++">›</button><select class="select" v-model.number="pageSize" aria-label="每页条数" @change="activePage = 1"><option :value="20">20条/页</option><option :value="40">40条/页</option><option :value="60">60条/页</option></select></div>
     </div>
     <div v-if="modalOpen" class="event-config-modal-mask" @click.self="closeForm">
       <section class="event-config-modal wide" role="dialog" aria-modal="true" :aria-label="editing ? '编辑定时任务' : '新增定时任务'">
@@ -52,8 +53,19 @@ export default defineComponent({
       saving: false,
       modalOpen: false,
       editing: null as ReviewSchedule | null,
+      activePage: 1,
+      pageSize: 20,
       form: { name: "", reviewTypeId: "", cron: "", enabled: true, batchSize: 50 }
     };
+  },
+  computed: {
+    pageCount(): number {
+      return Math.max(1, Math.ceil(this.rows.length / this.pageSize));
+    },
+    paginatedRows(): ReviewSchedule[] {
+      const start = (this.activePage - 1) * this.pageSize;
+      return this.rows.slice(start, start + this.pageSize);
+    }
   },
   mounted() {
     this.loadData();
@@ -154,6 +166,7 @@ export default defineComponent({
       try {
         await api.deleteReviewSchedule(row.id);
         this.showToast(`已删除定时任务：${row.name}`);
+        if (this.activePage > 1 && this.paginatedRows.length === 1) this.activePage--;
         await this.loadRows();
       } catch (error) {
         this.showToast(error instanceof Error ? error.message : "定时任务删除失败");

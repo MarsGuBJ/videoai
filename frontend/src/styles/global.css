@@ -7589,7 +7589,7 @@
 
     .event-config-input-group { display: flex; align-items: stretch; }
 
-    .event-config-input-group .input { border-radius: 6px 0 0 6px; }
+    .event-config-input-group .input { border-radius: 6px 0 0 6px; height: 38px; }
 
     .event-config-input-group .input:focus { position: relative; }
 

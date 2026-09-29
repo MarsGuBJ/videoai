@@ -7,7 +7,7 @@
         <colgroup><col style="width:170px;" /><col style="width:210px;" /><col /><col style="width:110px;" /><col style="width:125px;" /><col style="width:150px;" /><col style="width:100px;" /></colgroup>
         <thead><tr><th class="left">算法名称</th><th class="left">算法编码</th><th class="left">提示词</th><th class="left">备注</th><th>注入事件字段</th><th>更新时间</th><th>操作</th></tr></thead>
         <tbody>
-          <tr v-for="row in rows" :key="row.id">
+          <tr v-for="row in paginatedRows" :key="row.id">
             <td class="left">{{ row.name }}</td><td class="left">{{ row.code }}</td><td class="left ellipsis">{{ row.prompt }}</td><td class="left ellipsis">{{ row.remark }}</td><td><span v-if="row.injectEvent" class="mini-tag">{{ row.injectEvent }}</span><span v-else>-</span></td><td>{{ formatTime(row.updatedAt) }}</td>
             <td><button class="link-blue" @click="openEdit(row)">编辑</button><button class="link-red" @click="remove(row)">删除</button></td>
           </tr>
@@ -15,6 +15,7 @@
           <tr v-if="loading"><td colspan="7" class="empty-cell">加载中...</td></tr>
         </tbody>
       </table>
+      <div class="event-config-pagination"><span style="color:#98a2b3;font-size:11px;margin-right:auto;">共 {{ rows.length }} 条</span><button type="button" aria-label="上一页" :disabled="activePage === 1" @click="activePage--">‹</button><button v-for="page in pageCount" :key="page" type="button" :class="{ active: activePage === page }" @click="activePage = page">{{ page }}</button><button type="button" aria-label="下一页" :disabled="activePage === pageCount" @click="activePage++">›</button><select class="select" v-model.number="pageSize" aria-label="每页条数" @change="activePage = 1"><option :value="20">20条/页</option><option :value="40">40条/页</option><option :value="60">60条/页</option></select></div>
     </div>
     <div v-if="modalOpen" class="event-config-modal-mask" @click.self="closeForm">
       <section class="event-config-modal wide" role="dialog" aria-modal="true" :aria-label="editing ? '编辑复核类型' : '新增复核类型'">
@@ -53,10 +54,19 @@ export default defineComponent({
       saving: false,
       modalOpen: false,
       editing: null as ReviewType | null,
+      activePage: 1,
+      pageSize: 20,
       form: { code: "", prompt: "", injectEvent: "", remark: "", llmConfigId: "" }
     };
   },
   computed: {
+    pageCount(): number {
+      return Math.max(1, Math.ceil(this.rows.length / this.pageSize));
+    },
+    paginatedRows(): ReviewType[] {
+      const start = (this.activePage - 1) * this.pageSize;
+      return this.rows.slice(start, start + this.pageSize);
+    },
     algorithmOptions(): { id: string; code: string; name: string }[] {
       const options = this.eventInfos.map(row => ({ id: row.id, code: row.code, name: row.name }));
       if (this.editing && !options.some(row => row.code === this.editing!.code)) {
@@ -157,6 +167,7 @@ export default defineComponent({
       try {
         await api.deleteReviewType(row.id);
         this.showToast(`已删除复核类型：${row.name}`);
+        if (this.activePage > 1 && this.paginatedRows.length === 1) this.activePage--;
         await this.loadRows();
       } catch (error) {
         this.showToast(error instanceof Error ? error.message : "复核类型删除失败");

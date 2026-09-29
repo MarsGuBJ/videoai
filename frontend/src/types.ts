@@ -90,6 +90,12 @@ export type LlmTestResult = {
   checkedAt?: string;
 };
 
+export type LlmModelsResult = {
+  ok: boolean;
+  models: string[];
+  error?: string;
+};
+
 export type EventInfoAttr = {
   key: string;
   value: string;

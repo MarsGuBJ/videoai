@@ -20,8 +20,14 @@
         </div>
         <div class="modal-form-row">
           <label>模型标识：</label>
-          <input v-model="form.model" class="input" placeholder="请输入模型标识，如 qwen-vl-max" />
+          <select v-if="modelOptions.length" v-model="form.model" class="input">
+            <option v-for="option in modelOptionsWithCurrent" :key="option" :value="option">{{ option }}</option>
+          </select>
+          <input v-else v-model="form.model" class="input" :placeholder="modelsLoading ? '正在查询可用模型...' : '请输入模型标识，如 qwen-vl-max'" />
         </div>
+        <p class="model-config-field-note" v-if="modelsLoading">正在根据接口地址和 API Key 查询可用模型...</p>
+        <p class="model-config-field-note" v-else-if="modelsError">模型自动查询失败（{{ modelsError }}），可手工输入模型标识</p>
+        <p class="model-config-field-note" v-else-if="modelOptions.length">已查询到 {{ modelOptions.length }} 个可用模型，请下拉选择</p>
         <div class="modal-form-row">
           <label><span class="required">*</span>API Key：</label>
           <div class="model-api-field">
@@ -93,6 +99,11 @@ export default defineComponent({
       modalOpen: false,
       editing: null as LlmConfig | null,
       showApiKey: false,
+      modelOptions: [] as string[],
+      modelsLoading: false,
+      modelsError: "",
+      modelsQuerySeq: 0,
+      modelsDebounce: null as number | null,
       form: {
         name: "",
         baseUrl: "",
@@ -117,6 +128,19 @@ export default defineComponent({
     paginatedRows(): LlmConfig[] {
       const start = (this.activePage - 1) * this.pageSize;
       return this.filteredRows.slice(start, start + this.pageSize);
+    },
+    // 当前已保存的模型标识若不在新查询结果中，保留为首选项避免丢失
+    modelOptionsWithCurrent(): string[] {
+      const current = this.form.model.trim();
+      return current && !this.modelOptions.includes(current) ? [current, ...this.modelOptions] : this.modelOptions;
+    }
+  },
+  watch: {
+    "form.baseUrl"() {
+      this.scheduleModelsQuery();
+    },
+    "form.apiKey"() {
+      this.scheduleModelsQuery();
     }
   },
   mounted() {
@@ -145,7 +169,7 @@ export default defineComponent({
     blankForm() {
       return { name: "", baseUrl: "", model: "", apiKey: "", deployType: "cloud" as "cloud" | "local", timeout: 30, temperature: 0.7, maxTokens: 2048, fps: 1 };
     },
-    openCreate() { this.editing = null; this.form = this.blankForm(); this.showApiKey = false; this.modalOpen = true; },
+    openCreate() { this.editing = null; this.form = this.blankForm(); this.showApiKey = false; this.resetModelsQuery(); this.modalOpen = true; },
     openEdit(row: LlmConfig) {
       this.editing = row;
       this.form = {
@@ -160,7 +184,63 @@ export default defineComponent({
         fps: row.fps
       };
       this.showApiKey = false;
+      this.resetModelsQuery();
       this.modalOpen = true;
+      // 编辑时 API Key 留空（复用已存密钥），打开弹窗即自动查询可用模型
+      this.scheduleModelsQuery();
+    },
+    resetModelsQuery() {
+      this.modelsQuerySeq++;
+      if (this.modelsDebounce !== null) {
+        window.clearTimeout(this.modelsDebounce);
+        this.modelsDebounce = null;
+      }
+      this.modelOptions = [];
+      this.modelsLoading = false;
+      this.modelsError = "";
+    },
+    // 接口地址与 API Key 填好后防抖自动查询可用模型
+    scheduleModelsQuery() {
+      if (!this.modalOpen) return;
+      if (this.modelsDebounce !== null) window.clearTimeout(this.modelsDebounce);
+      this.modelsDebounce = window.setTimeout(() => {
+        this.modelsDebounce = null;
+        this.queryModels();
+      }, 600);
+    },
+    async queryModels() {
+      const baseUrl = this.form.baseUrl.trim();
+      const apiKey = this.form.apiKey.trim();
+      if (!baseUrl || (!apiKey && !this.editing?.apiKeyConfigured)) {
+        this.modelOptions = [];
+        this.modelsError = "";
+        return;
+      }
+      const seq = ++this.modelsQuerySeq;
+      this.modelsLoading = true;
+      this.modelsError = "";
+      try {
+        const result = await api.llmModels({
+          baseUrl,
+          ...(apiKey ? { apiKey } : {}),
+          ...(this.editing ? { configId: this.editing.id } : {})
+        });
+        if (seq !== this.modelsQuerySeq) return;
+        if (result.ok) {
+          this.modelOptions = result.models;
+          // 当前未选模型时默认选中第一个可用模型
+          if (!this.form.model.trim() && result.models.length) this.form.model = result.models[0];
+        } else {
+          this.modelOptions = [];
+          this.modelsError = result.error || "模型查询失败";
+        }
+      } catch (error) {
+        if (seq !== this.modelsQuerySeq) return;
+        this.modelOptions = [];
+        this.modelsError = error instanceof Error ? error.message : "模型查询失败";
+      } finally {
+        if (seq === this.modelsQuerySeq) this.modelsLoading = false;
+      }
     },
     closeForm() { this.modalOpen = false; },
     async save() {

@@ -63,3 +63,17 @@ class LlmTestResult(BaseModel):
     statusCode: int | None = None
     error: str | None = None
     checkedAt: datetime
+
+
+class LlmModelsQuery(BaseModel):
+    """按接口地址查询可用模型；apiKey 为空时可传 configId 复用已存密钥。"""
+
+    baseUrl: str = Field(min_length=1, max_length=500)
+    apiKey: str = ""
+    configId: str | None = None
+
+
+class LlmModelsResult(BaseModel):
+    ok: bool
+    models: list[str] = []
+    error: str | None = None

@@ -200,3 +200,39 @@ def test_llm_connection(cfg: dict[str, Any]) -> dict[str, Any]:
         "error": f"HTTP {response.status_code}",
         "checkedAt": checked_at,
     }
+
+
+def fetch_llm_models(base_url: str, api_key: str, timeout: int = 15) -> dict[str, Any]:
+    """查询 OpenAI 兼容端点的可用模型列表：GET {baseUrl}/models 并解析 data[].id。
+
+    Args:
+        base_url: 接口地址（尾斜杠会被裁剪）。
+        api_key: 明文 API Key，空串则不携带 Authorization。
+        timeout: 请求超时秒数。
+
+    Returns:
+        与 LlmModelsResult 对齐的字典（ok / models / error）。
+    """
+    base_url = base_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        response = requests.get(f"{base_url}/models", headers=headers, timeout=timeout)
+    except requests.RequestException as exc:
+        return {"ok": False, "models": [], "error": f"{type(exc).__name__}: {exc}"}
+    if not 200 <= response.status_code < 300:
+        return {"ok": False, "models": [], "error": f"HTTP {response.status_code}"}
+    try:
+        payload = response.json()
+    except ValueError:
+        return {"ok": False, "models": [], "error": "响应不是合法 JSON"}
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return {"ok": False, "models": [], "error": "响应缺少 data 模型列表"}
+    models = sorted(
+        str(item.get("id")).strip()
+        for item in data
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    )
+    if not models:
+        return {"ok": False, "models": [], "error": "服务未返回任何可用模型"}
+    return {"ok": True, "models": models, "error": None}

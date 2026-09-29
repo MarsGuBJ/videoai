@@ -29,7 +29,9 @@ export default defineComponent({
       loading: false,
       keyword: "",
       statusFilter: "",
-      sceneFilter: ""
+      sceneFilter: "",
+      activePage: 1,
+      pageSize: 20
     };
   },
   computed: {
@@ -42,6 +44,13 @@ export default defineComponent({
         return true;
       });
     },
+    pageCount(): number {
+      return Math.max(1, Math.ceil(this.filteredRows.length / this.pageSize));
+    },
+    paginatedRows(): Algorithm[] {
+      const start = (this.activePage - 1) * this.pageSize;
+      return this.filteredRows.slice(start, start + this.pageSize);
+    },
     sceneOptions(): string[] {
       return Array.from(new Set(this.rows.map((row) => row.scene || "").filter(Boolean)));
     },
@@ -53,6 +62,11 @@ export default defineComponent({
         { label: "已停用", value: this.rows.filter((row) => row.status === "DISABLED").length }
       ];
     }
+  },
+  watch: {
+    keyword() { this.activePage = 1; },
+    statusFilter() { this.activePage = 1; },
+    sceneFilter() { this.activePage = 1; }
   },
   mounted() {
     this.loadAlgorithms();
@@ -75,6 +89,7 @@ export default defineComponent({
       this.keyword = "";
       this.statusFilter = "";
       this.sceneFilter = "";
+      this.activePage = 1;
     },
     async loadAlgorithms() {
       if (this.loading) return;
@@ -102,6 +117,7 @@ export default defineComponent({
       try {
         await api.deleteAlgorithm(row.id);
         this.showToast(`算法「${row.name}」已删除`);
+        if (this.activePage > 1 && this.paginatedRows.length === 1) this.activePage--;
         await this.loadAlgorithms();
       } catch (error) {
         this.showToast(error instanceof Error ? error.message : "算法删除失败");
@@ -123,7 +139,7 @@ export default defineComponent({
         <colgroup><col style="width:110px;" /><col style="width:150px;" /><col style="width:165px;" /><col style="width:120px;" /><col style="width:80px;" /><col style="width:110px;" /><col style="width:80px;" /><col style="width:150px;" /><col style="width:170px;" /></colgroup>
         <thead><tr><th>算法ID</th><th class="left">算法名称</th><th class="left">算法编码</th><th>应用场景</th><th>当前版本</th><th>状态</th><th>创建人</th><th>更新时间</th><th>操作</th></tr></thead>
         <tbody>
-          <tr v-for="row in filteredRows" :key="row.id">
+          <tr v-for="row in paginatedRows" :key="row.id">
             <td class="ellipsis" :title="row.id">{{ row.id }}</td><td class="left">{{ row.name }}</td><td class="left">{{ row.code }}</td><td>{{ row.scene || "—" }}</td><td><button v-if="row.currentVersion" class="link-blue" @click="openVersionManager(row)">{{ row.currentVersion }}</button><span v-else>—</span></td>
             <td>
               <span class="status-pill" :class="statusClass(statusText(row))">{{ statusText(row) }}</span>
@@ -136,6 +152,7 @@ export default defineComponent({
           <tr v-if="loading"><td colspan="9" class="empty-cell">加载中...</td></tr>
         </tbody>
       </table>
+      <div class="event-config-pagination"><span style="color:#98a2b3;font-size:11px;margin-right:auto;">共 {{ filteredRows.length }} 条</span><button type="button" aria-label="上一页" :disabled="activePage === 1" @click="activePage--">‹</button><button v-for="page in pageCount" :key="page" type="button" :class="{ active: activePage === page }" @click="activePage = page">{{ page }}</button><button type="button" aria-label="下一页" :disabled="activePage === pageCount" @click="activePage++">›</button><select class="select" v-model.number="pageSize" aria-label="每页条数" @change="activePage = 1"><option :value="20">20条/页</option><option :value="40">40条/页</option><option :value="60">60条/页</option></select></div>
     </div>
   </section>
 </template>

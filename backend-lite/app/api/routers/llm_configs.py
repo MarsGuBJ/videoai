@@ -6,9 +6,10 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException
 
 from app import state
-from app.schemas.llm_config import LlmConfigCreate, LlmConfigOut, LlmConfigUpdate, LlmTestResult
+from app.schemas.llm_config import LlmConfigCreate, LlmConfigOut, LlmConfigUpdate, LlmModelsQuery, LlmModelsResult, LlmTestResult
 from app.services.llm_configs import (
     delete_llm_config_from_db,
+    fetch_llm_models,
     llm_config_out,
     persist_llm_config,
     require_llm_config,
@@ -91,3 +92,12 @@ def test_llm_config(config_id: str) -> LlmTestResult:
     """对指定配置发起连接检测（GET {baseUrl}/models）。"""
     record = require_llm_config(config_id)
     return LlmTestResult(**test_llm_connection(record))
+
+
+@router.post("/api/llm-configs/models", response_model=LlmModelsResult)
+def list_available_models(request: LlmModelsQuery) -> LlmModelsResult:
+    """按接口地址 + API Key 查询可用模型列表；apiKey 为空且传 configId 时复用已存密钥。"""
+    api_key = request.apiKey
+    if not api_key and request.configId:
+        api_key = str(require_llm_config(request.configId).get("api_key") or "")
+    return LlmModelsResult(**fetch_llm_models(request.baseUrl, api_key))

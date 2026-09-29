@@ -143,3 +143,36 @@ def test_llm_config_test_endpoint_unknown_id_returns_404(client: TestClient):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "LLM config not found"
+
+
+def test_llm_models_endpoint_returns_model_list(client: TestClient, monkeypatch):
+    fixed = {"ok": True, "models": ["qwen-vl-max", "qwen3-vl-plus"], "error": None}
+    monkeypatch.setattr(llm_configs_router, "fetch_llm_models", lambda base_url, api_key: fixed)
+
+    response = client.post("/api/llm-configs/models", json={"baseUrl": "https://example.com/v1", "apiKey": "sk-x"})
+
+    assert response.status_code == 200
+    assert response.json() == fixed
+
+
+def test_llm_models_endpoint_empty_key_reuses_stored_config_key(client: TestClient, monkeypatch):
+    created = _create_config(client, monkeypatch)
+    captured: dict[str, str] = {}
+
+    def fake_fetch(base_url: str, api_key: str) -> dict:
+        captured["api_key"] = api_key
+        return {"ok": True, "models": ["qwen-vl-max"], "error": None}
+
+    monkeypatch.setattr(llm_configs_router, "fetch_llm_models", fake_fetch)
+
+    response = client.post("/api/llm-configs/models", json={"baseUrl": "https://example.com/v1", "configId": created["id"]})
+
+    assert response.status_code == 200
+    assert captured["api_key"] == "sk-secret-key"
+
+
+def test_llm_models_endpoint_unknown_config_id_returns_404(client: TestClient):
+    response = client.post("/api/llm-configs/models", json={"baseUrl": "https://example.com/v1", "configId": str(uuid4())})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "LLM config not found"

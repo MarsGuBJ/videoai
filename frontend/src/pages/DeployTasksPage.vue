@@ -8,11 +8,12 @@
         <colgroup><col style="width:145px;" /><col style="width:120px;" /><col style="width:110px;" /><col style="width:64px;" /><col style="width:60px;" /><col style="width:112px;" /><col style="width:140px;" /></colgroup>
         <thead><tr><th class="left">任务名称</th><th>算法名称</th><th>布控区域</th><th>状态</th><th>告警数</th><th>创建时间</th><th>操作</th></tr></thead>
         <tbody>
-          <tr v-for="row in filteredRows" :key="row.id"><td class="left">{{ row.name }}</td><td>{{ row.algorithm }}</td><td>{{ row.area }}</td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td>{{ row.alerts }}</td><td>{{ row.created }}</td><td><button class="link-blue" @click="openDeployDetail(row)">详情</button><button class="link-blue" @click="openModal('deployTask', row.raw)">编辑</button><button class="link-blue" @click="toggleTask(row)">{{ row.status === "运行中" ? "停止" : "启动" }}</button><button class="link-red" @click="removeTask(row)">删除</button></td></tr>
+          <tr v-for="row in paginatedRows" :key="row.id"><td class="left">{{ row.name }}</td><td>{{ row.algorithm }}</td><td>{{ row.area }}</td><td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td><td>{{ row.alerts }}</td><td>{{ row.created }}</td><td><button class="link-blue" @click="openDeployDetail(row)">详情</button><button class="link-blue" @click="openModal('deployTask', row.raw)">编辑</button><button class="link-blue" @click="toggleTask(row)">{{ row.status === "运行中" ? "停止" : "启动" }}</button><button class="link-red" @click="removeTask(row)">删除</button></td></tr>
           <tr v-if="!loading && !filteredRows.length"><td colspan="7" class="empty-cell">暂无布控任务</td></tr>
           <tr v-if="loading"><td colspan="7" class="empty-cell">加载中...</td></tr>
         </tbody>
       </table>
+      <div class="event-config-pagination"><span style="color:#98a2b3;font-size:11px;margin-right:auto;">共 {{ filteredRows.length }} 条</span><button type="button" aria-label="上一页" :disabled="activePage === 1" @click="activePage--">‹</button><button v-for="page in pageCount" :key="page" type="button" :class="{ active: activePage === page }" @click="activePage = page">{{ page }}</button><button type="button" aria-label="下一页" :disabled="activePage === pageCount" @click="activePage++">›</button><select class="select" v-model.number="pageSize" aria-label="每页条数" @change="activePage = 1"><option :value="20">20条/页</option><option :value="40">40条/页</option><option :value="60">60条/页</option></select></div>
     </div>
   </section>
 </template>
@@ -76,6 +77,8 @@ export default defineComponent({
       statusFilter: "",
       algorithmFilter: "",
       areaFilter: "",
+      activePage: 1,
+      pageSize: 20,
       todayAlerts: 0
     };
   },
@@ -98,6 +101,13 @@ export default defineComponent({
         return true;
       });
     },
+    pageCount(): number {
+      return Math.max(1, Math.ceil(this.filteredRows.length / this.pageSize));
+    },
+    paginatedRows() {
+      const start = (this.activePage - 1) * this.pageSize;
+      return this.filteredRows.slice(start, start + this.pageSize);
+    },
     cards() {
       return [
         { label: "任务总数", value: this.rows.length },
@@ -105,6 +115,12 @@ export default defineComponent({
         { label: "今日告警", value: this.todayAlerts }
       ];
     }
+  },
+  watch: {
+    keyword() { this.activePage = 1; },
+    statusFilter() { this.activePage = 1; },
+    algorithmFilter() { this.activePage = 1; },
+    areaFilter() { this.activePage = 1; }
   },
   mounted() {
     this.loadTasks();
@@ -126,6 +142,7 @@ export default defineComponent({
       this.statusFilter = "";
       this.algorithmFilter = "";
       this.areaFilter = "";
+      this.activePage = 1;
     },
     async loadTasks() {
       if (this.loading) return;
@@ -186,6 +203,7 @@ export default defineComponent({
       try {
         await api.deleteDeploymentTask(row.id);
         this.showToast(`布控任务「${row.name}」已删除`);
+        if (this.activePage > 1 && this.paginatedRows.length === 1) this.activePage--;
         await this.loadTasks();
       } catch (e) {
         this.showToast(e instanceof Error ? e.message : "布控任务删除失败");

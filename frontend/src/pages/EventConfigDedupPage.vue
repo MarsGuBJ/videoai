@@ -14,7 +14,7 @@
           <label class="event-config-field"><span><span class="required">*</span>名称</span><input v-model="form.name" class="input" /></label>
           <label class="event-config-field"><span><span class="required">*</span>关联算法</span><select v-model="form.algorithm" class="select"><option value="">请选择关联算法</option><option v-for="name in algorithmOptions" :key="name" :value="name">{{ name }}</option></select></label>
           <label class="event-config-field"><span><span class="required">*</span>摄像头</span><span class="event-config-input-group"><input v-model="form.camera" class="input" :placeholder="camerasFailed ? '输入摄像头名称' : '搜索摄像头'" /><button v-if="camerasFailed" class="event-config-input-button" type="button" @click="addManualCamera">添加</button></span></label>
-          <div class="event-config-field"><span>摄像头范围</span><div class="event-config-radio-row event-config-camera-choices"><label><input type="checkbox" v-model="form.allCameras" @change="onAllCamerasChange" /> 全选</label><label v-for="name in cameraChoices" :key="name"><input type="checkbox" :value="name" v-model="form.cameras" @change="onCameraSelectionChange" /><span class="event-config-camera-name">{{ name }}</span></label><span v-if="!camerasFailed && !camerasLoading && !cameraChoices.length" style="color:#98a2b3;font-size:12px;">无匹配摄像头</span><span v-if="camerasLoading" style="color:#98a2b3;font-size:12px;">摄像头加载中...</span></div></div>
+          <div class="event-config-field"><span>摄像头范围</span><div class="event-config-radio-row event-config-camera-choices"><label><input type="checkbox" v-model="form.allCameras" @change="onAllCamerasChange" /> 全选</label><label v-for="name in cameraChoices" :key="name"><input type="checkbox" :value="name" v-model="form.cameras" @change="onCameraSelectionChange" /><span class="event-config-camera-name">{{ name }}</span></label><span v-if="!camerasFailed && !form.algorithm" style="color:#98a2b3;font-size:12px;">请先选择关联算法</span><span v-else-if="!camerasFailed && !camerasLoading && !cameraChoices.length" style="color:#98a2b3;font-size:12px;">无匹配摄像头</span><span v-if="camerasLoading" style="color:#98a2b3;font-size:12px;">摄像头加载中...</span></div></div>
         </div>
       </div>
       <div class="event-config-page-board" style="min-height:0;margin-bottom:14px;">
@@ -54,7 +54,8 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { api } from "../api";
-import type { DedupRule, DedupRulePayload } from "../types";
+import type { Algorithm, Camera, DedupRule, DedupRulePayload, DeploymentTask } from "../types";
+import { algorithmOfTask } from "../utils/algorithm-binding";
 
 export default defineComponent({
   name: "EventConfigDedupPage",
@@ -74,10 +75,12 @@ export default defineComponent({
       saving: false,
       editingId: null as string | null,
       selectedRule: null as DedupRule | null,
-      cameraOptions: [] as string[],
+      cameraList: [] as Camera[],
       camerasLoading: false,
       camerasFailed: false,
       algorithmOptions: [] as string[],
+      algorithmList: [] as Algorithm[],
+      deployTasks: [] as DeploymentTask[],
       form: { name: "去重", algorithm: "", camera: "", allCameras: true, cameras: [] as string[], tab: "时间维度去重", duration: "", similarity: "", remark: "" },
       logFilters: { eventType: "", ruleName: "", device: "", ruleType: "", status: "", range: "" }
     };
@@ -89,23 +92,43 @@ export default defineComponent({
     cameraChoices(): string[] {
       // 接口失败时降级为手输：勾选列表直接回显已手输的摄像头名
       if (this.camerasFailed) return this.form.cameras;
+      // 摄像头范围来自「使用所选关联算法的布控任务」中配置的摄像头
+      if (!this.form.algorithm) return [];
+      const ids = new Set<string>();
+      for (const task of this.deployTasks) {
+        const algorithm = algorithmOfTask(task, this.algorithmList);
+        if ((algorithm?.name || "") === this.form.algorithm) {
+          (task.cameraIds || []).forEach(id => ids.add(id));
+        }
+      }
+      const names = Array.from(ids).map(id => this.cameraNameOf(id)).filter(Boolean);
       const value = this.form.camera.trim().toLowerCase();
-      return value ? this.cameraOptions.filter(name => name.toLowerCase().includes(value)) : this.cameraOptions;
+      return value ? names.filter(name => name.toLowerCase().includes(value)) : names;
     }
   },
   mounted() {
     this.loadRules();
     this.loadCameras();
     this.loadAlgorithms();
+    this.loadDeployTasks();
   },
   methods: {
     // 关联算法下拉与算法管理页同源（/api/algorithms，即算法管理上传的算法清单）
     async loadAlgorithms() {
       try {
         const algorithms = await api.algorithms();
-        this.algorithmOptions = (algorithms || []).map(item => item.name).filter(Boolean);
+        this.algorithmList = algorithms || [];
+        this.algorithmOptions = this.algorithmList.map(item => item.name).filter(Boolean);
       } catch (error) {
         this.showToast(error instanceof Error ? error.message : "算法清单加载失败");
+      }
+    },
+    // 布控任务清单：摄像头范围按任务里配置的 cameraIds 反查
+    async loadDeployTasks() {
+      try {
+        this.deployTasks = await api.deploymentTasks();
+      } catch (error) {
+        console.error("load deployment tasks failed", error);
       }
     },
     async loadRules() {
@@ -122,14 +145,16 @@ export default defineComponent({
     async loadCameras() {
       this.camerasLoading = true;
       try {
-        const cameras = await api.cameras();
-        this.cameraOptions = (cameras || []).map(camera => camera.name).filter(Boolean);
+        this.cameraList = (await api.cameras()) || [];
         this.camerasFailed = false;
       } catch (error) {
         this.camerasFailed = true;
       } finally {
         this.camerasLoading = false;
       }
+    },
+    cameraNameOf(id: string): string {
+      return this.cameraList.find(camera => camera.id === id)?.name || "";
     },
     cardParams(rule: DedupRule): string {
       const similarity = this.similarityText(rule);

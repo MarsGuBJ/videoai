@@ -1,4 +1,4 @@
-import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceLibraryPage, FaceProfile, LlmConfig, LlmConfigPayload, LlmTestResult, ModelGpuConfig, ModelInfo, NvrImportItem, NvrImportPrecheck, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, SpatialConfig, SpatialRegionSyncResult, WindowsCameraStatus, WorkerNode } from '../types';
+import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceLibraryPage, FaceProfile, LlmConfig, LlmConfigPayload, LlmModelsResult, LlmTestResult, ModelGpuConfig, ModelInfo, NvrImportItem, NvrImportPrecheck, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, SpatialConfig, SpatialRegionSyncResult, WindowsCameraStatus, WorkerNode } from '../types';
 
 export type {
   AccessCertificate,
@@ -654,6 +654,8 @@ export const api = {
     request<void>(`/api/llm-configs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   testLlmConfig: (id: string) =>
     request<LlmTestResult>(`/api/llm-configs/${encodeURIComponent(id)}/test`, { method: 'POST' }),
+  llmModels: (payload: { baseUrl: string; apiKey?: string; configId?: string }) =>
+    request<LlmModelsResult>('/api/llm-configs/models', { method: 'POST', body: JSON.stringify(payload) }),
 
   reviewTypes: () => request<ReviewType[]>('/api/review-types'),
   createReviewType: (payload: ReviewTypePayload) =>
