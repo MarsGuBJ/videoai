@@ -734,6 +734,16 @@
       box-shadow: 0 0 0 2px rgba(22, 119, 255, .1);
     }
 
+    /* 禁用态置灰：基类写死了 background:#fff，会盖掉浏览器原生的禁用灰底，
+       导致 disabled 输入框看起来仍像可编辑（如复核类型弹窗的「算法编码」） */
+    .input:disabled {
+      border-color: #dde3ea;
+      background: #f4f6f8;
+      color: #98a2b3;
+      cursor: not-allowed;
+      opacity: 1;
+    }
+
     .button-row {
       display: flex;
       align-items: center;
@@ -4355,6 +4365,24 @@
       align-items: center;
       gap: 8px;
       min-width: 0;
+    }
+
+    /* 识别频次：数值框后带「秒」单位 */
+    .deploy-rate-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .deploy-rate-field .input {
+      width: 200px;
+    }
+
+    .deploy-rate-unit {
+      color: #475467;
+      font-size: 12px;
+      white-space: nowrap;
     }
 
     .deploy-cycle-fields {

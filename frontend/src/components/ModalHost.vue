@@ -1186,6 +1186,11 @@ export default {
           this.showToast("请选择生效时间");
           return;
         }
+        // 事件编号是建任务的必填项（后端也会拦），这里先给出可读提示
+        if (!this.deployAlgorithmCode) {
+          this.showToast("请选择事件编号");
+          return;
+        }
         this.$emit("submit", "deployTask", {
           id: this.isDeployTaskEdit ? this.modal.item.id : null,
           name: this.deployTaskName.trim(),
@@ -1834,7 +1839,10 @@ export default {
           </div>
           <div class="modal-form-row">
             <label>识别频次：</label>
-            <input class="input" type="number" min="1" v-model.number="deployRecognitionPerMinute" placeholder="每分钟识别次数" />
+            <div class="deploy-rate-field">
+              <input class="input" type="number" min="1" v-model.number="deployRecognitionPerMinute" placeholder="每分钟识别次数" />
+              <span class="deploy-rate-unit">秒</span>
+            </div>
           </div>
           <div class="modal-form-row">
             <label>任务描述：</label>
