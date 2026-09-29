@@ -2328,6 +2328,7 @@ export default defineComponent({
           engineType: algorithm ? algorithm.engineType : null,
           cameraIds: [...tab.deployCameraSelections],
           faceProfileId: targetPreview ? null : (face ? face.id : null),
+          faceProfileName: targetPreview ? null : (face ? face.name : null),
           faceProfilePhotoUrl: photoUrl || null,
           recognitionPerMinute: Math.max(1, Math.floor(Number(tab.deployRecognitionPerMinute) || 10)),
           similarity: Math.min(100, Math.max(0, Math.floor(Number(tab.deploySimilarity) || 0))),

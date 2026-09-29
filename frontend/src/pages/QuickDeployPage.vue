@@ -55,6 +55,29 @@
             </div>
           </div>
         </div>
+        <div class="deploy-field">
+          <label><span class="required">*</span>生效时间</label>
+          <div class="effective-range">
+            <input class="input" type="date" v-model="form.effectiveStart" aria-label="生效开始日期" />
+            <span class="range-arrow">→</span>
+            <input class="input" type="date" v-model="form.effectiveEnd" aria-label="生效结束日期" />
+          </div>
+        </div>
+        <div class="deploy-field">
+          <label><span class="required">*</span>循环周期</label>
+          <div class="effective-range">
+            <input class="input" type="time" v-model="form.cycleStart" aria-label="循环开始时间" />
+            <span class="range-arrow">→</span>
+            <input class="input" type="time" v-model="form.cycleEnd" aria-label="循环结束时间" />
+          </div>
+        </div>
+        <div class="deploy-field">
+          <label><span class="required">*</span>相似度</label>
+          <div class="deploy-similarity-field">
+            <input type="range" min="0" max="100" step="1" v-model.number="form.similarity" aria-label="相似度" />
+            <output>{{ form.similarity }}%</output>
+          </div>
+        </div>
         <div class="deploy-field"><label>识别频次</label><input class="input" type="number" min="1" v-model.number="form.recognitionPerMinute" placeholder="每分钟识别次数" /></div>
         <div class="deploy-field">
           <label>创建后启用</label>
@@ -71,7 +94,7 @@
 
 <script lang="ts">
 import { defineComponent } from "vue";
-import { api } from "../api";
+import { api, assetUrl } from "../api";
 import type { Algorithm, Camera, DeploymentTaskCreate, EventInfo } from "../types";
 import { deviceStatusLabel } from "../utils/device-status";
 import { resolveEventAlgorithm } from "../utils/algorithm-binding";
@@ -107,6 +130,11 @@ export default defineComponent({
         algorithmCode: "",
         cameraIds: [] as string[],
         recognitionPerMinute: 60,
+        similarity: 50,
+        effectiveStart: "",
+        effectiveEnd: "",
+        cycleStart: "00:00",
+        cycleEnd: "23:59",
         enabled: true
       }
     };
@@ -229,21 +257,38 @@ export default defineComponent({
       if (input) input.value = "";
     },
     cancel() { this.setRoute("home"); },
+    // 布控目标图统一落成平台资产：已是 /api/assets/ 的直接复用，其余（文搜分析帧、backend 绝对地址、
+    // 外部地址）先抓取再转存。否则任务里的目标图会指向临时地址，在布控任务页打不开
+    async persistTargetImage(url: string): Promise<string> {
+      const normalized = assetUrl(url);
+      if (!normalized || normalized.startsWith("/api/assets/")) return normalized;
+      try {
+        const response = await fetch(normalized, { credentials: "same-origin" });
+        if (!response.ok) return normalized;
+        const blob = await response.blob();
+        if (!blob.type.startsWith("image/")) return normalized;
+        const file = new File([blob], "quick-deploy-target.jpg", { type: blob.type });
+        const uploaded = await api.uploadPersonSearchImage(file);
+        return assetUrl(uploaded.imageUrl);
+      } catch {
+        return normalized;
+      }
+    },
     async submit() {
       const name = this.form.name.trim();
       if (!name) { this.notify("请输入任务名称"); return; }
       if (!this.form.algorithmCode) { this.notify("请选择事件编号"); return; }
       if (!this.form.cameraIds.length) { this.notify("请选择布控区域（至少一台摄像机）"); return; }
       if (!this.targetPreview) { this.notify("请上传布控目标图像"); return; }
+      if (!this.form.effectiveStart || !this.form.effectiveEnd) { this.notify("请选择生效时间"); return; }
+      if (!this.form.cycleStart || !this.form.cycleEnd) { this.notify("请选择循环周期"); return; }
       if (this.saving) return;
       this.saving = true;
       try {
-        // 布控图像：本地上传的走 /api/person-search/images 换成可访问 URL，带入的 prefill 图直接复用
-        let photoUrl = this.targetPhotoUrl;
-        if (this.targetFile) {
-          const uploaded = await api.uploadPersonSearchImage(this.targetFile);
-          photoUrl = uploaded.imageUrl;
-        }
+        // 布控图像：本地上传的走 /api/person-search/images 换成可访问 URL，带入的 prefill 图同样转存
+        const photoUrl = this.targetFile
+          ? assetUrl((await api.uploadPersonSearchImage(this.targetFile)).imageUrl)
+          : await this.persistTargetImage(this.targetPhotoUrl);
         const algorithm = this.eventBoundAlgorithm;
         const body: DeploymentTaskCreate = {
           name,
@@ -256,6 +301,11 @@ export default defineComponent({
           faceProfileId: null,
           faceProfilePhotoUrl: photoUrl || null,
           recognitionPerMinute: Math.max(1, Math.floor(Number(this.form.recognitionPerMinute) || 60)),
+          similarity: Math.min(100, Math.max(0, Math.floor(Number(this.form.similarity) || 0))),
+          effectiveStart: this.form.effectiveStart || null,
+          effectiveEnd: this.form.effectiveEnd || null,
+          cycleStart: this.form.cycleStart || null,
+          cycleEnd: this.form.cycleEnd || null,
           desc: this.form.desc.trim(),
           area: this.selectedAreas.join("、"),
           areaCount: this.form.cameraIds.length,
