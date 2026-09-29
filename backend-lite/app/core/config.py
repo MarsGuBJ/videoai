@@ -66,8 +66,12 @@ class Settings(BaseSettings):
     retrieve_api_base_url: str = "http://10.10.3.100:15000"
     # 图搜图结果图片的 ES 文档查询接口（/api/v1/queries/es-documents/by-ids），现场按实际部署覆盖
     es_document_api_base_url: str = "http://10.10.3.100:15010"
-    # 人脸照片模块（/face/es/label/facePage 分页查询人脸照片），现场按实际部署覆盖
-    face_photo_api_base_url: str = "http://113.249.91.53:8421"
+    # 人脸照片模块（/face/es/label/facePage 分页查询人脸照片），现场按实际部署覆盖；
+    # 现网服务带 /baseInfraServer 前缀，缺前缀会 404
+    face_photo_api_base_url: str = "http://113.249.91.53:8421/baseInfraServer"
+    # 人脸照片的图片基址：接口只返回 /minio/... 相对路径，按此补全为绝对地址（现场 8456 直接返回真实图片）。
+    # 现场以服务器 .env 的 FACE_PHOTO_IMAGE_BASE_URL 为准（.env 不随代码同步覆盖）
+    face_photo_image_base_url: str = "http://113.249.91.53:8456"
     video_analysis_api_base_url: str = "http://10.10.3.100:8780"
     mcp_server_base_url: str = "http://192.168.11.194:8097"
     # MinIO（文搜视频：本地视频上传后供分析服务拉取；默认值与 mcp-server 侧一致）

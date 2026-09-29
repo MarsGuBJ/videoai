@@ -53,6 +53,7 @@
 - `VIDEOAI_MCP_PUBLIC_BASE_URL`：录像动态链接（`/recording-live`）对外基址，必须是客户端可访问的 MCP 地址（10.10 现场为 `http://10.10.3.100:8097`）；compose 默认值的开发网段地址在现场不可达，会导致回放页/文搜返回的播放链接打不开
 - `HIKVISION_NVR_BASE_URL=http://192.168.11.251`
 - `PERSON_API_BASE_URL=http://192.168.11.192:15501`（**192 研发环境**图搜图/步态识别上游；2026-09 接口重构后由 `:18890` 迁到 `:15501`，统一前缀 `/vlm-application`，图搜人提交走详版 `searchPersonFull`。枢纽港现场为 `http://10.10.3.100:15501`，团结湖现场为 `http://172.17.136.189:15501` 且**仅支持 reid**）
+- `FACE_PHOTO_API_BASE_URL` / `FACE_PHOTO_IMAGE_BASE_URL`（布控任务弹窗「从人脸库选取」，2026-09-29 实测写入服务器 `.env`）：接口 `http://113.249.91.53:8421/baseInfraServer`（`POST /face/es/label/facePage`，**缺 `/baseInfraServer` 前缀会 404**；成功码现网是 `"00000"` 而非 `"0"`）；图片基址 `http://113.249.91.53:8456`（接口只返回 `/minio/...` 相对路径，后端按此补全为绝对地址，实测直接返回真实 PNG/JPEG）。**这两个值放服务器 `.env` 而不是只靠代码默认值**——`.env` 不随代码同步覆盖，更新代码后依然生效。排查提示：同一 IP 的 `9000` 是 MinIO Console（对未知路径返回 HTML 却标 `image/png`，浏览器按 ORB 拦截）、`9001` 是 S3 API（匿名 GET 返回 `AllAccessDisabled` 403），两者都不能作为图片基址
 - `MEDIA_PUBLIC_URL=http://192.168.11.194:8083`（MCP `list_cameras` 返回的按需拉流代理链接对外基址；compose 默认值是别的项目占用的 8082，必须覆盖）
 - `RETRIEVE_API_BASE_URL=http://192.168.11.194:15011`、`ES_DOCUMENT_API_BASE_URL=http://192.168.11.194:15010`（文搜图检索与 ES 文档接口；**2026-09-28 未随图搜图一起调整，待拿到新接口说明后再改**）
 - `VIDEOAI_MCP_RECORDING_FALLBACK_FILE=/data/demo-recording-601.ps`

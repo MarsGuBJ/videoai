@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 from app.services import face_library
 
-FACE_PHOTO_BASE = "http://113.249.91.53:8421"
+FACE_PHOTO_BASE = "http://113.249.91.53:8421/baseInfraServer"
+FACE_PHOTO_IMAGE_BASE = "http://113.249.91.53:9000"
 
 PAGE_DATA = {
     "total": 1,
@@ -41,7 +42,10 @@ class FakeResponse:
 
 
 def _stub_settings():
-    return SimpleNamespace(face_photo_api_base_url=FACE_PHOTO_BASE)
+    return SimpleNamespace(
+        face_photo_api_base_url=FACE_PHOTO_BASE,
+        face_photo_image_base_url=FACE_PHOTO_IMAGE_BASE,
+    )
 
 
 def test_face_page_success(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -83,6 +87,70 @@ def test_face_page_without_keyword_sends_empty_query(client: TestClient, monkeyp
     assert captured["json"] == {"current": 1, "size": 12, "query": {}}
 
 
+def test_face_page_accepts_zero_padded_success_code(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """现网成功码是 "00000"（不是 "0"），必须按数值 0 判定成功。"""
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda url, json, timeout: FakeResponse({"code": "00000", "message": "操作成功", "data": PAGE_DATA}),
+    )
+    monkeypatch.setattr(face_library, "get_settings", _stub_settings)
+
+    response = client.post("/api/face-library/page", json={"current": 1, "size": 12})
+
+    assert response.status_code == 200
+    assert response.json()["records"][0]["name"] == "zhangsan.jpg"
+
+
+def test_is_success_code_variants():
+    """成功码兼容 0/00/00000，非数字与非零均视为失败。"""
+    assert face_library._is_success_code("0") is True
+    assert face_library._is_success_code("00") is True
+    assert face_library._is_success_code("00000") is True
+    assert face_library._is_success_code(0) is True
+    assert face_library._is_success_code("500") is False
+    assert face_library._is_success_code("ABC") is False
+    assert face_library._is_success_code(None) is False
+
+
+def test_face_page_absolutizes_relative_image_urls(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """现网返回的是 /minio/... 相对路径，必须补全为图片基址下的绝对地址（否则前端缩略图 404）。"""
+    relative = {
+        **PAGE_DATA,
+        "records": [
+            {"id": "1", "name": "rel.png", "url": "/minio/city/base/face/rel.png", "createTime": "x"},
+            {"id": "2", "name": "abs.png", "url": "http://cdn.example.com/abs.png", "createTime": "y"},
+        ],
+    }
+    monkeypatch.setattr(
+        requests, "post", lambda url, json, timeout: FakeResponse({"code": "00000", "data": relative})
+    )
+    monkeypatch.setattr(face_library, "get_settings", _stub_settings)
+
+    response = client.post("/api/face-library/page", json={"current": 1, "size": 12})
+
+    assert response.status_code == 200
+    records = response.json()["records"]
+    assert records[0]["url"] == f"{FACE_PHOTO_IMAGE_BASE}/minio/city/base/face/rel.png"
+    assert records[1]["url"] == "http://cdn.example.com/abs.png", "已是绝对地址的不得改写"
+
+
+def test_face_page_skips_url_rewrite_without_image_base(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """未配置图片基址时保持原样，不产生半截地址。"""
+    relative = {**PAGE_DATA, "records": [{"id": "1", "name": "rel.png", "url": "/minio/rel.png"}]}
+    monkeypatch.setattr(requests, "post", lambda url, json, timeout: FakeResponse({"code": "0", "data": relative}))
+    monkeypatch.setattr(
+        face_library,
+        "get_settings",
+        lambda: SimpleNamespace(face_photo_api_base_url=FACE_PHOTO_BASE, face_photo_image_base_url=""),
+    )
+
+    response = client.post("/api/face-library/page", json={"current": 1, "size": 12})
+
+    assert response.status_code == 200
+    assert response.json()["records"][0]["url"] == "/minio/rel.png"
+
+
 def test_face_page_business_error_returns_502(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     """外部业务码非 "0" 时返回 502 并携带外部 msg。"""
     monkeypatch.setattr(
@@ -112,7 +180,11 @@ def test_face_page_connection_error_returns_502(client: TestClient, monkeypatch:
 
 def test_face_page_not_configured_returns_500(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     """未配置服务地址时返回 500。"""
-    monkeypatch.setattr(face_library, "get_settings", lambda: SimpleNamespace(face_photo_api_base_url=""))
+    monkeypatch.setattr(
+        face_library,
+        "get_settings",
+        lambda: SimpleNamespace(face_photo_api_base_url="", face_photo_image_base_url=""),
+    )
 
     response = client.post("/api/face-library/page", json={"current": 1, "size": 12})
 

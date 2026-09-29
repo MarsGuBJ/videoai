@@ -74,6 +74,13 @@ services:
       ES_DOCUMENT_API_BASE_URL: ${ES_DOCUMENT_API_BASE_URL:-http://10.10.3.100:15010}
       # 文搜视频的分析服务地址（MinIO 视频智能分析 API），现场按实际部署覆盖
       VIDEO_ANALYSIS_API_BASE_URL: ${VIDEO_ANALYSIS_API_BASE_URL:-http://10.10.3.100:8780}
+      # 人脸照片模块（POST /face/es/label/facePage），布控任务弹窗「从人脸库选取」使用；
+      # 现网服务带 /baseInfraServer 前缀，缺前缀 404
+      FACE_PHOTO_API_BASE_URL: ${FACE_PHOTO_API_BASE_URL:-http://113.249.91.53:8421/baseInfraServer}
+      # 人脸照片图片基址：接口只返回 /minio/... 相对路径，按此补全为绝对地址。
+      # 现场图片服务在 8456；113.249.91.53 的 9000 是 MinIO Console（返回 HTML 却标 image/png，
+      # 浏览器按 ORB 拦截）、9001 是 S3 API（匿名 GET 403），都不要用。现场以 .env 覆盖为准
+      FACE_PHOTO_IMAGE_BASE_URL: ${FACE_PHOTO_IMAGE_BASE_URL:-http://113.249.91.53:8456}
       VIDEOAI_BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8081}
       VIDEOAI_MEDIA_BACKEND_URL: http://backend-media:8081
       # backend-lite 调 mcp-server 的地址：默认走 compose 内网服务名，避免写死现场 IP
