@@ -70,6 +70,11 @@
       --sidebar-width: 56px;
     }
 
+    /* URL 含 lm=no 时隐藏左侧菜单树：侧栏列宽归零，右侧内容占满整行 */
+    .app.sidebar-hidden {
+      --sidebar-width: 0;
+    }
+
     .sidebar {
       position: relative;
       z-index: 3;

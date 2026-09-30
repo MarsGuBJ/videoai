@@ -74,6 +74,12 @@ export default defineComponent({
       sxinMessageHandler: null as any
     };
   },
+  computed: {
+    // URL 含 lm=no 参数时隐藏左侧菜单树（仅首次加载时判定，路由跳转不受影响）
+    sidebarHidden(): boolean {
+      return /[?&]lm=no(?:&|$|#)/.test(window.location.href);
+    }
+  },
   watch: {
     "$route.name": {
       immediate: true,
@@ -517,8 +523,8 @@ export default defineComponent({
 </script>
 
 <template>
-  <div class="app" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
-    <app-sidebar :groups="store.navGroups" :route="state.route" :collapsed="sidebarCollapsed" @navigate="handleNav" @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"></app-sidebar>
+  <div class="app" :class="{ 'sidebar-collapsed': sidebarCollapsed, 'sidebar-hidden': sidebarHidden }">
+    <app-sidebar v-if="!sidebarHidden" :groups="store.navGroups" :route="state.route" :collapsed="sidebarCollapsed" @navigate="handleNav" @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"></app-sidebar>
     <section class="shell">
       <app-topbar :route="state.route" :names="store.routeNames"></app-topbar>
       <main class="workspace" id="workspace">
