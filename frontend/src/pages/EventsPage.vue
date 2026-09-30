@@ -77,6 +77,7 @@ function mapEventToRow(event: DeploymentEvent) {
     image: assetUrl(event.snapshotUrl || event.faceProfilePhotoUrl),
     status: reviewStatus || "待复核",
     reviewStatus: event.reviewStatus,
+    similarity: event.similarity,
     handledAt: event.handledAt,
     handleNote: event.handleNote,
     // 以下字段保持 EventDetailPage 归一化兼容
