@@ -75,6 +75,12 @@
       --sidebar-width: 0;
     }
 
+    /* 侧栏 v-if 移除后 .shell 会成为第一个 grid 子项，自动放置会落到 0 宽的第一列，
+       需显式让它横跨整行，右侧内容才真正占满 */
+    .app.sidebar-hidden .shell {
+      grid-column: 1 / -1;
+    }
+
     .sidebar {
       position: relative;
       z-index: 3;
