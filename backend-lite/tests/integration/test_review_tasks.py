@@ -12,7 +12,7 @@ FAKE_IMAGE_BYTES = b"\xff\xd8\xff\xe0fake-jpeg-bytes"
 FAKE_IMAGE_URL = "/api/assets/review-images/fake.jpg"
 
 REVIEW_TYPE_ID = str(uuid4())
-LLM_CONFIG_ID = str(uuid4())
+REVIEW_ENDPOINT = "http://second-review.local"
 
 REVIEW_TYPE_RECORD = {
     "id": REVIEW_TYPE_ID,
@@ -21,24 +21,12 @@ REVIEW_TYPE_RECORD = {
     "prompt": "请判断画面中是否有人跌倒",
     "inject_event": "",
     "remark": "",
-    "llm_config_id": LLM_CONFIG_ID,
-}
-LLM_CONFIG_RECORD = {
-    "id": LLM_CONFIG_ID,
-    "name": "本地 Qwen-VL",
-    "base_url": "http://localhost:9999/v1",
-    "api_key": "",
-    "deploy_type": "local",
-    "timeout": 30,
-    "temperature": 0.0,
-    "max_tokens": 1024,
-    "fps": 1,
+    "review_endpoint": REVIEW_ENDPOINT,
 }
 
 
 def _seed_stores() -> None:
     state.review_types_store[REVIEW_TYPE_ID] = dict(REVIEW_TYPE_RECORD)
-    state.llm_configs_store[LLM_CONFIG_ID] = dict(LLM_CONFIG_RECORD)
 
 
 def _create_review_task(client: TestClient, monkeypatch, **overrides) -> dict:
@@ -46,8 +34,12 @@ def _create_review_task(client: TestClient, monkeypatch, **overrides) -> dict:
     _seed_stores()
     monkeypatch.setattr(review_tasks_router, "persist_review_task", lambda record: None)
     monkeypatch.setattr(review_tasks_router, "save_review_image", _fake_save_review_image)
-    monkeypatch.setattr(review_tasks_router, "run_review_task_judgment", lambda task_id, image_bytes, extra_frames=None: None)
-    data = {"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID, **overrides}
+    monkeypatch.setattr(
+        review_tasks_router,
+        "run_review_task_judgment",
+        lambda task_id, image_bytes, video_bytes=None: None,
+    )
+    data = {"reviewTypeId": REVIEW_TYPE_ID, **overrides}
     response = client.post(
         "/api/review-tasks",
         data=data,
@@ -73,11 +65,10 @@ def test_create_then_list_contains_created_record(client: TestClient, monkeypatc
 
     assert created["id"]
     assert created["reviewTypeId"] == REVIEW_TYPE_ID
-    # 快照字段取自创建时的复核类型 / 大模型配置
+    # 快照字段取自创建时的复核类型
     assert created["reviewTypeName"] == "人员跌倒"
     assert created["reviewTypeCode"] == "person_fall"
-    assert created["llmConfigId"] == LLM_CONFIG_ID
-    assert created["llmConfigName"] == "本地 Qwen-VL"
+    assert created["reviewEndpoint"] == REVIEW_ENDPOINT
     assert created["imageUrl"] == FAKE_IMAGE_URL
     # 判定在后台线程执行，创建响应时仍为进行中
     assert created["status"] == "进行中"
@@ -95,7 +86,7 @@ def test_create_review_task_unknown_review_type_returns_404(client: TestClient, 
     _seed_stores()
     response = client.post(
         "/api/review-tasks",
-        data={"reviewTypeId": str(uuid4()), "llmConfigId": LLM_CONFIG_ID},
+        data={"reviewTypeId": str(uuid4())},
         files={"image": ("test.jpg", FAKE_IMAGE_BYTES, "image/jpeg")},
     )
 
@@ -103,22 +94,23 @@ def test_create_review_task_unknown_review_type_returns_404(client: TestClient, 
     assert response.json()["detail"] == "Review type not found"
 
 
-def test_create_review_task_unknown_llm_config_returns_404(client: TestClient, monkeypatch):
+def test_create_review_task_without_review_endpoint_returns_400(client: TestClient, monkeypatch):
     _seed_stores()
+    state.review_types_store[REVIEW_TYPE_ID]["review_endpoint"] = None
     response = client.post(
         "/api/review-tasks",
-        data={"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": str(uuid4())},
+        data={"reviewTypeId": REVIEW_TYPE_ID},
         files={"image": ("test.jpg", FAKE_IMAGE_BYTES, "image/jpeg")},
     )
 
-    assert response.status_code == 404
-    assert response.json()["detail"] == "LLM config not found"
+    assert response.status_code == 400
+    assert response.json()["detail"] == "复核类型未配置复核接口"
 
 
 def test_judgment_success_marks_task_completed(client: TestClient, monkeypatch):
     created = _create_review_task(client, monkeypatch)
     monkeypatch.setattr(
-        review_tasks_service.llm_client,
+        review_tasks_service.second_review_client,
         "judge_event",
         lambda **kwargs: ("有效", "检测到目标"),
     )
@@ -139,7 +131,7 @@ def test_judgment_failure_marks_task_failed(client: TestClient, monkeypatch):
     def _raise(**kwargs):
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr(review_tasks_service.llm_client, "judge_event", _raise)
+    monkeypatch.setattr(review_tasks_service.second_review_client, "judge_event", _raise)
     monkeypatch.setattr(review_tasks_service, "persist_review_task", lambda record: None)
 
     review_tasks_service.run_review_task_judgment(created["id"], FAKE_IMAGE_BYTES)
@@ -180,7 +172,7 @@ FAKE_FRAMES = [b"\xff\xd8\xff\xe0frame-1", b"\xff\xd8\xff\xe0frame-2", b"\xff\xd
 
 
 def test_create_review_task_with_video_judges_frames(client: TestClient, monkeypatch):
-    """视频上传：抽帧后首帧存为缩略图，后台判定收到首帧 + 其余抽帧。"""
+    """视频上传：抽帧后首帧存为缩略图，后台判定收到首帧 + 原始视频字节。"""
     _seed_stores()
     monkeypatch.setattr(review_tasks_router, "persist_review_task", lambda record: None)
     monkeypatch.setattr(review_tasks_router, "extract_video_frames", lambda video_bytes, filename="": FAKE_FRAMES)
@@ -189,8 +181,8 @@ def test_create_review_task_with_video_judges_frames(client: TestClient, monkeyp
     monkeypatch.setattr(
         review_tasks_router,
         "run_review_task_judgment",
-        lambda task_id, image_bytes, extra_frames=None: captured.update(
-            {"task_id": task_id, "image_bytes": image_bytes, "extra_frames": extra_frames}
+        lambda task_id, image_bytes, video_bytes=None: captured.update(
+            {"task_id": task_id, "image_bytes": image_bytes, "video_bytes": video_bytes}
         ),
     )
 
@@ -208,7 +200,7 @@ def test_create_review_task_with_video_judges_frames(client: TestClient, monkeyp
 
     response = client.post(
         "/api/review-tasks",
-        data={"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID},
+        data={"reviewTypeId": REVIEW_TYPE_ID},
         files={"video": ("clip.mp4", FAKE_VIDEO_BYTES, "video/mp4")},
     )
 
@@ -218,14 +210,14 @@ def test_create_review_task_with_video_judges_frames(client: TestClient, monkeyp
     assert created["status"] == "进行中"
     assert captured["task_id"] == created["id"]
     assert captured["image_bytes"] == FAKE_FRAMES[0]
-    assert captured["extra_frames"] == FAKE_FRAMES[1:]
+    assert captured["video_bytes"] == FAKE_VIDEO_BYTES
 
 
 def test_create_review_task_without_media_returns_400(client: TestClient, monkeypatch):
     _seed_stores()
     response = client.post(
         "/api/review-tasks",
-        data={"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID},
+        data={"reviewTypeId": REVIEW_TYPE_ID},
     )
 
     assert response.status_code == 400
@@ -236,7 +228,7 @@ def test_create_review_task_with_both_image_and_video_returns_400(client: TestCl
     _seed_stores()
     response = client.post(
         "/api/review-tasks",
-        data={"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID},
+        data={"reviewTypeId": REVIEW_TYPE_ID},
         files={
             "image": ("test.jpg", FAKE_IMAGE_BYTES, "image/jpeg"),
             "video": ("clip.mp4", FAKE_VIDEO_BYTES, "video/mp4"),
@@ -251,7 +243,7 @@ def test_create_review_task_invalid_video_type_returns_400(client: TestClient, m
     _seed_stores()
     response = client.post(
         "/api/review-tasks",
-        data={"reviewTypeId": REVIEW_TYPE_ID, "llmConfigId": LLM_CONFIG_ID},
+        data={"reviewTypeId": REVIEW_TYPE_ID},
         files={"video": ("clip.txt", b"not-a-video", "text/plain")},
     )
 

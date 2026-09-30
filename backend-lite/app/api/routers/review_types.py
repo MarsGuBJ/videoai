@@ -39,7 +39,7 @@ def create_review_type(request: ReviewTypeCreate) -> ReviewTypeOut:
         "prompt": request.prompt,
         "inject_event": request.injectEvent or "",
         "remark": request.remark or "",
-        "llm_config_id": request.llmConfigId or None,
+        "review_endpoint": request.reviewEndpoint,
         "created_at": now,
         "updated_at": now,
     }
@@ -66,8 +66,8 @@ def update_review_type(type_id: str, request: ReviewTypeUpdate) -> ReviewTypeOut
         record["inject_event"] = request.injectEvent
     if request.remark is not None:
         record["remark"] = request.remark
-    if request.llmConfigId is not None:  # 空字符串表示清除关联
-        record["llm_config_id"] = request.llmConfigId or None
+    if request.reviewEndpoint is not None:  # 空字符串表示清除复核接口
+        record["review_endpoint"] = request.reviewEndpoint or None
     record["updated_at"] = datetime.now(timezone.utc)
     persist_review_type(record)
     return review_type_out(record)

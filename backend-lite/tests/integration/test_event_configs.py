@@ -165,7 +165,12 @@ def test_delete_event_info_referenced_by_review_type_returns_409(client: TestCli
     monkeypatch.setattr(review_types_router, "persist_review_type", lambda record: None)
     response = client.post(
         "/api/review-types",
-        json={"name": "聚集复核", "code": created["code"], "prompt": "判断是否聚集"},
+        json={
+            "name": "聚集复核",
+            "code": created["code"],
+            "prompt": "判断是否聚集",
+            "reviewEndpoint": "http://second-review.local",
+        },
     )
     assert response.status_code == 200
 
@@ -199,7 +204,12 @@ def test_delete_event_info_allowed_after_review_type_removed(client: TestClient,
     monkeypatch.setattr(review_types_router, "delete_review_type_from_db", lambda type_id: None)
     review_type = client.post(
         "/api/review-types",
-        json={"name": "聚集复核", "code": created["code"], "prompt": "判断是否聚集"},
+        json={
+            "name": "聚集复核",
+            "code": created["code"],
+            "prompt": "判断是否聚集",
+            "reviewEndpoint": "http://second-review.local",
+        },
     ).json()
     assert client.delete(f"/api/event-infos/{created['id']}").status_code == 409
 

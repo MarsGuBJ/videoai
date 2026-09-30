@@ -12,8 +12,7 @@ class ReviewTaskOut(BaseModel):
     reviewTypeId: str
     reviewTypeName: str
     reviewTypeCode: str
-    llmConfigId: str
-    llmConfigName: str
+    reviewEndpoint: str
     imageUrl: str
     status: str
     verdict: str

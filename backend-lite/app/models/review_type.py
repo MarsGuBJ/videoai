@@ -24,6 +24,8 @@ class ReviewTypeORM(Base):
     remark: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     # 关联的大模型配置（llm_configs.id），可为空
     llm_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # 万物核二次复核服务地址（如 http://host:port），可为空
+    review_endpoint: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

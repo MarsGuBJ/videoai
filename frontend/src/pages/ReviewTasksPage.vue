@@ -10,13 +10,13 @@
       </div>
       <table class="prototype-table">
         <colgroup><col style="width:46px;" /><col style="width:90px;" /><col style="width:200px;" /><col style="width:170px;" /><col style="width:150px;" /><col style="width:110px;" /><col style="width:110px;" /><col style="width:80px;" /></colgroup>
-        <thead><tr><th><input type="checkbox" :checked="allChecked" @change="toggleCheckAll" /></th><th>任务ID</th><th class="left">事件类型</th><th class="left">大模型</th><th>创建时间</th><th>事件有效</th><th>任务状态</th><th>操作</th></tr></thead>
+        <thead><tr><th><input type="checkbox" :checked="allChecked" @change="toggleCheckAll" /></th><th>任务ID</th><th class="left">事件类型</th><th class="left">复核接口</th><th>创建时间</th><th>事件有效</th><th>任务状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="row in pagedRows" :key="row.id" class="review-task-row" @click="openModal('reviewTaskDetail', row)">
             <td @click.stop><input type="checkbox" :checked="checkedIds.includes(row.id)" @change="toggleCheck(row.id)" /></td>
             <td :title="row.id">{{ row.id.slice(0, 8) }}</td>
             <td class="left">{{ row.reviewTypeName }}（{{ row.reviewTypeCode }}）</td>
-            <td class="left">{{ row.llmConfigName }}</td>
+            <td class="left">{{ row.reviewEndpoint || "-" }}</td>
             <td>{{ formatTime(row.createdAt) }}</td>
             <td><span class="status-pill" :class="statusClass(row.verdict)">{{ row.verdict || "-" }}</span></td>
             <td><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></td>

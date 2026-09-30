@@ -98,7 +98,7 @@ type ReviewTypePayload = {
   prompt?: string;
   injectEvent?: string;
   remark?: string;
-  llmConfigId?: string | null;
+  reviewEndpoint?: string;
 };
 
 type ReviewSchedulePayload = {

@@ -1,7 +1,7 @@
 """定时复核任务的内存态、数据库持久化、cron 调度与批量执行。
 
 执行流程：按 batch_size 抽取未复核布控事件 → 逐条读快照、建复核任务、
-调大模型判定 → verdict 非空时回写事件 review_status → 汇总写入 last_result。
+调万物核二次复核接口判定 → verdict 非空时回写事件 review_status → 汇总写入 last_result。
 判定失败不回写 review_status（下次触发重试，计入失败数）。
 """
 
@@ -22,7 +22,7 @@ from app.db.session import SessionLocal, engine
 from app.models.deployment_event import DeploymentEventORM
 from app.models.review_schedule import ReviewScheduleORM
 from app.schemas.review_schedule import ReviewScheduleOut
-from app.services import llm_client
+from app.services import second_review_client
 from app.services.deployment_events import REVIEW_STATUS_VALID, update_deployment_event_review_status
 from app.services.review_tasks import persist_review_task
 from app.utils.assets import asset_path
@@ -217,7 +217,7 @@ def _query_pending_events(schedule: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: str) -> str:
-    """对单条事件执行复核：读快照 → 建复核任务 → 大模型判定 → 回写事件复核状态。
+    """对单条事件执行复核：读快照 → 建复核任务 → 二次复核判定 → 回写事件复核状态。
 
     Args:
         schedule: 内存态定时复核任务字典。
@@ -231,8 +231,7 @@ def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: 
     if image_bytes is None:
         return "skipped"
     review_type = state.review_types_store.get(str(schedule["review_type_id"]))
-    llm_config_id = str(review_type.get("llm_config_id") or "") if review_type else ""
-    llm_cfg = state.llm_configs_store.get(llm_config_id) if llm_config_id else None
+    review_endpoint = str(review_type.get("review_endpoint") or "") if review_type else ""
     now = datetime.now(timezone.utc)
     task_id = str(uuid4())
     record = {
@@ -240,8 +239,7 @@ def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: 
         "review_type_id": str(schedule["review_type_id"]),
         "review_type_name": str(schedule["review_type_name"]),
         "review_type_code": str(schedule["review_type_code"]),
-        "llm_config_id": llm_config_id,
-        "llm_config_name": str(llm_cfg["name"]) if llm_cfg else "",
+        "review_endpoint": review_endpoint,
         "image_url": snapshot_url,
         "status": "进行中",
         "verdict": "",
@@ -251,22 +249,19 @@ def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: 
     }
     state.review_tasks_store[task_id] = record
     persist_review_task(record)
-    if review_type is None or llm_cfg is None:
+    if review_type is None or not review_endpoint:
         record["status"] = "失败"
-        record["reason"] = "无大模型配置"
+        record["reason"] = "复核类型未配置复核接口"
         record["updated_at"] = datetime.now(timezone.utc)
         persist_review_task(record)
         return "failed"
     try:
-        verdict, reason = llm_client.judge_event(
-            base_url=str(llm_cfg["base_url"]),
-            api_key=str(llm_cfg.get("api_key") or ""),
-            model=llm_cfg.get("model"),
+        verdict, reason = second_review_client.judge_event(
+            endpoint=review_endpoint,
+            event_type=str(review_type["name"]),
             prompt=str(review_type["prompt"]),
             image_bytes=image_bytes,
-            timeout=int(llm_cfg.get("timeout") or 30),
-            temperature=float(llm_cfg.get("temperature") or 0.0),
-            max_tokens=int(llm_cfg.get("max_tokens") or 1024),
+            event_id=task_id,
         )
         record["status"] = "已完成"
         record["verdict"] = verdict
@@ -280,7 +275,7 @@ def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: 
     if record["status"] != "已完成":
         return "failed"
     verdict = str(record["verdict"])
-    if not verdict:  # 模型输出解析失败：不回写 review_status，下次触发重试
+    if not verdict:  # 复核接口未返回结构化结论：不回写 review_status，下次触发重试
         return "failed"
     update_deployment_event_review_status(event_id, verdict)
     return "valid" if verdict == REVIEW_STATUS_VALID else "invalid"

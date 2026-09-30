@@ -1,4 +1,4 @@
-"""复核任务 CRUD 与大模型判定路由。"""
+"""复核任务 CRUD 与万物核二次复核判定路由。"""
 
 import threading
 from datetime import datetime, timezone
@@ -34,27 +34,24 @@ def list_review_tasks() -> list[ReviewTaskOut]:
 @router.post("/api/review-tasks", response_model=ReviewTaskOut)
 async def create_review_task(
     review_type_id: str = Form(..., alias="reviewTypeId"),  # noqa: B008  # FastAPI Form 依赖注入惯例
-    llm_config_id: str = Form(..., alias="llmConfigId"),  # noqa: B008  # FastAPI Form 依赖注入惯例
     image: UploadFile | None = File(None),  # noqa: B008  # FastAPI File 依赖注入惯例
     video: UploadFile | None = File(None),  # noqa: B008  # FastAPI File 依赖注入惯例
 ) -> ReviewTaskOut:
-    """创建复核任务：校验复核类型与大模型配置，图片/视频二选一上传，
-    视频抽帧（首帧存为缩略图），后台线程按复核类型提示词执行大模型判定。"""
+    """创建复核任务：校验复核类型已配置复核接口，图片/视频二选一上传，
+    视频抽帧（首帧存为缩略图），后台线程按复核类型提示词调万物核二次复核接口判定。"""
     review_type = require_review_type(review_type_id)
-    llm_cfg = state.llm_configs_store.get(llm_config_id)
-    if not llm_cfg:
-        raise HTTPException(status_code=404, detail="LLM config not found")
+    if not str(review_type.get("review_endpoint") or ""):
+        raise HTTPException(status_code=400, detail="复核类型未配置复核接口")
     if image is None and video is None:
         raise HTTPException(status_code=400, detail="请上传图片或视频")
     if image is not None and video is not None:
         raise HTTPException(status_code=400, detail="图片与视频只上传一项")
-    extra_frames: list[bytes] = []
+    video_bytes: bytes | None = None
     if video is not None:
         video_bytes = await video.read()
         validate_video_upload(video, len(video_bytes))
         frames = extract_video_frames(video_bytes, video.filename or "")
         image_bytes = frames[0]
-        extra_frames = frames[1:]
         image_url = save_review_frame(frames[0])
     else:
         assert image is not None  # noqa: S101  # 上面已排除两者皆空
@@ -68,8 +65,7 @@ async def create_review_task(
         "review_type_id": review_type_id,
         "review_type_name": str(review_type["name"]),
         "review_type_code": str(review_type["code"]),
-        "llm_config_id": llm_config_id,
-        "llm_config_name": str(llm_cfg["name"]),
+        "review_endpoint": str(review_type["review_endpoint"]),
         "image_url": image_url,
         "status": "进行中",
         "verdict": "",
@@ -79,7 +75,7 @@ async def create_review_task(
     }
     state.review_tasks_store[task_id] = record
     persist_review_task(record)
-    threading.Thread(target=run_review_task_judgment, args=(task_id, image_bytes, extra_frames), daemon=True).start()
+    threading.Thread(target=run_review_task_judgment, args=(task_id, image_bytes, video_bytes), daemon=True).start()
     return review_task_out(record)
 
 

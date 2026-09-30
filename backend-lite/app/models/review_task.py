@@ -1,7 +1,8 @@
 """复核任务 ORM 模型（review_tasks 表）。
 
-复核任务记录一次「上传图片 + 复核类型 + 大模型配置」的判定过程，
-复核类型与大模型配置的 name/code 以快照形式冗余存储，避免事后改配置影响历史记录。
+复核任务记录一次「上传图片 + 复核类型 + 复核接口」的判定过程，
+复核类型与复核接口（万物核二次复核服务地址）以快照形式冗余存储，
+避免事后改配置影响历史记录。
 """
 
 import uuid
@@ -21,9 +22,11 @@ class ReviewTaskORM(Base):
     # 复核类型快照（创建时冗余，历史记录不随类型改名而变化）
     review_type_name: Mapped[str] = mapped_column(String(200), nullable=False)
     review_type_code: Mapped[str] = mapped_column(String(100), nullable=False)
-    llm_config_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    # 大模型配置名称快照
-    llm_config_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # 历史列：大模型配置快照，已切换为复核接口后不再写入，仅保留兼容旧数据
+    llm_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    llm_config_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 万物核二次复核服务地址快照（创建时冗余）
+    review_endpoint: Mapped[str | None] = mapped_column(String(500), nullable=True)
     image_url: Mapped[str] = mapped_column(String(500), nullable=False)
     # 进行中 / 已完成 / 失败
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="进行中")

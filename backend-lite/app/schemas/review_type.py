@@ -11,7 +11,7 @@ class ReviewTypeCreate(BaseModel):
     prompt: str = Field(min_length=1)
     injectEvent: str = ""
     remark: str = ""
-    llmConfigId: str | None = None
+    reviewEndpoint: str = Field(min_length=1, max_length=500)
 
 
 class ReviewTypeUpdate(BaseModel):
@@ -22,7 +22,7 @@ class ReviewTypeUpdate(BaseModel):
     prompt: str | None = Field(default=None, min_length=1)
     injectEvent: str | None = None
     remark: str | None = None
-    llmConfigId: str | None = None
+    reviewEndpoint: str | None = None
 
 
 class ReviewTypeOut(BaseModel):
@@ -34,6 +34,6 @@ class ReviewTypeOut(BaseModel):
     prompt: str
     injectEvent: str
     remark: str
-    llmConfigId: str | None
+    reviewEndpoint: str | None
     createdAt: datetime
     updatedAt: datetime

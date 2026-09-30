@@ -1,4 +1,4 @@
-"""定时复核任务路由与调度执行契约测试：TestClient 直连，DB 落库与大模型调用在测试中 mock。"""
+"""定时复核任务路由与调度执行契约测试：TestClient 直连，DB 落库与复核接口调用在测试中 mock。"""
 
 import time
 from datetime import datetime, timezone
@@ -15,7 +15,7 @@ FAKE_IMAGE_BYTES = b"\xff\xd8\xff\xe0fake-jpeg-bytes"
 SNAPSHOT_URL = "/api/assets/snapshots/fake.jpg"
 
 REVIEW_TYPE_ID = str(uuid4())
-LLM_CONFIG_ID = str(uuid4())
+REVIEW_ENDPOINT = "http://second-review.local"
 
 REVIEW_TYPE_RECORD = {
     "id": REVIEW_TYPE_ID,
@@ -24,18 +24,7 @@ REVIEW_TYPE_RECORD = {
     "prompt": "请判断画面中是否有人跌倒",
     "inject_event": "",
     "remark": "",
-    "llm_config_id": LLM_CONFIG_ID,
-}
-LLM_CONFIG_RECORD = {
-    "id": LLM_CONFIG_ID,
-    "name": "本地 Qwen-VL",
-    "base_url": "http://localhost:9999/v1",
-    "api_key": "",
-    "deploy_type": "local",
-    "timeout": 30,
-    "temperature": 0.0,
-    "max_tokens": 1024,
-    "fps": 1,
+    "review_endpoint": REVIEW_ENDPOINT,
 }
 
 CREATE_PAYLOAD = {
@@ -49,7 +38,6 @@ CREATE_PAYLOAD = {
 
 def _seed_stores() -> None:
     state.review_types_store[REVIEW_TYPE_ID] = dict(REVIEW_TYPE_RECORD)
-    state.llm_configs_store[LLM_CONFIG_ID] = dict(LLM_CONFIG_RECORD)
 
 
 def _create_review_schedule(client: TestClient, monkeypatch, **overrides) -> dict:
@@ -204,7 +192,7 @@ def test_delete_review_schedule_unknown_id_returns_404(client: TestClient):
 
 
 def _mock_execution_env(monkeypatch, events: list, updated: list) -> None:
-    """把执行链路的外部依赖（事件查询/快照读取/大模型/落库/回写）替换为假实现。"""
+    """把执行链路的外部依赖（事件查询/快照读取/复核接口/落库/回写）替换为假实现。"""
     monkeypatch.setattr(review_schedules_service, "_query_pending_events", lambda schedule: list(events))
     monkeypatch.setattr(
         review_schedules_service,
@@ -214,7 +202,7 @@ def _mock_execution_env(monkeypatch, events: list, updated: list) -> None:
     monkeypatch.setattr(review_schedules_service, "persist_review_task", lambda record: None)
     monkeypatch.setattr(review_schedules_service, "persist_review_schedule", lambda record: None)
     monkeypatch.setattr(
-        review_schedules_service.llm_client,
+        review_schedules_service.second_review_client,
         "judge_event",
         lambda **kwargs: ("有效", "检测到目标"),
     )
@@ -246,7 +234,7 @@ def test_manual_run_reviews_events_and_writes_back(client: TestClient, monkeypat
     task = tasks[0]
     assert task["reviewTypeId"] == REVIEW_TYPE_ID
     assert task["reviewTypeCode"] == "person_fall"
-    assert task["llmConfigId"] == LLM_CONFIG_ID
+    assert task["reviewEndpoint"] == REVIEW_ENDPOINT
     assert task["imageUrl"] == SNAPSHOT_URL
     assert task["status"] == "已完成"
     assert task["verdict"] == "有效"
@@ -270,9 +258,9 @@ def test_run_skips_missing_snapshot_and_counts_it(client: TestClient, monkeypatc
     assert len(updated) == 1
 
 
-def test_run_marks_failure_when_llm_config_missing(client: TestClient, monkeypatch):
+def test_run_marks_failure_when_review_endpoint_missing(client: TestClient, monkeypatch):
     created = _create_review_schedule(client, monkeypatch)
-    state.llm_configs_store.clear()  # 复核类型关联的大模型配置不存在
+    state.review_types_store[REVIEW_TYPE_ID]["review_endpoint"] = None  # 复核类型未配置复核接口
     updated: list = []
     _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL)], updated)
 
@@ -284,7 +272,7 @@ def test_run_marks_failure_when_llm_config_missing(client: TestClient, monkeypat
     assert updated == []
     task = client.get("/api/review-tasks").json()[0]
     assert task["status"] == "失败"
-    assert task["reason"] == "无大模型配置"
+    assert task["reason"] == "复核类型未配置复核接口"
 
 
 def test_run_unknown_schedule_returns_404(client: TestClient):

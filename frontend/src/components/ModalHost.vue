@@ -2,7 +2,7 @@
 import * as XLSX from "xlsx";
 import { api, sameOriginAssetUrl } from "../api";
 import type { RecordingSegment } from "../api";
-import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceLibraryRecord, LlmConfig, NvrImportPrecheck, ReviewType } from "../types";
+import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceLibraryRecord, NvrImportPrecheck, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { deviceStatusLabel, onlineStatusOf, streamStatusLabel } from "../utils/device-status";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
@@ -139,8 +139,6 @@ export default {
       regionSpatialBaseUrl: "",
       regionSpatialSaving: false,
       regionSpatialSyncing: false,
-      reviewLlmId: "",
-      reviewLlmConfigs: [] as LlmConfig[],
       reviewTypeId: "",
       reviewTypeOptions: [] as ReviewType[],
       reviewImageFile: null as File | null,
@@ -412,11 +410,6 @@ export default {
         this.initQuickReplay();
       } else if (this.modal.type === "reviewTask") {
         this.resetReviewTaskForm();
-        if (!this.reviewLlmConfigs.length) {
-          api.llmConfigs()
-            .then((configs) => { this.reviewLlmConfigs = configs; })
-            .catch((error) => this.showToast(`大模型配置加载失败：${error instanceof Error ? error.message : error}`));
-        }
         if (!this.reviewTypeOptions.length) {
           api.reviewTypes()
             .then((types) => { this.reviewTypeOptions = types; })
@@ -1229,11 +1222,9 @@ export default {
       if (this.modal.type === "reviewTask") {
         if (this.reviewTaskSubmitting) return;
         if (!this.reviewTypeId) { this.showToast("请选择复核类型"); return; }
-        if (!this.reviewLlmId) { this.showToast("请选择大模型"); return; }
         if (!this.reviewImageFile && !this.reviewVideoFile) { this.showToast("请上传图片或视频"); return; }
         this.$emit("submit", "reviewTask", {
           reviewTypeId: this.reviewTypeId,
-          llmConfigId: this.reviewLlmId,
           image: this.reviewImageFile,
           video: this.reviewVideoFile
         });
@@ -1247,7 +1238,6 @@ export default {
     },
     resetReviewTaskForm() {
       this.reviewTypeId = "";
-      this.reviewLlmId = "";
       this.reviewImageFile = null;
       this.reviewImageName = "";
       if (this.reviewImageUrl) {
@@ -1662,13 +1652,6 @@ export default {
             </select>
           </div>
           <div class="modal-form-row">
-            <label><span class="required">*</span>大模型：</label>
-            <select class="select" v-model="reviewLlmId">
-              <option value="">请选择大模型</option>
-              <option v-for="item in reviewLlmConfigs" :key="item.id" :value="item.id">{{ item.name }}（{{ item.deployType === 'local' ? '本地' : '云端' }}）</option>
-            </select>
-          </div>
-          <div class="modal-form-row">
             <label>图片：</label>
             <div>
               <input ref="reviewImageInput" type="file" accept="image/*" style="display:none" @change="handleReviewImage" />
@@ -1691,7 +1674,7 @@ export default {
               </div>
             </div>
           </div>
-          <p class="modal-hint">图片或视频至少上传一项（两者只保留最后选择的一项），提交后由大模型按复核类型提示词判定是否有效</p>
+          <p class="modal-hint">图片或视频至少上传一项（两者只保留最后选择的一项），提交后由复核接口按复核类型提示词判定是否有效</p>
         </template>
         <template v-if="modal.type === 'eventDetail' && modal.item">
           <div class="event-detail-grid">
@@ -1717,7 +1700,7 @@ export default {
         <template v-if="modal.type === 'reviewTaskDetail' && modal.item">
           <div class="event-detail-grid">
             <dl class="event-detail-field"><dt>事件类型</dt><dd>{{ modal.item.reviewTypeName }}（{{ modal.item.reviewTypeCode }}）</dd></dl>
-            <dl class="event-detail-field"><dt>大模型</dt><dd>{{ modal.item.llmConfigName }}</dd></dl>
+            <dl class="event-detail-field"><dt>复核接口</dt><dd>{{ modal.item.reviewEndpoint || '-' }}</dd></dl>
             <dl class="event-detail-field"><dt>任务状态</dt><dd><span class="status-pill" :class="statusClass(modal.item.status)">{{ modal.item.status }}</span></dd></dl>
             <dl class="event-detail-field"><dt>判定结果</dt><dd :class="modal.item.verdict === '有效' ? 'text-success' : (modal.item.verdict === '无效' ? 'text-danger' : '')">{{ modal.item.verdict || '-' }}</dd></dl>
           </div>

@@ -14,6 +14,7 @@ CREATE_PAYLOAD = {
     "prompt": "请判断画面中是否有人跌倒",
     "injectEvent": "event_info",
     "remark": "一期上线",
+    "reviewEndpoint": "http://second-review.local",
 }
 
 
@@ -58,7 +59,12 @@ def test_create_then_list_contains_created_record(client: TestClient, monkeypatc
 def test_create_review_type_optional_fields_default_empty(client: TestClient, monkeypatch):
     monkeypatch.setattr(review_types_router, "persist_review_type", lambda record: None)
     # 缺省 injectEvent/remark 字段落为默认空串
-    payload = {"name": "烟雾检测", "code": "smoke", "prompt": "是否有烟雾"}
+    payload = {
+        "name": "烟雾检测",
+        "code": "smoke",
+        "prompt": "是否有烟雾",
+        "reviewEndpoint": "http://second-review.local",
+    }
     response = client.post("/api/review-types", json=payload)
 
     assert response.status_code == 200
@@ -93,18 +99,18 @@ def test_update_review_type_unknown_id_returns_404(client: TestClient):
     assert response.json()["detail"] == "Review type not found"
 
 
-def test_review_type_llm_config_id_create_update_clear(client: TestClient, monkeypatch):
-    llm_id = str(uuid4())
-    created = _create_review_type(client, monkeypatch, llmConfigId=llm_id)
-    assert created["llmConfigId"] == llm_id
+def test_review_type_review_endpoint_create_update_clear(client: TestClient, monkeypatch):
+    endpoint = "http://second-review.local:8080"
+    created = _create_review_type(client, monkeypatch, reviewEndpoint=endpoint)
+    assert created["reviewEndpoint"] == endpoint
 
-    # 未传 llmConfigId 时保留原值
+    # 未传 reviewEndpoint 时保留原值
     kept = client.put(f"/api/review-types/{created['id']}", json={"remark": "保留"})
-    assert kept.json()["llmConfigId"] == llm_id
+    assert kept.json()["reviewEndpoint"] == endpoint
 
-    # 传空字符串清除关联
-    cleared = client.put(f"/api/review-types/{created['id']}", json={"llmConfigId": ""})
-    assert cleared.json()["llmConfigId"] is None
+    # 传空字符串清除复核接口
+    cleared = client.put(f"/api/review-types/{created['id']}", json={"reviewEndpoint": ""})
+    assert cleared.json()["reviewEndpoint"] is None
 
 
 def test_delete_review_type_removes_from_list(client: TestClient, monkeypatch):

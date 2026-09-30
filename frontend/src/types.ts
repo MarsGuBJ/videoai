@@ -141,7 +141,7 @@ export type ReviewType = {
   prompt: string;
   injectEvent: string;
   remark: string;
-  llmConfigId?: string | null;
+  reviewEndpoint?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -166,8 +166,7 @@ export type ReviewTask = {
   reviewTypeId: string;
   reviewTypeName: string;
   reviewTypeCode: string;
-  llmConfigId: string;
-  llmConfigName: string;
+  reviewEndpoint: string;
   imageUrl: string;
   status: string;
   verdict: string;

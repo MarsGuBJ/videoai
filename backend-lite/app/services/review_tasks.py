@@ -1,18 +1,18 @@
-"""复核任务的内存态、数据库持久化与大模型判定执行。"""
+"""复核任务的内存态、数据库持久化与万物核二次复核判定执行。"""
 
 import logging
 from datetime import datetime, timezone
 from typing import Any, cast
 
 from fastapi import HTTPException
-from sqlalchemy import Table
+from sqlalchemy import Table, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import state
 from app.db.session import SessionLocal, engine
 from app.models.review_task import ReviewTaskORM
 from app.schemas.review_task import ReviewTaskOut
-from app.services import llm_client
+from app.services import second_review_client
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +51,7 @@ def review_task_out(record: dict[str, Any]) -> ReviewTaskOut:
         reviewTypeId=str(record["review_type_id"]),
         reviewTypeName=str(record["review_type_name"]),
         reviewTypeCode=str(record["review_type_code"]),
-        llmConfigId=str(record["llm_config_id"]),
-        llmConfigName=str(record["llm_config_name"]),
+        reviewEndpoint=str(record.get("review_endpoint") or ""),
         imageUrl=str(record["image_url"]),
         status=str(record["status"]),
         verdict=str(record.get("verdict") or ""),
@@ -67,6 +66,9 @@ def ensure_review_task_schema() -> None:
     try:
         with engine.begin() as conn:
             cast(Table, ReviewTaskORM.__table__).create(conn, checkfirst=True)
+            conn.execute(
+                text("ALTER TABLE review_tasks ADD COLUMN IF NOT EXISTS review_endpoint VARCHAR(500)")
+            )
     except SQLAlchemyError as exc:  # 数据库不可达时跳过迁移，不阻断启动
         logger.error("review task schema ensure failed: %s", exc)
 
@@ -83,8 +85,7 @@ def load_review_tasks_from_db() -> None:
                     "review_type_id": row.review_type_id,
                     "review_type_name": row.review_type_name,
                     "review_type_code": row.review_type_code,
-                    "llm_config_id": row.llm_config_id,
-                    "llm_config_name": row.llm_config_name,
+                    "review_endpoint": row.review_endpoint,
                     "image_url": row.image_url,
                     "status": row.status,
                     "verdict": row.verdict or "",
@@ -111,8 +112,7 @@ def persist_review_task(record: dict[str, Any]) -> None:
             row.review_type_id = str(record["review_type_id"])
             row.review_type_name = str(record["review_type_name"])
             row.review_type_code = str(record["review_type_code"])
-            row.llm_config_id = str(record["llm_config_id"])
-            row.llm_config_name = str(record["llm_config_name"])
+            row.review_endpoint = record.get("review_endpoint")
             row.image_url = str(record["image_url"])
             row.status = str(record["status"])
             row.verdict = str(record.get("verdict") or "")
@@ -140,13 +140,13 @@ def delete_review_task_from_db(task_id: str) -> None:
         logger.error("review task delete failed: %s", exc)
 
 
-def run_review_task_judgment(task_id: str, image_bytes: bytes, extra_frames: list[bytes] | None = None) -> None:
-    """执行复核任务的大模型判定并更新内存态与数据库（后台线程调用，永不抛异常）。
+def run_review_task_judgment(task_id: str, image_bytes: bytes, video_bytes: bytes | None = None) -> None:
+    """执行复核任务的万物核二次复核判定并更新内存态与数据库（后台线程调用，永不抛异常）。
 
     Args:
         task_id: 复核任务 ID。
-        image_bytes: 待判定图片字节；视频任务传首帧。
-        extra_frames: 视频任务的其余抽帧（非空时按视频口径判定）。
+        image_bytes: 待判定图片字节；视频任务传首帧缩略图。
+        video_bytes: 视频任务的原始视频字节（非空时随图片一起上送）。
     """
     try:
         record = state.review_tasks_store.get(task_id)
@@ -156,19 +156,16 @@ def run_review_task_judgment(task_id: str, image_bytes: bytes, extra_frames: lis
         review_type = state.review_types_store.get(str(record["review_type_id"]))
         if not review_type:
             raise ValueError(f"review type not found: {record['review_type_id']}")
-        llm_cfg = state.llm_configs_store.get(str(record["llm_config_id"]))
-        if not llm_cfg:
-            raise ValueError(f"llm config not found: {record['llm_config_id']}")
-        verdict, reason = llm_client.judge_event(
-            base_url=str(llm_cfg["base_url"]),
-            api_key=str(llm_cfg.get("api_key") or ""),
-            model=llm_cfg.get("model"),
+        review_endpoint = str(review_type.get("review_endpoint") or "")
+        if not review_endpoint:
+            raise ValueError("复核类型未配置复核接口")
+        verdict, reason = second_review_client.judge_event(
+            endpoint=review_endpoint,
+            event_type=str(review_type["name"]),
             prompt=str(review_type["prompt"]),
             image_bytes=image_bytes,
-            extra_frames=extra_frames,
-            timeout=int(llm_cfg.get("timeout") or 30),
-            temperature=float(llm_cfg.get("temperature") or 0.0),
-            max_tokens=int(llm_cfg.get("max_tokens") or 1024),
+            video_bytes=video_bytes,
+            event_id=task_id,
         )
         record["status"] = "已完成"
         record["verdict"] = verdict

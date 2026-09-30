@@ -105,7 +105,7 @@ def review_type_out(record: dict[str, Any]) -> ReviewTypeOut:
         prompt=str(record["prompt"]),
         injectEvent=str(record.get("inject_event") or ""),
         remark=str(record.get("remark") or ""),
-        llmConfigId=record.get("llm_config_id"),
+        reviewEndpoint=record.get("review_endpoint"),
         createdAt=record["created_at"],
         updatedAt=record["updated_at"],
     )
@@ -118,6 +118,9 @@ def ensure_review_type_schema() -> None:
             cast(Table, ReviewTypeORM.__table__).create(conn, checkfirst=True)
             conn.execute(
                 text("ALTER TABLE review_types ADD COLUMN IF NOT EXISTS llm_config_id VARCHAR(36)")
+            )
+            conn.execute(
+                text("ALTER TABLE review_types ADD COLUMN IF NOT EXISTS review_endpoint VARCHAR(500)")
             )
     except SQLAlchemyError as exc:  # 数据库不可达时跳过迁移，不阻断启动
         logger.error("review type schema ensure failed: %s", exc)
@@ -137,7 +140,7 @@ def load_review_types_from_db() -> None:
                     "prompt": row.prompt,
                     "inject_event": row.inject_event or "",
                     "remark": row.remark or "",
-                    "llm_config_id": row.llm_config_id,
+                    "review_endpoint": row.review_endpoint,
                     "created_at": row.created_at,
                     "updated_at": row.updated_at,
                 }
@@ -162,7 +165,7 @@ def persist_review_type(record: dict[str, Any]) -> None:
             row.prompt = str(record["prompt"])
             row.inject_event = str(record.get("inject_event") or "")
             row.remark = str(record.get("remark") or "")
-            row.llm_config_id = record.get("llm_config_id")
+            row.review_endpoint = record.get("review_endpoint")
             row.created_at = record["created_at"]
             row.updated_at = record["updated_at"]
             pgdb.commit()
