@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app import state
 from app.db.session import SessionLocal, engine
 from app.models.llm_config import LlmConfigORM
-from app.schemas.llm_config import LlmConfigOut
+from app.schemas.llm_config import LlmConfigOpenOut, LlmConfigOut
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,31 @@ def llm_config_out(record: dict[str, Any]) -> LlmConfigOut:
         model=str(record.get("model") or ""),
         apiKey=mask_api_key(api_key),
         apiKeyConfigured=bool(api_key),
+        deployType=str(record["deploy_type"]),  # type: ignore[arg-type]
+        timeout=int(record["timeout"]),
+        temperature=float(record["temperature"]),
+        maxTokens=int(record["max_tokens"]),
+        fps=int(record["fps"]),
+        createdAt=record["created_at"],
+        updatedAt=record["updated_at"],
+    )
+
+
+def llm_config_open_out(record: dict[str, Any]) -> LlmConfigOpenOut:
+    """把内存态配置字典转为开放接口 DTO（apiKey 明文）。
+
+    Args:
+        record: 内存态配置字典。
+
+    Returns:
+        camelCase 开放接口 DTO，apiKey 为明文。
+    """
+    return LlmConfigOpenOut(
+        id=str(record["id"]),
+        name=str(record["name"]),
+        baseUrl=str(record["base_url"]),
+        model=str(record.get("model") or ""),
+        apiKey=str(record.get("api_key") or ""),
         deployType=str(record["deploy_type"]),  # type: ignore[arg-type]
         timeout=int(record["timeout"]),
         temperature=float(record["temperature"]),

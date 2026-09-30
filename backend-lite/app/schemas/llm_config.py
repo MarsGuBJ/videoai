@@ -57,6 +57,23 @@ class LlmConfigOut(BaseModel):
     updatedAt: datetime
 
 
+class LlmConfigOpenOut(BaseModel):
+    """开放接口（/api/open/*）返回的大模型配置；apiKey 为明文，供其他系统直连大模型服务。"""
+
+    id: str
+    name: str
+    baseUrl: str
+    model: str
+    apiKey: str
+    deployType: DeployType
+    timeout: int
+    temperature: float
+    maxTokens: int
+    fps: int
+    createdAt: datetime
+    updatedAt: datetime
+
+
 class LlmTestResult(BaseModel):
     ok: bool
     latencyMs: int | None = None
