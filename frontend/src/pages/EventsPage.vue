@@ -34,7 +34,7 @@
 import { defineComponent } from "vue";
 import SummaryCards from "../components/SummaryCards.vue";
 import { api, assetUrl } from "../api";
-import type { DeploymentEvent, DeploymentTask } from "../types";
+import type { DeploymentEvent, DeploymentTask, EventInfo } from "../types";
 
 function formatEventTime(value?: string | null): string {
   if (!value) return "—";
@@ -44,16 +44,16 @@ function formatEventTime(value?: string | null): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-// 原型设计有「等级」列而事件数据无等级字段：人脸事件按相似度推导，其余显示「—」
-function deriveLevel(event: DeploymentEvent): string {
-  if (event.eventType !== "face_match" || event.similarity == null) return "—";
-  const pct = event.similarity <= 1 ? event.similarity * 100 : event.similarity;
-  if (pct >= 90) return "高";
-  if (pct >= 75) return "中";
-  return "低";
+// 事件等级取自事件信息配置的「事件等级」选项：事件的 algorithmCode 即事件编码，
+// 与事件配置的 code 对应（同 utils/algorithm-binding 的口径）；未匹配到配置时显示「—」
+function deriveLevel(event: DeploymentEvent, eventInfos?: EventInfo[]): string {
+  const code = String(event.algorithmCode || "").trim();
+  if (!code) return "—";
+  const info = (eventInfos || []).find((item) => String(item.code || "").trim() === code);
+  return (info && info.level) || "—";
 }
 
-function mapEventToRow(event: DeploymentEvent) {
+function mapEventToRow(event: DeploymentEvent, eventInfos?: EventInfo[]) {
   const isFace = event.eventType === "face_match";
   const labels = (event.objects || []).map((obj) => obj.labelName).filter(Boolean).join("、");
   const similarity = event.similarity == null
@@ -66,7 +66,7 @@ function mapEventToRow(event: DeploymentEvent) {
     id: event.id,
     name: isFace ? `${event.faceProfileName || "未知人员"}人脸比对命中` : labels ? `检测到${labels}` : "目标检测事件",
     type: isFace ? "人脸比对" : "目标检测",
-    level: deriveLevel(event),
+    level: deriveLevel(event, eventInfos),
     algorithmCode: event.algorithmCode || "—",
     deploymentTaskId: event.deploymentTaskId || null,
     area: event.cameraArea || "—",
@@ -104,6 +104,7 @@ export default defineComponent({
     return {
       rows: [] as ReturnType<typeof mapEventToRow>[],
       tasks: [] as DeploymentTask[],
+      eventInfos: [] as EventInfo[],
       areas: [] as string[],
       summary: { total: 0, today: 0, faceMatch: 0, objectDetection: 0 },
       reviewStats: { unreviewed: 0, valid: 0 },
@@ -148,6 +149,7 @@ export default defineComponent({
     this.loadSummary();
     this.loadStats();
     this.loadTasks();
+    this.loadEventInfos();
   },
   methods: {
     // 点击事件缩略图仅放大查看，不跳转以图搜图
@@ -241,7 +243,9 @@ export default defineComponent({
           endTime: this.toIso(this.endTime)
         });
         this.total = result.total;
-        this.rows = result.items.map((event) => mapEventToRow(event));
+        // 等级列依赖事件信息配置：配置未加载完成时先拉一次再映射
+        if (!this.eventInfos.length) await this.loadEventInfos();
+        this.rows = result.items.map((event) => mapEventToRow(event, this.eventInfos));
       } catch (e) {
         this.showToast(e instanceof Error ? e.message : "事件列表加载失败");
       } finally {
@@ -273,6 +277,14 @@ export default defineComponent({
         this.tasks = await api.deploymentTasks();
       } catch (e) {
         console.error("load deployment tasks failed", e);
+      }
+    },
+    // 事件等级取值来源：事件信息配置（事件编码 → level）
+    async loadEventInfos() {
+      try {
+        this.eventInfos = await api.eventInfos();
+      } catch (e) {
+        console.error("load event infos failed", e);
       }
     }
   }
