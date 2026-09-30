@@ -157,7 +157,8 @@ export default defineComponent({
     }
   },
   mounted() {
-    this.loadConfigs();
+    // 每次打开页面：先加载配置列表，再异步静默检测每个模型的状态并更新状态列
+    this.autoCheckAll();
   },
   methods: {
     statusClass,
@@ -309,7 +310,12 @@ export default defineComponent({
         this.saving = false;
       }
     },
-    async test(row: LlmConfig) {
+    // 页面打开时静默检测全部模型，不弹 Toast；检测中按钮显示"检测中..."
+    async autoCheckAll() {
+      await this.loadConfigs();
+      await Promise.allSettled(this.rows.map(row => this.runTest(row, true)));
+    },
+    async runTest(row: LlmConfig, quiet: boolean) {
       if (this.testing[row.id]) return;
       this.testing = { ...this.testing, [row.id]: true };
       try {
@@ -319,6 +325,7 @@ export default defineComponent({
           ...this.checks,
           [row.id]: { status: result.ok ? "在线" : "连接异常", latency: result.ok ? latency : "-" }
         };
+        if (quiet) return;
         if (result.ok) {
           this.showToast(`${row.name} 连接正常，延迟 ${latency}`);
         } else {
@@ -326,10 +333,13 @@ export default defineComponent({
         }
       } catch (error) {
         this.checks = { ...this.checks, [row.id]: { status: "连接异常", latency: "-" } };
-        this.showToast(error instanceof Error ? error.message : `${row.name} 检测失败`);
+        if (!quiet) this.showToast(error instanceof Error ? error.message : `${row.name} 检测失败`);
       } finally {
         this.testing = { ...this.testing, [row.id]: false };
       }
+    },
+    async test(row: LlmConfig) {
+      await this.runTest(row, false);
     },
     async remove(row: LlmConfig) {
       if (!window.confirm(`确认删除大模型配置「${row.name}」？`)) return;
