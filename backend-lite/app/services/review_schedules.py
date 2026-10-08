@@ -3,11 +3,16 @@
 执行流程：按 batch_size 抽取未复核布控事件 → 逐条读快照、建复核任务、
 调万物核二次复核接口判定 → verdict 非空时回写事件 review_status → 汇总写入 last_result。
 判定失败不回写 review_status（下次触发重试，计入失败数）。
+每次执行若有失败，失败明细写入 storage/review-logs/<schedule_id>/<时间戳>.log，
+供定时任务列表下载；无失败不生成日志文件。
 """
 
 import logging
+import re
+import shutil
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
@@ -31,6 +36,10 @@ logger = logging.getLogger(__name__)
 
 SCHEDULER_TICK_SECONDS = 30
 MAX_ERROR_REASON_CHARS = 500
+# 执行失败日志文件名格式：<日期>-<时分秒>-<微秒>.log
+LOG_FILENAME_PATTERN = re.compile(r"\d{8}-\d{6}-\d{6}\.log")
+# 失败日志只保留一个月，超过自动删除
+LOG_RETENTION_DAYS = 30
 
 # 正在执行中的 schedule id 集合（防同一定时任务并发重入）
 _running_schedule_ids: set[str] = set()
@@ -171,6 +180,123 @@ def validate_cron(expr: str) -> None:
         raise ValueError(f"invalid cron expression: {expr}")
 
 
+def _review_log_dir(schedule_id: str) -> Path:
+    """定时复核任务失败日志目录（storage/review-logs/<schedule_id>）。"""
+    return get_settings().review_log_storage_dir / schedule_id
+
+
+def _write_failure_log(schedule: dict[str, Any], failures: list[str]) -> Path | None:
+    """把一次执行的失败明细写入日志文件；无失败不生成文件。
+
+    Args:
+        schedule: 内存态定时复核任务字典。
+        failures: 失败明细行（每条失败事件一行）。
+
+    Returns:
+        日志文件路径；无失败或写文件失败返回 None。
+    """
+    if not failures:
+        return None
+    now = datetime.now()  # 本地时间，便于运维直接对照日志文件名
+    lines = [
+        f"定时复核任务：{schedule['name']}（{schedule['id']}）",
+        f"执行时间：{now:%Y-%m-%d %H:%M:%S}",
+        f"失败 {len(failures)} 条：",
+        *(f"[{index}] {failure}" for index, failure in enumerate(failures, 1)),
+    ]
+    try:
+        log_dir = _review_log_dir(str(schedule["id"]))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        path = log_dir / f"{now:%Y%m%d-%H%M%S-%f}.log"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return path
+    except OSError as exc:
+        logger.error("review schedule failure log write failed: %s", exc)
+        return None
+
+
+def list_review_schedule_logs(schedule_id: str) -> list[dict[str, Any]]:
+    """列出定时复核任务的历次失败日志文件，按文件名（时间戳）倒序。
+
+    Args:
+        schedule_id: 定时复核任务 ID。
+
+    Returns:
+        [{"name", "size", "created_at"}] 列表；目录不存在时为空。
+    """
+    log_dir = _review_log_dir(schedule_id)
+    if not log_dir.is_dir():
+        return []
+    logs: list[dict[str, Any]] = []
+    for path in log_dir.glob("*.log"):
+        if not LOG_FILENAME_PATTERN.fullmatch(path.name):
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        logs.append(
+            {
+                "name": path.name,
+                "size": stat.st_size,
+                "created_at": datetime.fromtimestamp(stat.st_mtime).astimezone(),
+            }
+        )
+    return sorted(logs, key=lambda item: str(item["name"]), reverse=True)
+
+
+def review_schedule_log_path(schedule_id: str, filename: str) -> Path | None:
+    """按文件名取日志文件路径；文件名非法（防目录穿越）或文件不存在返回 None。
+
+    Args:
+        schedule_id: 定时复核任务 ID。
+        filename: 日志文件名（须符合 LOG_FILENAME_PATTERN）。
+
+    Returns:
+        日志文件路径；非法或不存在返回 None。
+    """
+    if not LOG_FILENAME_PATTERN.fullmatch(filename):
+        return None
+    path = _review_log_dir(schedule_id) / filename
+    return path if path.is_file() else None
+
+
+def purge_expired_review_schedule_logs(schedule_id: str) -> None:
+    """删除超过保留期（LOG_RETENTION_DAYS 天）的失败日志文件（容错，不抛异常）。
+
+    过期判定以文件名中的执行时间戳为准。
+
+    Args:
+        schedule_id: 定时复核任务 ID。
+    """
+    log_dir = _review_log_dir(schedule_id)
+    if not log_dir.is_dir():
+        return
+    cutoff = datetime.now() - timedelta(days=LOG_RETENTION_DAYS)
+    for path in log_dir.glob("*.log"):
+        if not LOG_FILENAME_PATTERN.fullmatch(path.name):
+            continue
+        try:
+            created = datetime.strptime(path.stem, "%Y%m%d-%H%M%S-%f")  # noqa: DTZ007  # 本地时间文件名，与 _write_failure_log 一致
+        except ValueError:
+            continue
+        if created >= cutoff:
+            continue
+        try:
+            path.unlink()
+        except OSError as exc:
+            logger.error("review schedule log purge failed (%s): %s", path.name, exc)
+
+
+def delete_review_schedule_logs(schedule_id: str) -> None:
+    """删除定时复核任务的全部失败日志目录（删除任务时调用，容错）。
+
+    Args:
+        schedule_id: 定时复核任务 ID。
+    """
+    shutil.rmtree(_review_log_dir(schedule_id), ignore_errors=True)
+
+
 def _read_snapshot_bytes(snapshot_url: str) -> bytes | None:
     """按快照 URL 读取本地快照字节；路径非法或文件不存在返回 None。
 
@@ -216,13 +342,14 @@ def _query_pending_events(schedule: dict[str, Any]) -> list[tuple[str, str]]:
         return [(str(event_id), str(snapshot_url)) for event_id, snapshot_url in rows]
 
 
-def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: str) -> str:
+def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: str, failures: list[str]) -> str:
     """对单条事件执行复核：读快照 → 建复核任务 → 二次复核判定 → 回写事件复核状态。
 
     Args:
         schedule: 内存态定时复核任务字典。
         event_id: 布控事件 ID。
         snapshot_url: 事件快照 URL。
+        failures: 失败明细收集器，判定失败时追加一行（写入当次执行日志）。
 
     Returns:
         结果分类："valid" / "invalid" / "failed" / "skipped"。
@@ -254,6 +381,7 @@ def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: 
         record["reason"] = "复核类型未配置复核接口"
         record["updated_at"] = datetime.now(timezone.utc)
         persist_review_task(record)
+        failures.append(f"事件 {event_id} / 复核任务 {task_id}：复核类型未配置复核接口")
         return "failed"
     try:
         verdict, reason = second_review_client.judge_event(
@@ -273,9 +401,11 @@ def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: 
     record["updated_at"] = datetime.now(timezone.utc)
     persist_review_task(record)
     if record["status"] != "已完成":
+        failures.append(f"事件 {event_id} / 复核任务 {task_id}：{record['reason']}")
         return "failed"
     verdict = str(record["verdict"])
     if not verdict:  # 复核接口未返回结构化结论：不回写 review_status，下次触发重试
+        failures.append(f"事件 {event_id} / 复核任务 {task_id}：复核接口未返回结构化结论")
         return "failed"
     update_deployment_event_review_status(event_id, verdict)
     return "valid" if verdict == REVIEW_STATUS_VALID else "invalid"
@@ -283,6 +413,8 @@ def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: 
 
 def execute_review_schedule(schedule_id: str) -> None:
     """执行一次定时复核：批量抽取未复核事件逐条判定，汇总写入 last_result（永不抛异常）。
+
+    有失败时把失败明细写入日志文件（storage/review-logs/<schedule_id>/），无失败不生成。
 
     Args:
         schedule_id: 定时复核任务 ID。
@@ -294,19 +426,25 @@ def execute_review_schedule(schedule_id: str) -> None:
             return
         events = _query_pending_events(schedule)
         counts = {"valid": 0, "invalid": 0, "failed": 0, "skipped": 0}
+        failures: list[str] = []
         for event_id, snapshot_url in events:
-            outcome = _review_single_event(schedule, event_id, snapshot_url)
+            outcome = _review_single_event(schedule, event_id, snapshot_url, failures)
             counts[outcome] += 1
         schedule["last_result"] = (
             f"处理 {len(events)} 条：有效 {counts['valid']} / 无效 {counts['invalid']}"
             f" / 失败 {counts['failed']} / 跳过 {counts['skipped']}"
         )
+        _write_failure_log(schedule, failures)
+        purge_expired_review_schedule_logs(schedule_id)
         now = datetime.now(timezone.utc)
         schedule["last_run_at"] = now
         schedule["updated_at"] = now
         persist_review_schedule(schedule)
     except Exception as exc:  # noqa: BLE001  # 调度线程内任何失败都仅记录日志，不影响后续调度
         logger.error("review schedule execution failed: %s", exc)
+        schedule = state.review_schedules_store.get(schedule_id)
+        if schedule:
+            _write_failure_log(schedule, [f"执行异常：{exc}"])
 
 
 def _schedule_due(schedule: dict[str, Any]) -> bool:
@@ -367,6 +505,7 @@ def review_schedule_loop(stop_event: threading.Event) -> None:
     """
     while not stop_event.wait(SCHEDULER_TICK_SECONDS):
         for schedule_id, schedule in list(state.review_schedules_store.items()):
+            purge_expired_review_schedule_logs(schedule_id)
             if not schedule.get("enabled"):
                 continue
             try:

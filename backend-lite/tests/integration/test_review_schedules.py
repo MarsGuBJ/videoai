@@ -1,9 +1,11 @@
 """定时复核任务路由与调度执行契约测试：TestClient 直连，DB 落库与复核接口调用在测试中 mock。"""
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.api.routers.review_schedules as review_schedules_router
@@ -38,6 +40,18 @@ CREATE_PAYLOAD = {
 
 def _seed_stores() -> None:
     state.review_types_store[REVIEW_TYPE_ID] = dict(REVIEW_TYPE_RECORD)
+
+
+@pytest.fixture()
+def review_log_dir(monkeypatch, tmp_path):
+    """把执行失败日志目录隔离到 pytest 临时目录（快照目录沿用真实配置）。"""
+    real = get_settings()
+    fake = SimpleNamespace(
+        snapshot_storage_dir=real.snapshot_storage_dir,
+        review_log_storage_dir=tmp_path / "review-logs",
+    )
+    monkeypatch.setattr(review_schedules_service, "get_settings", lambda: fake)
+    return fake.review_log_storage_dir
 
 
 def _create_review_schedule(client: TestClient, monkeypatch, **overrides) -> dict:
@@ -258,7 +272,7 @@ def test_run_skips_missing_snapshot_and_counts_it(client: TestClient, monkeypatc
     assert len(updated) == 1
 
 
-def test_run_marks_failure_when_review_endpoint_missing(client: TestClient, monkeypatch):
+def test_run_marks_failure_when_review_endpoint_missing(client: TestClient, monkeypatch, review_log_dir):
     created = _create_review_schedule(client, monkeypatch)
     state.review_types_store[REVIEW_TYPE_ID]["review_endpoint"] = None  # 复核类型未配置复核接口
     updated: list = []
@@ -280,6 +294,81 @@ def test_run_unknown_schedule_returns_404(client: TestClient):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Review schedule not found"
+
+
+# ---------------- 执行失败日志 ----------------
+
+
+def test_failed_run_writes_log_and_lists_and_downloads(client: TestClient, monkeypatch, review_log_dir):
+    created = _create_review_schedule(client, monkeypatch)
+    state.review_types_store[REVIEW_TYPE_ID]["review_endpoint"] = None  # 触发判定失败
+    updated: list = []
+    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL)], updated)
+
+    review_schedules_service.execute_review_schedule(created["id"])
+
+    logs = client.get(f"/api/review-schedules/{created['id']}/logs").json()
+    assert len(logs) == 1
+    assert logs[0]["name"].endswith(".log")
+    assert logs[0]["size"] > 0
+    assert logs[0]["createdAt"]
+
+    download = client.get(f"/api/review-schedules/{created['id']}/logs/{logs[0]['name']}")
+    assert download.status_code == 200
+    assert "复核类型未配置复核接口" in download.text
+
+
+def test_successful_run_writes_no_log(client: TestClient, monkeypatch, review_log_dir):
+    created = _create_review_schedule(client, monkeypatch)
+    updated: list = []
+    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL)], updated)
+
+    review_schedules_service.execute_review_schedule(created["id"])
+
+    assert client.get(f"/api/review-schedules/{created['id']}/logs").json() == []
+
+
+def test_list_logs_unknown_schedule_returns_404(client: TestClient):
+    response = client.get(f"/api/review-schedules/{uuid4()}/logs")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Review schedule not found"
+
+
+def test_download_log_rejects_invalid_filename(client: TestClient, monkeypatch, review_log_dir):
+    created = _create_review_schedule(client, monkeypatch)
+
+    assert client.get(f"/api/review-schedules/{created['id']}/logs/../../secret.log").status_code == 404
+    assert client.get(f"/api/review-schedules/{created['id']}/logs/not-a-log.log").status_code == 404
+
+
+def test_purge_removes_logs_older_than_one_month(client: TestClient, monkeypatch, review_log_dir):
+    created = _create_review_schedule(client, monkeypatch)
+    log_dir = review_log_dir / created["id"]
+    log_dir.mkdir(parents=True)
+    old_name = (datetime.now() - timedelta(days=31)).strftime("%Y%m%d-%H%M%S-000000") + ".log"
+    fresh_name = datetime.now().strftime("%Y%m%d-%H%M%S-000000") + ".log"
+    (log_dir / old_name).write_text("old", encoding="utf-8")
+    (log_dir / fresh_name).write_text("fresh", encoding="utf-8")
+
+    review_schedules_service.purge_expired_review_schedule_logs(created["id"])
+
+    names = [item.name for item in log_dir.glob("*.log")]
+    assert old_name not in names
+    assert fresh_name in names
+
+
+def test_delete_schedule_removes_log_dir(client: TestClient, monkeypatch, review_log_dir):
+    monkeypatch.setattr(review_schedules_router, "delete_review_schedule_from_db", lambda schedule_id: None)
+    created = _create_review_schedule(client, monkeypatch)
+    log_dir = review_log_dir / created["id"]
+    log_dir.mkdir(parents=True)
+    (log_dir / "20261001-000000-000000.log").write_text("x", encoding="utf-8")
+
+    response = client.delete(f"/api/review-schedules/{created['id']}")
+
+    assert response.status_code == 200
+    assert not log_dir.exists()
 
 
 # ---------------- 快照读取与 cron 工具 ----------------

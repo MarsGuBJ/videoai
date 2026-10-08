@@ -175,6 +175,12 @@ export type ReviewTask = {
   updatedAt: string;
 };
 
+export type ReviewScheduleLog = {
+  name: string;
+  size: number;
+  createdAt: string;
+};
+
 export type DedupRule = {
   id: string;
   name: string;

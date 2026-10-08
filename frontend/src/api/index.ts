@@ -1,4 +1,4 @@
-import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceLibraryPage, FaceProfile, LlmConfig, LlmConfigPayload, LlmModelsResult, LlmTestResult, ModelGpuConfig, ModelInfo, NvrImportItem, NvrImportPrecheck, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewTask, ReviewType, SearchKeywordStatItem, SpatialConfig, SpatialRegionSyncResult, WindowsCameraStatus, WorkerNode } from '../types';
+import type { AccessCertificate, AccessConfig, AccessGa1400Entry, AccessGb28181Config, AccessGb28181Entry, Algorithm, AlgorithmEngine, AlgorithmVersion, Camera, CloudDeviceItem, CloudPlatform, CloudSyncPrecheck, CloudSyncResult, DedupRule, DedupRulePayload, DeploymentEvent, DeploymentEventPage, DeploymentEventQuery, DeploymentEventStats, DeploymentEventStatsQuery, DeploymentEventSummary, DeploymentTask, DeploymentTaskCreate, EventInfo, EventInfoPayload, FaceEvent, FaceLibraryPage, FaceProfile, LlmConfig, LlmConfigPayload, LlmModelsResult, LlmTestResult, ModelGpuConfig, ModelInfo, NvrImportItem, NvrImportPrecheck, PtzCommandRequest, PtzCommandResponse, PushTask, PushTaskPayload, ReviewSchedule, ReviewScheduleLog, ReviewTask, ReviewType, SearchKeywordStatItem, SpatialConfig, SpatialRegionSyncResult, WindowsCameraStatus, WorkerNode } from '../types';
 
 export type {
   AccessCertificate,
@@ -674,6 +674,11 @@ export const api = {
     request<{ deleted: string }>(`/api/review-schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   runReviewSchedule: (id: string) =>
     request<{ started: string }>(`/api/review-schedules/${encodeURIComponent(id)}/run`, { method: 'POST' }),
+  reviewScheduleLogs: (id: string) =>
+    request<ReviewScheduleLog[]>(`/api/review-schedules/${encodeURIComponent(id)}/logs`),
+  // 日志文件下载地址（浏览器直接拉取，无需经过 request 封装）
+  reviewScheduleLogUrl: (id: string, name: string) =>
+    `${API_BASE_URL}/api/review-schedules/${encodeURIComponent(id)}/logs/${encodeURIComponent(name)}`,
 
   reviewTasks: () => request<ReviewTask[]>('/api/review-tasks'),
   createReviewTask: (form: FormData) => request<ReviewTask>('/api/review-tasks', { method: 'POST', body: form }),

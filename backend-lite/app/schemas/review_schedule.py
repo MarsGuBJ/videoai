@@ -30,3 +30,11 @@ class ReviewScheduleOut(BaseModel):
     lastResult: str
     createdAt: datetime
     updatedAt: datetime
+
+
+class ReviewScheduleLogOut(BaseModel):
+    """一次执行失败的日志文件信息（仅执行有失败时生成）。"""
+
+    name: str
+    size: int
+    createdAt: datetime

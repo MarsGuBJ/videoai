@@ -56,6 +56,10 @@ class Settings(BaseSettings):
         default=PROJECT_ROOT / "storage" / "review-images",
         validation_alias="VIDEOAI_STORAGE_REVIEW_IMAGE_DIR",
     )
+    review_log_storage_dir: Path = Field(
+        default=PROJECT_ROOT / "storage" / "review-logs",
+        validation_alias="VIDEOAI_STORAGE_REVIEW_LOG_DIR",
+    )
     storage_algorithm_dir: Path = Field(
         default=PROJECT_ROOT / "storage" / "algorithms",
         validation_alias="VIDEOAI_STORAGE_ALGORITHM_DIR",
