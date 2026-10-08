@@ -4,7 +4,7 @@
     <div class="detail-header-card"><div><h2>{{ ev.name || "—" }}</h2><p>{{ ev.desc || "—" }}</p><div class="tags"><span class="tag blue">{{ ev.type || "—" }}</span><span class="level-pill" :class="levelClass(ev.level)">{{ ev.level || "—" }}</span><span class="status-pill" :class="statusClass(ev.status)">{{ ev.status || "—" }}</span><span class="tag">{{ ev.area || "—" }} / {{ ev.point || "—" }}</span></div></div><div class="segmented"><button class="btn" @click="openRelatedTask">关联任务</button><button class="btn" :disabled="handling" @click="handleEvent('close')">关闭事件</button></div></div>
     <div class="detail-grid">
       <div class="panel search-panel"><h3 class="form-section-title">告警画面<span class="alarm-view-switch"><button type="button" :class="{ active: alarmView === 'video' }" @click="alarmView = 'video'">视频</button><button type="button" :class="{ active: alarmView === 'image' }" @click="alarmView = 'image'">图片</button></span></h3><div v-if="alarmView === 'video'" class="alarm-video-wrap"><video-player v-if="eventVideo" :url="eventVideo" /><div v-else class="alarm-video-empty">暂无视频画面</div></div><img v-else :src="eventImage" :alt="ev.name" style="width:100%; height:300px; border-radius:6px; object-fit:cover; background:#f2f4f7;" /><div class="tags" style="margin-top:12px;"><span class="tag blue">{{ confidenceText }}</span><span class="tag">已截取关键帧</span><span class="tag">可进入人工复核</span></div></div>
-      <div class="panel search-panel"><h3 class="form-section-title">事件信息</h3><dl class="info-list"><dt>事件ID</dt><dd>{{ ev.id || "—" }}</dd><dt>事件类型</dt><dd>{{ ev.type || "—" }}</dd><dt>事件等级</dt><dd><span class="level-pill" :class="levelClass(ev.level)">{{ ev.level || "—" }}</span></dd><dt>事件来源</dt><dd>{{ ev.eventSource || "—" }}</dd><dt>算法编号</dt><dd>{{ ev.algorithmCode || "—" }}</dd><dt>复核状态</dt><dd>{{ ev.reviewStatus || "—" }}</dd><dt>区域</dt><dd>{{ ev.area || "—" }}</dd><dt>点位</dt><dd>{{ ev.point || "—" }}</dd><dt>发生时间</dt><dd>{{ ev.time || "—" }}</dd><dt>负责人</dt><dd>{{ ev.owner || "—" }}</dd><dt>当前状态</dt><dd><span class="status-pill" :class="statusClass(ev.status)">{{ ev.status || "—" }}</span></dd><dt>处置时间</dt><dd>{{ formattedHandledAt }}</dd><dt>处置说明</dt><dd>{{ ev.handleNote || "—" }}</dd></dl></div>
+      <div class="panel search-panel"><h3 class="form-section-title">事件信息</h3><dl class="info-list"><dt>事件ID</dt><dd>{{ ev.id || "—" }}</dd><dt>事件类型</dt><dd>{{ ev.type || "—" }}</dd><dt>事件等级</dt><dd><span class="level-pill" :class="levelClass(ev.level)">{{ ev.level || "—" }}</span></dd><dt>置信度</dt><dd>{{ confidenceValue }}</dd><dt>事件来源</dt><dd>{{ ev.eventSource || "—" }}</dd><dt>算法编号</dt><dd>{{ ev.algorithmCode || "—" }}</dd><dt>复核状态</dt><dd>{{ ev.reviewStatus || "—" }}</dd><dt>区域</dt><dd>{{ ev.area || "—" }}</dd><dt>点位</dt><dd>{{ ev.point || "—" }}</dd><dt>发生时间</dt><dd>{{ ev.time || "—" }}</dd><dt>负责人</dt><dd>{{ ev.owner || "—" }}</dd><dt>当前状态</dt><dd><span class="status-pill" :class="statusClass(ev.status)">{{ ev.status || "—" }}</span></dd><dt>处置时间</dt><dd>{{ formattedHandledAt }}</dd><dt>处置说明</dt><dd>{{ ev.handleNote || "—" }}</dd></dl></div>
     </div>
   </section>
 </template>
@@ -65,6 +65,7 @@ export default defineComponent({
         cameraId: e.cameraId,
         cameraName: e.cameraName,
         similarity: e.similarity ?? e.raw?.similarity ?? null,
+        objects: e.objects ?? e.raw?.objects ?? null,
         deploymentTaskId: e.deploymentTaskId || null
       };
     },
@@ -86,12 +87,23 @@ export default defineComponent({
       const pad = (n: number) => String(n).padStart(2, "0");
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
     },
+    // 置信度数值（与事件列表同口径）：优先取人脸比对相似度（0-1 自动换算百分数）；
+    // 目标检测类事件回退取检测对象最高得分（score 为 0-1）换算百分数；都缺失显示「—」
+    confidenceValue(): string {
+      const value = this.ev.similarity;
+      if (value != null && !Number.isNaN(Number(value))) {
+        const num = Number(value);
+        return `${(num <= 1 ? num * 100 : num).toFixed(1)}%`;
+      }
+      const scores = ((this.ev.objects) || [])
+        .map((obj: any) => Number(obj?.score))
+        .filter((score: number) => Number.isFinite(score));
+      if (!scores.length) return "—";
+      return `${(Math.max(...scores) * 100).toFixed(1)}%`;
+    },
     // AI置信度：取事件真实相似度（0-1 或百分数），缺失显示占位
     confidenceText(): string {
-      const value = this.ev.similarity;
-      if (value == null || Number.isNaN(Number(value))) return "AI置信度 —";
-      const pct = Number(value) <= 1 ? Number(value) * 100 : Number(value);
-      return `AI置信度 ${pct.toFixed(1)}%`;
+      return `AI置信度 ${this.confidenceValue}`;
     }
   },
   methods: {
