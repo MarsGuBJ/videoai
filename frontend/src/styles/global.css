@@ -79,6 +79,13 @@
        需显式让它横跨整行，右侧内容才真正占满 */
     .app.sidebar-hidden .shell {
       grid-column: 1 / -1;
+      /* 顶栏同时被 v-if 移除：43px 顶栏行一并去掉，工作区占满整列 */
+      grid-template-rows: 1fr;
+    }
+
+    /* 顶栏移除后 .workspace 会成为 .shell 第一个子项，显式占据第一行，避免被塞进空出的第二行 */
+    .app.sidebar-hidden .workspace {
+      grid-row: 1 / -1;
     }
 
     .sidebar {

@@ -75,7 +75,7 @@ export default defineComponent({
     };
   },
   computed: {
-    // URL 含 lm=no 参数时隐藏左侧菜单树（仅首次加载时判定，路由跳转不受影响）
+    // URL 含 lm=no 参数时隐藏左侧菜单树和顶部 banner（面包屑 + 账号栏）（仅首次加载时判定，路由跳转不受影响）
     sidebarHidden(): boolean {
       return /[?&]lm=no(?:&|$|#)/.test(window.location.href);
     }
@@ -526,7 +526,7 @@ export default defineComponent({
   <div class="app" :class="{ 'sidebar-collapsed': sidebarCollapsed, 'sidebar-hidden': sidebarHidden }">
     <app-sidebar v-if="!sidebarHidden" :groups="store.navGroups" :route="state.route" :collapsed="sidebarCollapsed" @navigate="handleNav" @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"></app-sidebar>
     <section class="shell">
-      <app-topbar :route="state.route" :names="store.routeNames"></app-topbar>
+      <app-topbar v-if="!sidebarHidden" :route="state.route" :names="store.routeNames"></app-topbar>
       <main class="workspace" id="workspace">
         <div class="workspace-inner">
           <!-- 文搜视频页用 keep-alive 缓存：切到其它页面时组件不卸载，播放器（含 NVR 流 / 本地视频）继续播放，返回后原样恢复；
