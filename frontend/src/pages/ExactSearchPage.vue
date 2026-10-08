@@ -1089,7 +1089,7 @@ export default defineComponent({
       const selectedCamera = this.selectedCamera as any;
       const analysisUrl = analysisUrlFor(selectedCamera);
       // 时间段约束兜底（控件已做交互限制，这里防手动输入绕过）：
-      // 开始时间必须早于结束时间，且开始/结束时间都不能晚于当前时间
+      // 开始时间必须早于结束时间、跨度不超过 24 小时，且开始/结束时间都不能晚于当前时间
       const rangeStart = this.onlineStart.trim().replace("T", " ");
       const rangeEnd = this.onlineEnd.trim().replace("T", " ");
       const rangeStartMs = parseLocalMs(rangeStart);
@@ -1097,6 +1097,10 @@ export default defineComponent({
       if (rangeStartMs && rangeEndMs) {
         if (rangeStartMs >= rangeEndMs) {
           this.showToast("开始时间必须早于结束时间");
+          return;
+        }
+        if (rangeEndMs - rangeStartMs > 24 * 60 * 60 * 1000) {
+          this.showToast("仅允许搜索录像时长不超过24小时");
           return;
         }
         const nowMs = Date.now();
