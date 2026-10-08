@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.schemas.face import FaceProfileResponse, MatchRequest, MatchResponse
 from app.services.faces import cosine_similarity
 
-router = APIRouter()
+router = APIRouter(tags=["内部接口"])
 
 
 @router.post("/api/internal/match", response_model=MatchResponse)

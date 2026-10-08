@@ -51,7 +51,7 @@ EVENT_STREAM_KEEPALIVE_SECONDS = 15
 DEPLOYMENT_EVENTS_DEFAULT_PAGE_SIZE = 20
 DEPLOYMENT_EVENTS_MAX_PAGE_SIZE = 100
 
-router = APIRouter()
+router = APIRouter(tags=["事件"])
 
 
 @router.get("/api/deployment-events", response_model=DeploymentEventPage)

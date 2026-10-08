@@ -3,6 +3,7 @@ package com.videoai.monitoring.api;
 import com.videoai.monitoring.common.dto.SpatialConfigUpdateRequest;
 import com.videoai.monitoring.common.vo.SpatialConfigResponse;
 import com.videoai.monitoring.common.vo.SpatialRegionSyncResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
  * <p>从空间服务 {@code /spatialServer/spatialInfo/tree} 读取园区/区域/楼栋/楼层，
  * 只新增区域树中缺失的节点，已存在的区域结构不做任何修改；空间服务基址可在界面配置。</p>
  */
+@Tag(name = "空间区域同步")
 @RequestMapping("/api/regions")
 public interface SpatialRegionApi {
 

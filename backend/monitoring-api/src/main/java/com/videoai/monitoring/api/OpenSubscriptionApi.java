@@ -2,6 +2,7 @@ package com.videoai.monitoring.api;
 
 import com.videoai.monitoring.common.dto.OpenSubscriptionRequest;
 import com.videoai.monitoring.common.vo.OpenSubscriptionResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,6 +19,7 @@ import java.util.UUID;
  * 在线/离线状态变化时主动向回调地址 POST 推送。注册成功后立即推送全量快照。
  * Implemented by a controller in monitoring-core.
  */
+@Tag(name = "开放订阅")
 @RequestMapping("/api/open/subscriptions")
 public interface OpenSubscriptionApi {
 

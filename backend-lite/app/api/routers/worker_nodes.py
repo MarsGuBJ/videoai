@@ -6,7 +6,7 @@ from app import state
 from app.schemas.worker_node import WorkerHeartbeatIn, WorkerNodeOut
 from app.services.worker_nodes import record_worker_heartbeat, worker_node_out
 
-router = APIRouter()
+router = APIRouter(tags=["Worker 节点"])
 
 
 @router.post("/api/internal/workers/heartbeat", response_model=WorkerNodeOut)

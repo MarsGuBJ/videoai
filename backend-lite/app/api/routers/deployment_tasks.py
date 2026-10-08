@@ -21,7 +21,7 @@ from app.services.deployment_tasks import (
 )
 from app.services.worker_streams import sync_worker_streams_for_task
 
-router = APIRouter()
+router = APIRouter(tags=["部署任务"])
 
 
 @router.get("/api/deployment-tasks", response_model=list[DeploymentTaskResponse])

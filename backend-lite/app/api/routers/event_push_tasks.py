@@ -14,7 +14,7 @@ from app.services.event_push_tasks import (
     require_push_task,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["事件推送任务"])
 
 
 @router.get("/api/event-push-tasks", response_model=list[PushTaskOut])

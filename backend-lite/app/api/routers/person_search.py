@@ -32,7 +32,7 @@ TEXT_SEARCH_MAX_PAGE_SIZE = 100
 DEFAULT_SEARCH_TOP_K = 10
 DEFAULT_SEARCH_METHOD = "reid"
 
-router = APIRouter()
+router = APIRouter(tags=["人员检索"])
 
 
 @router.post("/api/person-search/images", response_model=PersonSearchImageResponse)

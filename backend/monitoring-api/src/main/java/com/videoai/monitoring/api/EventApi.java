@@ -2,6 +2,7 @@ package com.videoai.monitoring.api;
 
 import com.videoai.monitoring.common.dto.FaceEventIngestRequest;
 import com.videoai.monitoring.common.vo.FaceEventResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,6 +18,7 @@ import java.util.UUID;
  * Face event API contract. Implemented by a controller in monitoring-core and
  * proxied via Feign in monitoring-api-rpc (the SSE stream method excluded).
  */
+@Tag(name = "事件管理")
 @RequestMapping("/api/events")
 public interface EventApi {
 

@@ -16,7 +16,7 @@ from app.services.event_infos import (
     require_event_info,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["事件信息"])
 
 
 @router.get("/api/event-infos", response_model=list[EventInfoOut])

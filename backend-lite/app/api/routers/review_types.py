@@ -16,7 +16,7 @@ from app.services.review_types import (
     review_type_out,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["复核类型"])
 
 
 @router.get("/api/review-types", response_model=list[ReviewTypeOut])

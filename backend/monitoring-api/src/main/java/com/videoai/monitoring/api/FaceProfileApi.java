@@ -1,6 +1,7 @@
 package com.videoai.monitoring.api;
 
 import com.videoai.monitoring.common.vo.FaceProfileResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,6 +21,7 @@ import java.util.UUID;
  * controller in monitoring-core and proxied via Feign in monitoring-api-rpc
  * (multipart methods excluded there).
  */
+@Tag(name = "人脸档案")
 @Validated
 @RequestMapping("/api/faces")
 public interface FaceProfileApi {

@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from app.schemas.face_library import FaceLibraryPageRequest, FaceLibraryPageResponse
 from app.services.face_library import query_face_page
 
-router = APIRouter()
+router = APIRouter(tags=["人脸库"])
 
 
 @router.post("/api/face-library/page", response_model=FaceLibraryPageResponse)

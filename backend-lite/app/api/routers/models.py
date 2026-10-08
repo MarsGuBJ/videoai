@@ -20,7 +20,7 @@ from app.services.triton import (
     update_model_state,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["模型"])
 
 
 @router.get("/api/models")

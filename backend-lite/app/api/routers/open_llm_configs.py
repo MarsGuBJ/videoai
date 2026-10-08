@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from app.schemas.llm_config import LlmConfigOpenOut
 from app.services.llm_configs import llm_config_open_out, require_llm_config
 
-router = APIRouter()
+router = APIRouter(tags=["开放大模型配置"])
 
 
 @router.get("/api/open/llm-configs/{model_config_id}", response_model=LlmConfigOpenOut)

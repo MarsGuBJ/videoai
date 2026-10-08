@@ -14,7 +14,7 @@ from app.services import camera_cache
 from app.services.person_search import required_text
 from app.services.recordings import download_recording, search_recordings
 
-router = APIRouter()
+router = APIRouter(tags=["录像回放"])
 
 STREAM_FORMAT = "flv"
 # 与 MCP PLAYBACK_SPEEDS 一致：现场海康 NVR（10.10.7.252/253）RTSP 回放 Scale 实测支持档位

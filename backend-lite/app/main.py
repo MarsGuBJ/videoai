@@ -66,6 +66,31 @@ _ROUTERS = (
     worker_nodes.router,
 )
 
+_TAG_NAMES = (
+    "健康检查",
+    "算法",
+    "部署任务",
+    "人脸",
+    "人脸库",
+    "人员检索",
+    "视频分析",
+    "录像回放",
+    "事件",
+    "内部接口",
+    "模型",
+    "Windows 摄像头",
+    "大模型配置",
+    "开放大模型配置",
+    "复核任务",
+    "复核计划",
+    "复核类型",
+    "检索关键词",
+    "事件信息",
+    "事件去重规则",
+    "事件推送任务",
+    "Worker 节点",
+)
+
 async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
     """把 AppError 转为 {code, message, traceId}（仅新增字段，不改既有契约）。
 
@@ -89,7 +114,13 @@ def create_app() -> FastAPI:
         完成中间件、异常处理与路由注册的 app。
     """
     setup_logging()
-    app = FastAPI(title="VideoAI Lite Backend", lifespan=lifespan)
+    app = FastAPI(
+        title="VideoAI Lite Backend",
+        description="视觉大模型平台轻量后端 API",
+        version="0.1.0",
+        openapi_tags=[{"name": name} for name in _TAG_NAMES],
+        lifespan=lifespan,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -105,7 +136,7 @@ def create_app() -> FastAPI:
     if FRONTEND_DIST.is_dir():
         app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="frontend_assets")
 
-        @app.get("/{full_path:path}")
+        @app.get("/{full_path:path}", include_in_schema=False)
         async def serve_frontend(full_path: str) -> FileResponse:
             """SPA 兜底路由：非 /api 路径一律回退到 index.html。"""
             if full_path.startswith("api/"):

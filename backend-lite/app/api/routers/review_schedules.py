@@ -1,23 +1,27 @@
-"""定时复核任务 CRUD 与手动触发路由。"""
+"""定时复核任务 CRUD、手动触发与失败日志路由。"""
 
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
 from app import state
-from app.schemas.review_schedule import ReviewScheduleOut, ReviewSchedulePayload
+from app.schemas.review_schedule import ReviewScheduleLogOut, ReviewScheduleOut, ReviewSchedulePayload
 from app.services.review_schedules import (
     delete_review_schedule_from_db,
+    delete_review_schedule_logs,
+    list_review_schedule_logs,
     persist_review_schedule,
     require_review_schedule,
+    review_schedule_log_path,
     review_schedule_out,
     trigger_review_schedule,
     validate_cron,
 )
 from app.services.review_types import require_review_type
 
-router = APIRouter()
+router = APIRouter(tags=["复核计划"])
 
 
 def _validate_cron_or_422(expr: str) -> None:
@@ -88,11 +92,12 @@ def update_review_schedule(schedule_id: str, request: ReviewSchedulePayload) -> 
 
 @router.delete("/api/review-schedules/{schedule_id}")
 def delete_review_schedule(schedule_id: str) -> dict[str, str]:
-    """删除定时复核任务：移出内存并删库。"""
+    """删除定时复核任务：移出内存、删库并清理其失败日志目录。"""
     record = state.review_schedules_store.pop(schedule_id, None)
     if not record:
         raise HTTPException(status_code=404, detail="Review schedule not found")
     delete_review_schedule_from_db(schedule_id)
+    delete_review_schedule_logs(schedule_id)
     return {"deleted": schedule_id}
 
 
@@ -102,3 +107,23 @@ def run_review_schedule(schedule_id: str) -> dict[str, str]:
     require_review_schedule(schedule_id)
     trigger_review_schedule(schedule_id)
     return {"started": schedule_id}
+
+
+@router.get("/api/review-schedules/{schedule_id}/logs", response_model=list[ReviewScheduleLogOut])
+def list_review_schedule_log_files(schedule_id: str) -> list[ReviewScheduleLogOut]:
+    """列出定时复核任务的历次执行失败日志（按时间倒序；无失败则无日志文件）。"""
+    require_review_schedule(schedule_id)
+    return [
+        ReviewScheduleLogOut(name=str(item["name"]), size=int(item["size"]), createdAt=item["created_at"])
+        for item in list_review_schedule_logs(schedule_id)
+    ]
+
+
+@router.get("/api/review-schedules/{schedule_id}/logs/{filename}")
+def download_review_schedule_log(schedule_id: str, filename: str) -> FileResponse:
+    """下载一份执行失败日志文件（文件名严格校验，防目录穿越）。"""
+    require_review_schedule(schedule_id)
+    path = review_schedule_log_path(schedule_id, filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Review schedule log not found")
+    return FileResponse(path, filename=filename)

@@ -7,6 +7,7 @@ import com.videoai.monitoring.common.dto.SourceProbeRequest;
 import com.videoai.monitoring.common.vo.CameraResponse;
 import com.videoai.monitoring.common.vo.PtzControlResponse;
 import com.videoai.monitoring.common.vo.SourceProbeResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +25,7 @@ import java.util.UUID;
  * Camera management API contract. Implemented by a controller in
  * monitoring-core and proxied via Feign in monitoring-api-rpc.
  */
+@Tag(name = "摄像头管理")
 @RequestMapping("/api/cameras")
 public interface CameraApi {
 

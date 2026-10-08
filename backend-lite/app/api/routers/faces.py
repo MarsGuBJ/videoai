@@ -14,7 +14,7 @@ from app.schemas.face import FaceProfileResponse, FaceUploadRequest
 from app.services.faces import persist_face_embeddings, persist_faces, refresh_face_embedding, require_face
 from app.utils.assets import delete_face_photo, save_face_photo
 
-router = APIRouter()
+router = APIRouter(tags=["人脸"])
 
 
 @router.get("/api/faces", response_model=list[FaceProfileResponse])

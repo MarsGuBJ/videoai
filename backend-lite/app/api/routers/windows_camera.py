@@ -14,7 +14,7 @@ from app.services.windows_camera import (
     windows_rtmp_publish_url,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["Windows 摄像头"])
 
 
 @router.get("/api/windows-camera/status", response_model=WindowsCameraStatus)

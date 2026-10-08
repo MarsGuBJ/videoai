@@ -4,6 +4,7 @@ import com.videoai.monitoring.common.dto.RegionCreateRequest;
 import com.videoai.monitoring.common.dto.RegionReorderRequest;
 import com.videoai.monitoring.common.dto.RegionUpdateRequest;
 import com.videoai.monitoring.common.vo.RegionNodeResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,6 +20,7 @@ import java.util.UUID;
 /**
  * Region tree API contract. Implemented by a controller in monitoring-core.
  */
+@Tag(name = "区域管理")
 @RequestMapping("/api/regions")
 public interface RegionApi {
 

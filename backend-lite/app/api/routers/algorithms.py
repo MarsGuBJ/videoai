@@ -12,7 +12,7 @@ from app.schemas.algorithm import (
 )
 from app.services import algorithms as algorithm_service
 
-router = APIRouter()
+router = APIRouter(tags=["算法"])
 
 
 @router.get("/api/algorithm-engines", response_model=list[EngineTypeInfo])

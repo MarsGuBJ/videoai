@@ -1,6 +1,7 @@
 package com.videoai.monitoring.api;
 
 import com.videoai.monitoring.common.vo.OpenDeviceResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,6 +16,7 @@ import java.util.UUID;
  * FLV 视频流链接。流链接在请求时才动态建立视频流（按需挂流）。
  * Implemented by a controller in monitoring-core.
  */
+@Tag(name = "开放设备")
 @RequestMapping("/api/open/devices")
 public interface OpenDeviceApi {
 

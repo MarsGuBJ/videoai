@@ -3,6 +3,7 @@ package com.videoai.monitoring.api;
 import com.videoai.monitoring.common.dto.ModelRegisterRequest;
 import com.videoai.monitoring.common.vo.ModelConfigResponse;
 import com.videoai.monitoring.common.vo.ModelResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,6 +17,7 @@ import java.util.List;
  * Model registry API contract. Implemented by a controller in monitoring-core
  * and proxied via Feign in monitoring-api-rpc.
  */
+@Tag(name = "模型管理")
 @RequestMapping("/api/models")
 public interface ModelApi {
 

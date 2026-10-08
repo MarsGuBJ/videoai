@@ -13,7 +13,7 @@ from app.services.search_keywords import SEARCH_TYPE_TEXT_VIDEO, record_search_k
 from app.services.video_analysis import extract_video_frame, mcp_recording_export, open_video_stream, video_analysis_api_post
 from app.services.video_storage import save_analysis_video
 
-router = APIRouter()
+router = APIRouter(tags=["视频分析"])
 
 # 代理播放时透传给客户端的上游响应头
 VIDEO_STREAM_PASSTHROUGH_HEADERS = ("content-length", "content-range", "accept-ranges", "content-type", "etag", "last-modified")

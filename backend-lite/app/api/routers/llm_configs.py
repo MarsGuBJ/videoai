@@ -16,7 +16,7 @@ from app.services.llm_configs import (
     test_llm_connection,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["大模型配置"])
 
 
 @router.get("/api/llm-configs", response_model=list[LlmConfigOut])

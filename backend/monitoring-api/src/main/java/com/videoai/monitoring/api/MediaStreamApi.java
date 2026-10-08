@@ -1,5 +1,6 @@
 package com.videoai.monitoring.api;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,6 +22,7 @@ import java.util.UUID;
  * RPC-shared contract. Implementations can still obtain the current request via
  * {@code RequestContextHolder} if query forwarding is needed.
  */
+@Tag(name = "媒体流分发")
 public interface MediaStreamApi {
 
     @GetMapping("/api/live/{streamName}.live.flv")

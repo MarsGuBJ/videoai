@@ -6,6 +6,7 @@ import com.videoai.monitoring.common.dto.CloudSyncRequest;
 import com.videoai.monitoring.common.vo.CloudPlatformResponse;
 import com.videoai.monitoring.common.vo.CloudSyncPrecheckResponse;
 import com.videoai.monitoring.common.vo.CloudSyncResultResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,6 +23,7 @@ import java.util.UUID;
  * Cloud platform configuration API contract. Implemented by a controller in
  * monitoring-core and proxied via Feign in monitoring-api-rpc.
  */
+@Tag(name = "云平台配置")
 @RequestMapping("/api/cloud-platforms")
 public interface CloudPlatformApi {
 

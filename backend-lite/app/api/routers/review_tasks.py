@@ -21,7 +21,7 @@ from app.services.review_tasks import (
 from app.services.review_types import require_review_type
 from app.utils.assets import asset_path, save_review_image
 
-router = APIRouter()
+router = APIRouter(tags=["复核任务"])
 
 
 @router.get("/api/review-tasks", response_model=list[ReviewTaskOut])

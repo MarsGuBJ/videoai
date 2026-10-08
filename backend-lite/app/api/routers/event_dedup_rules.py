@@ -14,7 +14,7 @@ from app.services.event_dedup_rules import (
     require_dedup_rule,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["事件去重规则"])
 
 
 @router.get("/api/event-dedup-rules", response_model=list[DedupRuleOut])

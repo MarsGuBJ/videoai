@@ -12,7 +12,7 @@ from app.services.search_keywords import (
     search_keyword_stats,
 )
 
-router = APIRouter()
+router = APIRouter(tags=["检索关键词"])
 
 
 @router.get("/api/search-keywords", response_model=list[SearchKeywordOut])

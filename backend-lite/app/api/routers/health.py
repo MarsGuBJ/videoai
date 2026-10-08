@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from app.schemas.health import HealthResponse
 
-router = APIRouter()
+router = APIRouter(tags=["健康检查"])
 
 
 @router.get("/api/health", response_model=HealthResponse)

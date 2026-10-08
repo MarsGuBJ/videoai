@@ -15,6 +15,7 @@ import com.videoai.monitoring.common.vo.CloudSyncResultResponse;
 import com.videoai.monitoring.common.vo.Ga1400EntryResponse;
 import com.videoai.monitoring.common.vo.Gb28181EntryResponse;
 import com.videoai.monitoring.common.vo.HostIpsResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,6 +33,7 @@ import java.util.UUID;
  * Implemented by a controller in monitoring-core and proxied via Feign in
  * monitoring-api-rpc.
  */
+@Tag(name = "接入配置")
 @RequestMapping("/api/access-config")
 public interface AccessConfigApi {
 
