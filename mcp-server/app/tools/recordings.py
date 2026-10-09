@@ -19,6 +19,7 @@ from ..context import (
     recording_cache,
     recording_mp4_storage,
     settings,
+    storage_bindings,
     videoai,
 )
 from ..hcnetsdk_playback import (
@@ -76,7 +77,9 @@ async def export_recording(trackId: str = "", startTime: str = "", endTime: str 
     if camera_id:
         # 按摄像头定位其 NVR（sourceUrl 直连 IPC 时反查所属 NVR），SDK 按时间下载，非实时抓流
         camera = await videoai.get_camera(camera_id)
-        credentials = await resolve_device_credentials(camera, channel_lookup, known_nvr_hosts)
+        credentials = await resolve_device_credentials(
+            camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+        )
         downloader = nvr_devices.proxy_for_credentials(credentials)
         data = await export_recording_via_downloader(
             downloader, credentials.track_id, credentials.channel, start, end
@@ -205,7 +208,9 @@ async def search_camera_recordings(
     """
     camera = await videoai.get_camera(camera_id)
     # 解析 NVR 凭据（反查未命中且未绑定时报 ValueError）
-    credentials = await resolve_device_credentials(camera, channel_lookup, known_nvr_hosts)
+    credentials = await resolve_device_credentials(
+        camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+    )
     recordings = await search_segments(
         camera, start, end, limit, timeout=settings.request_timeout_seconds, credentials=credentials
     )
@@ -308,7 +313,9 @@ async def resolve_playback_proxy(recording: RecordingSegment) -> HcNetSdkPlaybac
     if not device_host or device_host == hcnetsdk_playback.host:
         return hcnetsdk_playback
     camera = await videoai.get_camera(recording.cameraId)
-    credentials = await resolve_device_credentials(camera, channel_lookup, known_nvr_hosts)
+    credentials = await resolve_device_credentials(
+        camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+    )
     return nvr_devices.proxy_for_credentials(credentials)
 
 
@@ -329,7 +336,9 @@ async def download_recording(
     camera_id = (cameraId or "").strip()
     if camera_id:
         camera = await videoai.get_camera(camera_id)
-        credentials = await resolve_device_credentials(camera, channel_lookup, known_nvr_hosts)
+        credentials = await resolve_device_credentials(
+            camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+        )
         downloader = nvr_devices.proxy_for_credentials(credentials)
         start = parse_datetime(startTime)
         end = parse_datetime(endTime)

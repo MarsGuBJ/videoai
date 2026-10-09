@@ -1,12 +1,12 @@
 <script lang="ts">
 import * as XLSX from "xlsx";
 import { api, sameOriginAssetUrl } from "../api";
-import type { RecordingSegment } from "../api";
+import type { RecordingSegment, ResolvedStorageBinding } from "../api";
 import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceLibraryRecord, NvrImportPrecheck, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { deviceStatusLabel, onlineStatusOf, streamStatusLabel } from "../utils/device-status";
 import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../utils/player-settings";
-import { computeSourceUrl, flattenRegionTree, loadRegionTree } from "../utils/regions";
+import { computeSourceUrl, flattenRegionTree, loadRegionTree, normalizePath } from "../utils/regions";
 import { normalizeProtocol } from "../utils/protocol";
 import { resolveEventAlgorithm } from "../utils/algorithm-binding";
 import type { FlatRegionNode } from "../utils/regions";
@@ -168,6 +168,26 @@ export default {
       nvrBusy: false,
       nvrTargetArea: "",
       nvrAreaOptions: [] as string[],
+      // 录像存储配置弹窗：设备列表 + 区域筛选 + 存储设备映射（cameraId → 实际生效的存储设备IP）
+      storageCameras: [] as Camera[],
+      storageRegions: [] as FlatRegionNode[],
+      storageBindings: {} as Record<string, string>,
+      // 显式绑定的设备（只有这些可通过「解除关联」解除；回放链路解析出的关联不可在此解除）
+      storageBoundIds: {} as Record<string, boolean>,
+      storageLoading: false,
+      storageError: "",
+      storageFilterArea: "全部区域",
+      storageFilterName: "",
+      storageFilterIp: "",
+      // 存储设备筛选："全部" / "未关联"（默认）/ 具体 NVR/CVR 地址
+      storageFilterHost: "未关联",
+      storageSelected: [] as string[],
+      // 「关联存储」二级弹窗（仿人脸库选取内嵌层）
+      storageBindOpen: false,
+      storageHost: "",
+      storageUsername: "",
+      storagePassword: "",
+      storageBusy: false,
       // 录像下载弹窗（上下文来自回放页 openModal('recordDownload', { camera, startTime, endTime })）
       recordDownloadStart: "",
       recordDownloadEnd: "",
@@ -292,6 +312,38 @@ export default {
     nvrAllChecked(): boolean {
       return this.nvrItems.length > 0 && this.nvrCheckedItems.length === this.nvrItems.length;
     },
+    // --- 录像存储配置弹窗 ---
+    // 区域筛选下拉：与设备管理页同一口径，按层级缩进显示
+    storageAreaOptions(): { fullPath: string; label: string }[] {
+      return this.storageRegions.map((item) => ({ fullPath: item.fullPath, label: "　".repeat(item.depth) + item.name }));
+    },
+    // 存储设备筛选下拉：去重后的已关联 NVR/CVR 地址（「全部」「未关联」在模板中固定）
+    storageHostOptions(): string[] {
+      const hosts = Object.values(this.storageBindings).filter((host): host is string => !!host);
+      return [...new Set(hosts)].sort();
+    },
+    // 前端本地过滤：区域含下级区域，名称/IP 不区分大小写子串匹配，存储设备按绑定地址精确匹配
+    storageFilteredCameras(): Camera[] {
+      const name = this.storageFilterName.toLowerCase();
+      const ip = this.storageFilterIp.toLowerCase();
+      return this.storageCameras.filter((camera) => {
+        const area = this.storageAreaOf(camera);
+        const matchesArea = this.storageFilterArea === "全部区域" || area === this.storageFilterArea || area.startsWith(this.storageFilterArea + " / ");
+        const matchesName = !name || String(camera.name || "").toLowerCase().includes(name);
+        const matchesIp = !ip || String(camera.ip || "").toLowerCase().includes(ip);
+        const bound = this.storageBindings[camera.id] || "";
+        const matchesHost = this.storageFilterHost === "全部" || (this.storageFilterHost === "未关联" ? !bound : bound === this.storageFilterHost);
+        return matchesArea && matchesName && matchesIp && matchesHost;
+      });
+    },
+    storageAllChecked(): boolean {
+      const rows = this.storageFilteredCameras;
+      return rows.length > 0 && rows.every((camera) => this.storageSelected.includes(camera.id));
+    },
+    // 勾选集合中显式绑定存储的设备：只有这些设备可以「解除关联」
+    storageBoundSelectedIds(): string[] {
+      return this.storageSelected.filter((id) => !!this.storageBoundIds[id]);
+    },
     recordDownloadCamera(): any {
       return (this.modal.item && this.modal.item.camera) || null;
     },
@@ -362,6 +414,16 @@ export default {
       // 切换算法后重置布控目标，避免人脸错挂到其他引擎
       this.deployFaceLibraryPhoto = null;
     },
+    // 关联存储提交成功后 App 端递增 refreshToken：关闭二级表单、清空勾选并刷新绑定列表
+    "modal.item.refreshToken"() {
+      if (!this.modal.open || this.modal.type !== "mediaStorage") return;
+      this.storageBindOpen = false;
+      this.storageHost = "";
+      this.storageUsername = "";
+      this.storagePassword = "";
+      this.storageSelected = [];
+      this.reloadStorageBindings();
+    },
     "modal.open"(open: boolean) {
       if (!open) {
         // 关闭上传复核任务弹窗时重置表单并释放图片预览 URL
@@ -392,6 +454,8 @@ export default {
         this.initCloudSync();
       } else if (this.modal.type === "mediaNvrImport") {
         this.initNvrImport();
+      } else if (this.modal.type === "mediaStorage") {
+        this.initStorageConfig();
       } else if (this.modal.type === "mediaCapability") {
         this.initCapabilityForm();
       } else if (this.modal.type === "mediaRegion") {
@@ -610,6 +674,119 @@ export default {
         this.showToast(error instanceof Error ? error.message : "NVR/CVR 导入失败");
       } finally {
         this.nvrBusy = false;
+      }
+    },
+    // --- 录像存储配置弹窗 ---
+    initStorageConfig() {
+      // modal.item 供 App.submitModal 读取关联参数/回写 refreshToken，打开时确保是对象
+      if (!this.modal.item) this.modal.item = {};
+      this.storageCameras = [];
+      this.storageRegions = [];
+      this.storageBindings = {};
+      this.storageBoundIds = {};
+      this.storageError = "";
+      this.storageFilterArea = "全部区域";
+      this.storageFilterName = "";
+      this.storageFilterIp = "";
+      this.storageFilterHost = "未关联";
+      this.storageSelected = [];
+      this.storageBindOpen = false;
+      this.storageHost = "";
+      this.storageUsername = "";
+      this.storagePassword = "";
+      this.storageBusy = false;
+      this.loadStorageData();
+    },
+    async loadStorageData() {
+      this.storageLoading = true;
+      this.storageError = "";
+      try {
+        const [cameras, regionTree, resolved] = await Promise.all([api.cameras(), loadRegionTree(), api.storageBindingsResolved()]);
+        this.storageCameras = cameras || [];
+        this.storageRegions = flattenRegionTree(regionTree);
+        this.applyResolvedBindings(resolved);
+      } catch (error) {
+        this.storageError = `加载失败：${error instanceof Error ? error.message : error}`;
+      } finally {
+        this.storageLoading = false;
+      }
+    },
+    // 存储设备映射单独刷新（关联/解除关联后调用），不重拉设备与区域树
+    async reloadStorageBindings() {
+      try {
+        this.applyResolvedBindings(await api.storageBindingsResolved());
+      } catch (error) {
+        this.showToast(`存储关联状态刷新失败：${error instanceof Error ? error.message : error}`);
+      }
+    },
+    // resolved 接口返回设备实际生效的存储设备（显式绑定 + 回放链路解析出的 NVR/CVR）；
+    // storageBindings 供列表「存储设备」列与筛选，storageBoundIds 标记显式绑定（可解除）
+    applyResolvedBindings(resolved: ResolvedStorageBinding[]) {
+      const map: Record<string, string> = {};
+      const boundIds: Record<string, boolean> = {};
+      (resolved || []).forEach((item) => {
+        if (!item || !item.cameraId) return;
+        map[item.cameraId] = item.storageHost || "已关联";
+        if (item.bound) boundIds[item.cameraId] = true;
+      });
+      this.storageBindings = map;
+      this.storageBoundIds = boundIds;
+    },
+    storageAreaOf(camera: Camera): string {
+      return normalizePath(camera.area || "") || "未分配";
+    },
+    toggleStorageAll(event: any) {
+      const checked = !!(event.target && event.target.checked);
+      const filteredIds = this.storageFilteredCameras.map((camera) => camera.id);
+      if (checked) {
+        this.storageSelected = Array.from(new Set([...this.storageSelected, ...filteredIds]));
+      } else {
+        this.storageSelected = this.storageSelected.filter((id) => !filteredIds.includes(id));
+      }
+    },
+    openStorageBind() {
+      if (!this.storageSelected.length) return;
+      this.storageHost = "";
+      this.storageUsername = "";
+      this.storagePassword = "";
+      this.storageBindOpen = true;
+    },
+    closeStorageBind() {
+      this.storageBindOpen = false;
+    },
+    // 二级弹窗「确定」：把关联参数写回 modal.item 并走 App 主提交流程；
+    // 提交成功后由 refreshToken watcher 关闭二级层并刷新列表
+    confirmStorageBind() {
+      if (!this.storageHost || !this.storageUsername || !this.storagePassword) {
+        this.showToast("请填写存储设备 IP、账号和密码");
+        return;
+      }
+      // 附带设备名称映射，关联结果提示跳过明细时按名称展示
+      const nameById = Object.fromEntries(this.storageCameras.map((camera) => [camera.id, camera.name]));
+      this.modal.item = {
+        ...this.modal.item,
+        cameraIds: [...this.storageSelected],
+        cameraNames: nameById,
+        storageHost: this.storageHost,
+        username: this.storageUsername,
+        password: this.storagePassword
+      };
+      this.$emit("submit", "mediaStorage");
+    },
+    async unbindStorageSelected() {
+      const ids = this.storageBoundSelectedIds;
+      if (!ids.length || this.storageBusy) return;
+      if (!window.confirm(`确认解除 ${ids.length} 台设备的存储关联？`)) return;
+      this.storageBusy = true;
+      try {
+        const result = await api.unbindStorage(ids);
+        this.showToast(`已解除 ${result.unbound} 台设备的存储关联`);
+        this.storageSelected = this.storageSelected.filter((id) => !ids.includes(id));
+        await this.reloadStorageBindings();
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "解除关联失败，请稍后重试");
+      } finally {
+        this.storageBusy = false;
       }
     },
     // 能力配置弹窗：回填勾选设备当前的云台开关（全部勾选设备都开启时才勾上），用户可再编辑
@@ -2108,6 +2285,25 @@ export default {
             </table>
           </div>
         </template>
+        <template v-if="modal.type === 'mediaStorage'">
+          <div class="modal-form-grid">
+            <div class="modal-form-row"><label>所在区域：</label><select class="select" v-model="storageFilterArea"><option>全部区域</option><option v-for="option in storageAreaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></div>
+            <div class="modal-form-row"><label>设备名称：</label><input class="input" v-model.trim="storageFilterName" placeholder="请输入设备名称" /></div>
+            <div class="modal-form-row"><label>IP地址：</label><input class="input" v-model.trim="storageFilterIp" placeholder="请输入 IP 地址" /></div>
+            <div class="modal-form-row"><label>存储设备：</label><select class="select" v-model="storageFilterHost"><option>未关联</option><option>全部</option><option v-for="host in storageHostOptions" :key="host" :value="host">{{ host }}</option></select></div>
+          </div>
+          <div class="modal-summary-strip"><strong>设备列表</strong><span>共 {{ storageFilteredCameras.length }} 台，已选 {{ storageSelected.length }} 台</span></div>
+          <p v-if="storageError" class="modal-hint danger">{{ storageError }}</p>
+          <div class="modal-table-wrap">
+            <table class="prototype-table">
+              <thead><tr><th style="width:36px;"><input type="checkbox" :checked="storageAllChecked" :disabled="!storageFilteredCameras.length" aria-label="全选设备" @change="toggleStorageAll" /></th><th>设备名称</th><th>IP地址</th><th>所在区域</th><th>存储设备</th></tr></thead>
+              <tbody>
+                <tr v-for="camera in storageFilteredCameras" :key="camera.id"><td><input type="checkbox" v-model="storageSelected" :value="camera.id" :aria-label="'选择设备' + camera.name" /></td><td>{{ camera.name }}</td><td>{{ camera.ip || '-' }}</td><td>{{ storageAreaOf(camera) }}</td><td>{{ storageBindings[camera.id] || '未关联' }}</td></tr>
+                <tr v-if="!storageFilteredCameras.length"><td colspan="5" class="empty-cell">{{ storageLoading ? '设备列表加载中...' : '暂无设备' }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
         <template v-if="modal.type === 'videoConfig'">
           <div class="modal-split video-config-modal">
             <div class="modal-split-main">
@@ -2207,6 +2403,11 @@ export default {
           <button class="btn" :disabled="nvrBusy" @click="runNvrPrecheck">{{ nvrSummary ? '重新预检查' : '预检查' }}</button>
           <button class="btn primary" :disabled="nvrBusy || !nvrCheckedItems.length" @click="runNvrSync">开始导入</button>
         </template>
+        <template v-else-if="modal.type === 'mediaStorage'">
+          <button class="btn" :disabled="storageBusy || !storageSelected.length" @click="openStorageBind">关联存储</button>
+          <button class="btn danger" :disabled="storageBusy || !storageBoundSelectedIds.length" @click="unbindStorageSelected">{{ storageBusy ? '处理中…' : '解除关联' }}</button>
+          <button class="btn primary" @click="$emit('close')">关闭</button>
+        </template>
         <template v-else-if="modal.type === 'videoConfig'">
           <button class="btn" @click="resetVideoConfig">恢复默认配置</button>
           <button class="btn" @click="$emit('close')">取消</button>
@@ -2269,6 +2470,24 @@ export default {
         <div class="modal-footer">
           <button class="btn" @click="closeFacePicker">取消</button>
           <button class="btn primary" :disabled="!facePickerSelected" @click="confirmFacePicker">确定</button>
+        </div>
+      </section>
+    </div>
+    <div v-if="storageBindOpen" class="face-picker-mask" @click.self="closeStorageBind">
+      <section class="face-picker-dialog" aria-label="关联存储">
+        <div class="modal-head">
+          <h3>关联存储</h3>
+          <button class="modal-close" aria-label="关闭" @click="closeStorageBind">×</button>
+        </div>
+        <div class="face-picker-body">
+          <p class="modal-hint">将为已选择的 {{ storageSelected.length }} 台设备关联同一台存储设备，请填写存储设备的连接信息。</p>
+          <div class="modal-form-row"><label><span class="required">*</span>存储设备IP：</label><input class="input" v-model.trim="storageHost" placeholder="如 192.168.1.100" @keyup.enter="confirmStorageBind" /></div>
+          <div class="modal-form-row"><label><span class="required">*</span>账号：</label><input class="input" v-model.trim="storageUsername" placeholder="请输入存储设备账号" @keyup.enter="confirmStorageBind" /></div>
+          <div class="modal-form-row"><label><span class="required">*</span>密码：</label><input class="input" type="password" v-model="storagePassword" placeholder="请输入存储设备密码" @keyup.enter="confirmStorageBind" /></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" @click="closeStorageBind">取消</button>
+          <button class="btn primary" :disabled="!storageHost || !storageUsername || !storagePassword" @click="confirmStorageBind">确定</button>
         </div>
       </section>
     </div>

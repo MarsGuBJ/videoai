@@ -240,6 +240,22 @@ export type VideoAnalysisResponse = {
   [key: string]: unknown;
 };
 
+// 录像存储配置（backend-lite /api/storage-bindings）：设备与存储设备的关联关系，
+// 走默认 backend（不要加入 MEDIA_API_PATH_PREFIXES）
+export type StorageBinding = {
+  cameraId: string;
+  storageHost: string;
+  username: string;
+};
+
+// 设备实际生效的存储设备（显式绑定 + 回放链路解析出的 NVR/CVR）；
+// bound 标记是否为显式绑定（只有显式绑定可解除）
+export type ResolvedStorageBinding = {
+  cameraId: string;
+  storageHost: string;
+  bound: boolean;
+};
+
 // NVR 录像导出为 MP4 文件后的响应（backend-lite 透传 MCP export_recording 的 data）。
 export type RecordingFileResponse = {
   videoUrl: string;
@@ -644,6 +660,16 @@ export const api = {
     request<NvrImportPrecheck>('/api/nvr-import/precheck', { method: 'POST', body: JSON.stringify(payload) }),
   nvrImportSync: (payload: { items: NvrImportItem[]; targetArea: string; username: string; password: string }) =>
     request<CloudSyncResult>('/api/nvr-import/sync', { method: 'POST', body: JSON.stringify(payload) }),
+
+  // 录像存储配置：查询/关联/解除设备与存储设备的绑定关系
+  storageBindings: () => request<StorageBinding[]>('/api/storage-bindings'),
+  // 各设备实际生效的存储设备（弹窗列表/筛选用，含回放链路解析出的 NVR/CVR）
+  storageBindingsResolved: () => request<ResolvedStorageBinding[]>('/api/storage-bindings/resolved'),
+  bindStorage: (payload: { cameraIds: string[]; storageHost: string; username: string; password: string }) =>
+    // 绑定前服务端逐台校验存储设备上是否查得到该设备录像，查不到的跳过并在 skipped 中返回原因
+    request<{ bound: number; skipped: { cameraId: string; reason: string }[] }>('/api/storage-bindings/bind', { method: 'POST', body: JSON.stringify(payload) }),
+  unbindStorage: (cameraIds: string[]) =>
+    request<{ unbound: number }>('/api/storage-bindings/unbind', { method: 'POST', body: JSON.stringify({ cameraIds }) }),
 
   llmConfigs: () => request<LlmConfig[]>('/api/llm-configs'),
   createLlmConfig: (payload: LlmConfigPayload) =>

@@ -106,6 +106,7 @@ MCP Server 依赖以下服务：
 | `HCNETSDK_DOWNLOAD_USERNAME` | `admin` | 录像下载设备共用的登录用户名。 |
 | `HCNETSDK_DOWNLOAD_PASSWORD` | 空 | 录像下载设备共用的登录密码，必须通过部署环境配置。 |
 | `HCNETSDK_DOWNLOAD_CHANNEL` | `1` | 录像下载设备共用的通道。 |
+| `STORAGE_BINDINGS_FILE` | `./storage_bindings.json` | 录像存储设备关联关系（摄像头 → 存储设备 IP/账号/密码）的 JSON 持久化文件路径，见 5.1。 |
 | `MINIO_ENDPOINT` | `192.168.11.194` | MinIO 服务地址。 |
 | `MINIO_PORT` | `9000` | MinIO 服务端口。 |
 | `MINIO_USE_SSL` | `false` | 是否使用 HTTPS 访问 MinIO。 |
@@ -132,6 +133,27 @@ MCP Server 依赖以下服务：
 | `nvrStreamType` | `string|null` | 码流类型，例如 `main`、`sub`，当前主要用于元数据返回。 |
 
 当前客户演示环境：NVR 为 `192.168.11.251`（`export_recording` 按 `nvrTrackId` 导出）；`search_recordings` 不传 `cameraId` 时的 SDK 回放设备由 `HCNETSDK_HOST`/`HCNETSDK_CHANNEL` 决定（默认 `192.168.11.198` 通道 1）；传入 `cameraId` 时按该摄像头 `sourceUrl` 内嵌凭据连接其绑定的 NVR（多 NVR 路径，见 6.3）。
+
+### 5.1 录像存储设备关联（Storage Bindings）
+
+平台侧可把摄像头关联到一台录像存储设备（NVR/CVR 的 IP + 账号 + 密码）。关联关系由 MCP 持有，内存映射 + JSON 文件持久化（路径见 `STORAGE_BINDINGS_FILE`）。已关联摄像头的录像检索/回放/下载**优先**使用绑定的主机与凭据：通道号用绑定凭据拉取该主机 ISAPI `InputProxy/channels` 按摄像头 IP 自动反查（结果缓存 600 秒），反查未命中时回退摄像头自身 `nvrChannel`/`nvrTrackId`，两者都没有时报错。未关联的摄像头走原有解析逻辑，行为不变。
+
+仅提供 HTTP 入口（不注册为 MCP tool）：
+
+```text
+GET  /storage-bindings          # {"data": [{"cameraId", "host", "username"}]}，不含密码，仅显式绑定
+GET  /storage-bindings/resolved # {"data": [{"cameraId", "host", "bound"}]}，各摄像头实际生效的存储设备
+                                # （显式绑定 > sourceUrl 已知设备 > 反查命中）；bound=true 表示显式绑定（可 unbind）
+POST /storage-bindings/bind     # {"items": [{"cameraId", "host", "username", "password"}]}
+                                #   → {"data": {"bound": N, "skipped": [{"cameraId", "reason"}]}}，同 cameraId 覆盖。
+                                #   绑定前逐台校验（并发）：存储设备输入通道列表中存在该摄像头 IP，
+                                #   且最近 30 天该通道检索得到录像，校验通过才真正绑定；
+                                #   否则跳过并在 skipped 中返回原因（避免把摄像头关联到错误的存储设备）。
+                                #   校验耗时随设备数增长，调用方应放宽超时（backend-lite 用 120s）。
+POST /storage-bindings/unbind   # {"cameraIds": [...]} → {"data": {"unbound": N}}
+```
+
+backend-lite 提供同名代理接口供前端使用：`GET /api/storage-bindings`（响应中 `host` 映射为 `storageHost`）、`GET /api/storage-bindings/resolved`、`POST /api/storage-bindings/bind`（`{cameraIds, storageHost, username, password}`，响应含 `bound` 与 `skipped` 明细）、`POST /api/storage-bindings/unbind`（`{cameraIds}`）。前端入口为设备管理页"录像存储配置"弹窗（列表"存储设备"列与筛选基于 resolved 数据，与回放实际来源一致）；关联存储提交后若有设备被跳过，逐台弹出原因。
 
 ## 6. Tools
 

@@ -13,6 +13,7 @@ from .person_api_client import PersonApiClient
 from .recording_cache import RecordingCache
 from .retrieve_api_client import RetrieveApiClient
 from .settings import load_settings
+from .storage_bindings import StorageBindings
 from .video_understanding_client import VideoUnderstandingClient
 from .videoai_client import VideoAiClient
 
@@ -80,6 +81,8 @@ nvr_devices = NvrDeviceRegistry(
 known_nvr_hosts = frozenset(
     {settings.hcnetsdk_host, *settings.hcnetsdk_download_nvr_hosts, *settings.cvr_hosts}
 )
+# 摄像头 → 录像存储设备绑定（平台关联；绑定摄像头的录像检索/回放/下载优先用绑定的主机与凭据）
+storage_bindings = StorageBindings(settings.storage_bindings_file)
 # 反查覆盖 NVR 下载白名单与 CVR 集群；CVR 凭据与 NVR 不同，按设备主机取凭据
 channel_lookup = NvrChannelLookup(
     (*settings.hcnetsdk_download_nvr_hosts, *settings.cvr_hosts),

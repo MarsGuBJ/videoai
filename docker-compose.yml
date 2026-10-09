@@ -252,6 +252,8 @@ services:
       # 录像动态链接（/recording-live）对外基址：必须为客户端实际可访问的 MCP 地址，现场用 10.10.3.100
       VIDEOAI_MCP_PUBLIC_BASE_URL: ${VIDEOAI_MCP_PUBLIC_BASE_URL:-http://192.168.11.194:8097}
       VIDEOAI_MCP_RECORDING_FALLBACK_FILE: ${VIDEOAI_MCP_RECORDING_FALLBACK_FILE:-}
+      # 录像存储设备关联关系持久化文件（容器内 /data/mcp 挂载宿主机目录，重建容器不丢）
+      STORAGE_BINDINGS_FILE: ${STORAGE_BINDINGS_FILE:-/data/mcp/storage_bindings.json}
       HIKVISION_NVR_BASE_URL: ${HIKVISION_NVR_BASE_URL:-}
       HIKVISION_NVR_USERNAME: ${HIKVISION_NVR_USERNAME:-}
       HIKVISION_NVR_PASSWORD: ${HIKVISION_NVR_PASSWORD:-}
@@ -294,6 +296,7 @@ services:
         condition: service_started
     volumes:
       - ${VIDEOAI_MCP_RECORDING_FALLBACK_FILE_HOST:-/dev/null}:/data/demo-recording-601.ps:ro
+      - ${VIDEOAI_MCP_DATA_HOST_DIR:-./storage/mcp-data}:/data/mcp
     ports:
       - "192.168.11.194:8097:8097"
     restart: unless-stopped

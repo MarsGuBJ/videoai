@@ -425,7 +425,7 @@ def test_export_recording_with_camera_id_uses_camera_device(monkeypatch, tmp_pat
         calls["camera_id"] = camera_id
         return SimpleNamespace(id=camera_id)
 
-    async def fake_resolve_credentials(camera, lookup, known_hosts):
+    async def fake_resolve_credentials(camera, lookup, known_hosts, binding=None):
         return SimpleNamespace(track_id="101", channel=1)
 
     monkeypatch.setattr(recordings_tools.videoai, "get_camera", fake_get_camera)

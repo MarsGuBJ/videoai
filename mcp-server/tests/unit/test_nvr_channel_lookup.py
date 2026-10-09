@@ -11,6 +11,7 @@ from app.nvr_devices import (
     DeviceCredentials,
     NvrChannelLookup,
     NvrDeviceRegistry,
+    effective_storage_host,
     parse_input_proxy_channels,
     resolve_device_credentials,
     track_id_from_source_url,
@@ -258,3 +259,48 @@ def test_proxy_for_credentials_recreates_on_credential_change():
     assert proxy_second is not proxy_first
     assert proxy_second.password == "nvr-pass"
     assert proxy_second.channel == 189
+
+
+def test_effective_storage_host_prefers_explicit_binding():
+    """显式绑定优先：即使反查能命中其它设备，也返回绑定主机。"""
+    camera = make_ipc_camera()
+    lookup = make_lookup(mapping=[(189, "10.10.0.93")])
+    binding = {"host": "10.10.7.253", "username": "admin", "password": "bound-pass"}
+
+    host = asyncio.run(effective_storage_host(camera, lookup, {"10.10.7.252"}, binding=binding))
+
+    assert host == "10.10.7.253"
+
+
+def test_effective_storage_host_source_url_is_known_device():
+    """sourceUrl 指向已知 NVR/CVR 本体：直接返回该主机，无需反查。"""
+    camera = make_ipc_camera(sourceUrl="rtsp://admin:nvr-pass@10.10.7.252:554/Streaming/Channels/101")
+
+    host = asyncio.run(effective_storage_host(camera, None, {"10.10.7.252"}))
+
+    assert host == "10.10.7.252"
+
+
+def test_effective_storage_host_reverse_lookup_hit():
+    """直连 IPC 反查命中：返回所属 NVR/CVR 主机。"""
+    camera = make_ipc_camera()
+    lookup = make_lookup(mapping=[(189, "10.10.0.93")])
+
+    host = asyncio.run(effective_storage_host(camera, lookup, {"10.10.7.252"}))
+
+    assert host == "10.10.7.252"
+
+
+def test_effective_storage_host_reverse_lookup_miss_returns_none():
+    """反查未命中（含无 channel_lookup）：返回 None，平台展示为"未关联"。"""
+    camera = make_ipc_camera()
+    lookup = make_lookup(mapping=[(189, "10.10.0.94")])
+
+    assert asyncio.run(effective_storage_host(camera, lookup, {"10.10.7.252"})) is None
+    assert asyncio.run(effective_storage_host(camera, None, {"10.10.7.252"})) is None
+
+
+def test_effective_storage_host_empty_source_url_returns_none():
+    camera = make_ipc_camera(sourceUrl="")
+
+    assert asyncio.run(effective_storage_host(camera, None, {"10.10.7.252"})) is None

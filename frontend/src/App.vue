@@ -233,6 +233,7 @@ export default defineComponent({
         mediaMove: { title: "批量设备移动", narrow: true },
         mediaCapability: { title: "批量配置设备能力", narrow: true },
         mediaRegion: { title: "区域管理", wide: true },
+        mediaStorage: { title: "录像存储配置", wide: true },
         mediaCloud: { title: "从云平台同步设备", wide: true },
         mediaNvrImport: { title: "从NVR/CVR导入设备", wide: true },
         mediaDelete: { title: "删除设备", narrow: true },
@@ -259,6 +260,10 @@ export default defineComponent({
       }
       if (type === "mediaMove") {
         this.submitMediaMove();
+        return;
+      }
+      if (type === "mediaStorage") {
+        await this.submitMediaStorage();
         return;
       }
       if (type === "algorithm") {
@@ -441,6 +446,39 @@ export default defineComponent({
       if (failed === 0) this.showToast(`已移动 ${succeeded} 台设备到「${area}」`);
       else this.showToast(`已移动 ${succeeded} 台设备，${failed} 台移动失败`);
       this.refreshCameras();
+    },
+    // 录像存储配置「关联存储」提交：成功后不关闭弹窗，通过递增 refreshToken
+    // 通知 ModalHost 关闭二级表单并刷新绑定列表（失败则保留二级表单供修正重试）
+    async submitMediaStorage() {
+      const item = this.modal.item || {};
+      const cameraIds = item.cameraIds || [];
+      if (!cameraIds.length || !item.storageHost || !item.username || !item.password) {
+        this.showToast("请填写完整的存储设备信息");
+        return;
+      }
+      try {
+        const result = await api.bindStorage({
+          cameraIds,
+          storageHost: item.storageHost,
+          username: item.username,
+          password: item.password
+        });
+        const skipped = result.skipped || [];
+        if (!skipped.length) {
+          this.showToast(`已为 ${result.bound} 台设备关联存储「${item.storageHost}」`);
+        } else {
+          // 有设备被跳过：逐台列出原因（存储设备上查不到该设备录像，未做关联）
+          const names = item.cameraNames || {};
+          const lines = skipped.map((entry: any) => `「${names[entry.cameraId] || entry.cameraId}」：${entry.reason}`);
+          window.alert(
+            `已为 ${result.bound} 台设备关联存储「${item.storageHost}」。\n` +
+              `以下 ${skipped.length} 台设备在存储设备上查询不到录像，未关联：\n\n${lines.join("\n")}`
+          );
+        }
+        this.modal.item = { ...item, password: "", refreshToken: (item.refreshToken || 0) + 1 };
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "关联存储失败，请检查存储设备地址与账号密码");
+      }
     },
     openVersionManager(row: any) {
       this.selectedAlgorithm = row;

@@ -17,7 +17,7 @@ import threading
 import time
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree
 
@@ -187,19 +187,107 @@ class NvrChannelLookup:
         return parse_input_proxy_channels(response.text)
 
 
+# 绑定存储设备通道反查的 per-host 缓存 TTL（与 NvrChannelLookup 一致）
+BINDING_CHANNEL_TTL_SECONDS = 600
+# host -> (过期时间, 通道列表)；凭据随绑定传入，TTL 内凭据变更按缓存容忍
+_binding_channel_cache: dict[str, tuple[float, list[tuple[int, str]]]] = {}
+
+
+async def lookup_bound_storage_channel(
+    host: str,
+    username: str,
+    password: str,
+    ipc_host: str,
+    timeout: float = 15,
+) -> int | None:
+    """用绑定凭据反查存储设备上 IPC 对应的通道号；请求失败或未命中返回 None（消息不含密码）。"""
+    now = time.monotonic()
+    cached = _binding_channel_cache.get(host)
+    if cached is None or now >= cached[0]:
+        try:
+            async with httpx.AsyncClient(
+                auth=httpx.DigestAuth(username, password),
+                timeout=timeout,
+            ) as client:
+                response = await client.get(f"http://{host}/ISAPI/ContentMgmt/InputProxy/channels")
+                response.raise_for_status()
+            channels = parse_input_proxy_channels(response.text)
+        except Exception as exc:  # noqa: BLE001  # 反查失败回退平台通道字段；消息不含密码
+            logger.warning("bound storage channel lookup failed on %s: %s", host, type(exc).__name__)
+            return None
+        cached = (now + BINDING_CHANNEL_TTL_SECONDS, channels)
+        _binding_channel_cache[host] = cached
+    for channel, ip_address in cached[1]:
+        if ip_address == ipc_host:
+            return channel
+    return None
+
+
+# 绑定前录像校验的查询窗口（天）：只查最近一段时间，避免全时段检索过慢；
+# 窗口远大于设备时钟偏差，无需做时钟补偿
+BINDING_VERIFY_RECENT_DAYS = 30
+
+
+async def verify_storage_recording(
+    camera: Camera,
+    host: str,
+    username: str,
+    password: str,
+    recent_days: int = BINDING_VERIFY_RECENT_DAYS,
+    timeout: float = 15,
+) -> str | None:
+    """校验存储设备上是否查得到该摄像头的录像；通过返回 None，否则返回原因（不含密码）。
+
+    依次检查：sourceUrl 可定位 IPC → 设备输入代理通道列表中存在该 IPC →
+    最近 ``recent_days`` 天该通道有录像。任一不满足都不应把摄像头关联到这台存储设备
+    （通道都没有说明设备选错；有通道没录像说明录像不在这台设备上）。
+    """
+    ipc_host = urlparse((camera.sourceUrl or "").strip()).hostname or ""
+    if not ipc_host:
+        return "摄像头未配置 sourceUrl，无法在存储设备上定位通道"
+    channel = await lookup_bound_storage_channel(host, username, password, ipc_host, timeout=timeout)
+    if channel is None:
+        return f"存储设备 {host} 的输入通道列表中没有该摄像头（{ipc_host}），或设备不可达/凭据无效"
+    credentials = DeviceCredentials(
+        host=host,
+        username=username,
+        password=password,
+        channel=channel,
+        track_id=str(channel * 100 + 1),
+    )
+    # 查询窗口必须 tz-aware：search_segments 会把窗口与海康返回的 tz-aware 时段比较裁剪
+    end_time = datetime.now(timezone.utc)
+    start_time = end_time - timedelta(days=recent_days)
+    try:
+        segments = await search_segments(
+            camera, start_time, end_time, limit=1, timeout=timeout, credentials=credentials
+        )
+    except NvrDeviceError as exc:
+        return str(exc)
+    if not segments:
+        return f"存储设备 {host} 上最近 {recent_days} 天查询不到该摄像头的录像"
+    return None
+
+
 async def resolve_device_credentials(
     camera: Camera,
     channel_lookup: NvrChannelLookup | None,
     known_nvr_hosts: Collection[str],
+    binding: Mapping[str, str] | None = None,
 ) -> DeviceCredentials:
     """解析摄像头录像检索/回放/下载应使用的 NVR 设备凭据。
 
+    - ``binding``（平台关联的录像存储设备）非空时优先：主机/凭据直接取自绑定，
+      通道用绑定凭据反查该设备 ISAPI 输入代理通道列表（按 sourceUrl 的 IP 匹配）；
+      反查未命中/失败时回退平台 nvrChannel/nvrTrackId（主机/凭据仍用绑定的）；
     - ``sourceUrl`` 指向已知 NVR/CVR：沿用内嵌凭据与 nvrTrackId/nvrChannel 换算的通道；
       平台未填 trackId 时从 sourceUrl 路径兜底（如 /Streaming/Channels/12801 → track 12801）；
     - ``sourceUrl`` 直连 IPC：反查已知 NVR/CVR 的输入通道映射，命中时用该设备的凭据与
       实际通道号（直连 IPC 的平台 nvrTrackId 可能是批量导入的脏数据，不作准）；
     - 反查未命中：回退原解析逻辑（未绑定 NVR 时报 ``ValueError``，消息注明反查未命中）。
     """
+    if binding:
+        return await _credentials_from_binding(camera, binding)
     host = urlparse((camera.sourceUrl or "").strip()).hostname or ""
     if not host or host in known_nvr_hosts or channel_lookup is None:
         # sourceUrl 指向录像设备本体时，trackId 可从 URL 通道路径兜底
@@ -223,6 +311,66 @@ async def resolve_device_credentials(
         channel=channel,
         track_id=str(channel * 100 + 1),
     )
+
+
+async def _credentials_from_binding(camera: Camera, binding: Mapping[str, str]) -> DeviceCredentials:
+    """按平台关联的录像存储设备解析凭据：主机/凭据取自绑定，通道自动反查。
+
+    通道用绑定凭据拉取该设备 ISAPI InputProxy 通道列表，按摄像头 sourceUrl 的 IP 匹配；
+    反查未命中/失败时回退平台 nvrChannel/nvrTrackId（主机/凭据仍用绑定的）；
+    完全没有通道信息时报 ``ValueError``。
+    """
+    host = (binding.get("host") or "").strip()
+    username = (binding.get("username") or "").strip()
+    password = binding.get("password") or ""
+    if not host or not username or not password:
+        raise ValueError(f"camera {camera.id} storage binding is incomplete: host/username/password required")
+    ipc_host = urlparse((camera.sourceUrl or "").strip()).hostname or ""
+    channel = await lookup_bound_storage_channel(host, username, password, ipc_host) if ipc_host else None
+    if channel is not None:
+        return DeviceCredentials(
+            host=host,
+            username=username,
+            password=password,
+            channel=channel,
+            track_id=str(channel * 100 + 1),
+        )
+    # 反查未命中/失败：回退平台侧通道字段，主机与凭据仍用绑定的
+    track_id = (camera.nvrTrackId or camera.nvrChannel or "").strip()
+    if not track_id:
+        raise ValueError(f"camera {camera.id} 未在关联存储设备 {host} 上反查到通道，且平台未配置 nvrChannel/nvrTrackId")
+    return DeviceCredentials(
+        host=host,
+        username=username,
+        password=password,
+        channel=resolve_device_channel(camera, track_id),
+        track_id=track_id,
+    )
+
+
+async def effective_storage_host(
+    camera: Camera,
+    channel_lookup: NvrChannelLookup | None,
+    known_nvr_hosts: Collection[str],
+    binding: Mapping[str, str] | None = None,
+) -> str | None:
+    """返回摄像头实际生效的录像存储设备主机（供平台"录像存储配置"展示），解析不到返回 None。
+
+    优先级与 ``resolve_device_credentials`` 一致：显式绑定 > sourceUrl 指向已知 NVR/CVR >
+    直连 IPC 反查已知设备的输入通道。仅做主机定位，不涉及凭据。
+    """
+    bound_host = ((binding or {}).get("host") or "").strip()
+    if bound_host:
+        return bound_host
+    host = urlparse((camera.sourceUrl or "").strip()).hostname or ""
+    if not host:
+        return None
+    if host in known_nvr_hosts:
+        return host
+    if channel_lookup is None:
+        return None
+    hit = await channel_lookup.lookup(host)
+    return hit[0] if hit else None
 
 
 class NvrDeviceRegistry:

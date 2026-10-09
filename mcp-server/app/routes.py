@@ -1,5 +1,6 @@
 """HTTP wrapper routes that expose each MCP tool as a POST endpoint."""
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
@@ -9,8 +10,8 @@ from typing import Any
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from .context import channel_lookup, hcnetsdk_playback, known_nvr_hosts, mcp, nvr_devices, videoai
-from .nvr_devices import resolve_device_credentials
+from .context import channel_lookup, hcnetsdk_playback, known_nvr_hosts, mcp, nvr_devices, storage_bindings, videoai
+from .nvr_devices import effective_storage_host, resolve_device_credentials, verify_storage_recording
 from .tools import (
     detect_persons,
     dino_events,
@@ -63,6 +64,98 @@ def register_http_tool_routes() -> None:
     for tool_name, handler in tool_handlers.items():
         register_http_tool_route(tool_name, handler)
     register_recording_live_route()
+    register_storage_binding_routes()
+
+
+def register_storage_binding_routes() -> None:
+    """摄像头→录像存储设备绑定的查询/绑定/解绑 HTTP 接口（平台侧调用）。"""
+
+    @mcp.custom_route("/storage-bindings", methods=["GET"], name="storage_bindings_list")
+    async def list_storage_bindings(request: Request) -> JSONResponse:
+        # 对外视图不含密码
+        return JSONResponse({"data": storage_bindings.all()})
+
+    @mcp.custom_route("/storage-bindings/resolved", methods=["GET"], name="storage_bindings_resolved")
+    async def list_resolved_storage_bindings(request: Request) -> JSONResponse:
+        """各摄像头实际生效的录像存储设备（显式绑定 > sourceUrl 已知设备 > 反查命中）。
+
+        供平台"录像存储配置"展示：设备大多数并非显式绑定，而是回放链路按
+        ``effective_storage_host`` 解析出的 NVR/CVR。``bound`` 标记是否为显式绑定
+        （只有显式绑定可通过 unbind 解除）。
+        """
+        try:
+            cameras = await videoai.list_cameras()
+            data = []
+            for camera in cameras:
+                binding = storage_bindings.get(camera.id)
+                host = await effective_storage_host(camera, channel_lookup, known_nvr_hosts, binding=binding)
+                if host:
+                    data.append({"cameraId": camera.id, "host": host, "bound": binding is not None})
+            return JSONResponse({"data": data})
+        except Exception as exc:  # noqa: BLE001  # 兜底：与 -http 接口一致，细节只进服务端日志
+            logger.exception("storage-bindings/resolved failed with %s", type(exc).__name__)
+            return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500)
+
+    @mcp.custom_route("/storage-bindings/bind", methods=["POST"], name="storage_bindings_bind")
+    async def bind_storage(request: Request) -> JSONResponse:
+        """绑定前逐台校验：存储设备上查得到该摄像头录像的才真正绑定，其余跳过并返回原因。
+
+        避免把摄像头关联到错误的存储设备上（设备选错时通道反查不命中，或有通道但
+        该通道近期无录像）。响应 data 含 ``bound``（实际绑定数）与 ``skipped``
+        （跳过的 cameraId 及原因），校验并发执行。
+        """
+        try:
+            payload = await read_json_object(request)
+            items = payload.get("items")
+            if not isinstance(items, list):
+                raise ValueError("items must be a list")
+            for item in items:
+                if not isinstance(item, dict) or not all(
+                    str(item.get(key) or "").strip() for key in ("cameraId", "host", "username", "password")
+                ):
+                    raise ValueError("each item must have non-empty cameraId/host/username/password")
+            cameras = {camera.id: camera for camera in await videoai.list_cameras()}
+
+            async def verify(item: dict) -> tuple[dict, str | None]:
+                camera = cameras.get(str(item["cameraId"]))
+                if camera is None:
+                    return item, "摄像头不存在或已删除"
+                reason = await verify_storage_recording(
+                    camera,
+                    str(item["host"]).strip(),
+                    str(item["username"]).strip(),
+                    str(item["password"]),
+                )
+                return item, reason
+
+            results = await asyncio.gather(*(verify(item) for item in items))
+            verified = [item for item, reason in results if reason is None]
+            skipped = [
+                {"cameraId": str(item["cameraId"]), "reason": reason}
+                for item, reason in results
+                if reason is not None
+            ]
+            bound = storage_bindings.bind(verified) if verified else 0
+            return JSONResponse({"data": {"bound": bound, "skipped": skipped}})
+        except ValueError as exc:
+            return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)
+        except Exception as exc:  # noqa: BLE001  # 兜底：与 -http 接口一致，细节只进服务端日志
+            logger.exception("storage-bindings/bind failed with %s", type(exc).__name__)
+            return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500)
+
+    @mcp.custom_route("/storage-bindings/unbind", methods=["POST"], name="storage_bindings_unbind")
+    async def unbind_storage(request: Request) -> JSONResponse:
+        try:
+            payload = await read_json_object(request)
+            camera_ids = payload.get("cameraIds")
+            if not isinstance(camera_ids, list) or not all(isinstance(item, str) for item in camera_ids):
+                raise ValueError("cameraIds must be a list of strings")
+            return JSONResponse({"data": {"unbound": storage_bindings.unbind(camera_ids)}})
+        except ValueError as exc:
+            return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)
+        except Exception as exc:  # noqa: BLE001  # 兜底：与 -http 接口一致，细节只进服务端日志
+            logger.exception("storage-bindings/unbind failed with %s", type(exc).__name__)
+            return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500)
 
 
 def parse_playback_speed(raw: str) -> float:
@@ -103,7 +196,9 @@ def register_recording_live_route() -> None:
                 camera = await videoai.get_camera(camera_id)
                 # 与录像检索/下载走同一套解析：sourceUrl 直连 IPC 时反查所属 NVR，
                 # 否则会把回放打到 IPC 自己身上（录像存在 NVR 上）而起流失败
-                credentials = await resolve_device_credentials(camera, channel_lookup, known_nvr_hosts)
+                credentials = await resolve_device_credentials(
+                    camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+                )
                 proxy = nvr_devices.proxy_for_credentials(credentials)
                 # 设备时钟偏差补偿：SDK 回放时间按设备本地时钟解释
                 shift = timedelta(seconds=await proxy.measure_clock_skew())
