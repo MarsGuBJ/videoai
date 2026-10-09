@@ -9,7 +9,6 @@ import { loadPlayerSettings, resetPlayerSettings, savePlayerSettings } from "../
 import { computeSourceUrl, flattenRegionTree, loadRegionTree } from "../utils/regions";
 import { normalizeProtocol } from "../utils/protocol";
 import { resolveEventAlgorithm } from "../utils/algorithm-binding";
-import type { AlgorithmResolution } from "../utils/algorithm-binding";
 import type { FlatRegionNode } from "../utils/regions";
 import type { RegionTreeNode } from "../api";
 import VideoPlayer from "./VideoPlayer.vue";
@@ -80,7 +79,8 @@ export default {
       algorithmEngines: [] as AlgorithmEngine[],
       algorithmEventInfos: [] as EventInfo[],
       deployTaskName: "",
-      deployAlgorithmCode: "",
+      // 算法下拉：选中算法编码；事件由算法绑定关系反查（deployBoundEventInfo）
+      deployPickedAlgorithmCode: "",
       deployRecognitionPerMinute: 10,
       deployEffectiveStart: "",
       deployEffectiveEnd: "",
@@ -204,27 +204,32 @@ export default {
       });
       return Object.keys(groups).map((name) => ({ name, cameras: groups[name] }));
     },
-    // 事件编号下拉：选项来自事件信息配置，value 用事件信息的编码；
-    // 选中后按其 algorithmCode 在算法列表中匹配出实际布控算法，事件未绑定算法
-    // 时回落到「事件编号本身即算法编码」的算法（见 utils/algorithm-binding）。
-    deploySelectedEventInfo(): EventInfo | undefined {
-      return this.deployEventInfos.find((item) => item.code === this.deployAlgorithmCode);
-    },
-    deployAlgorithmResolution(): AlgorithmResolution {
-      return resolveEventAlgorithm(this.deployAlgorithms, this.deployEventInfos, this.deployAlgorithmCode);
-    },
+    // 算法下拉：选项来自算法管理，value 用算法编码；
+    // 选中后反查事件信息配置里 algorithmCode 指向该算法的事件，
+    // 没有绑定事件时回落到「事件编码本身即算法编码」的事件（与 utils/algorithm-binding 同口径）。
     deploySelectedAlgorithm(): Algorithm | undefined {
-      return this.deployAlgorithmResolution.algorithm;
+      const code = this.deployPickedAlgorithmCode;
+      if (!code) return undefined;
+      return this.deployAlgorithms.find((item) => item.code === code);
     },
-    // 事件编号下方的提示：让用户看清这次到底绑定了哪个算法，没绑上也要说清楚
-    deployAlgorithmHint(): string {
-      const resolution = this.deployAlgorithmResolution;
-      if (!this.deployAlgorithmCode) return "";
-      if (resolution.algorithm) return `已绑定算法：${resolution.algorithm.name}（${resolution.algorithm.code}）`;
-      if (resolution.boundCode) {
-        return `事件绑定的算法「${resolution.boundCode}」在算法管理中不存在：任务会照常创建，但 worker 不会启动算法`;
-      }
-      return "该事件未绑定可布控算法，且没有同编码的算法：任务会照常创建，但 worker 不会启动算法，请到「事件配置 → 事件信息配置」补充算法";
+    deployBoundEventInfo(): EventInfo | undefined {
+      const code = this.deployPickedAlgorithmCode;
+      if (!code) return undefined;
+      const byBinding = this.deployEventInfos.find((item) => (item.algorithmCode || "").trim() === code);
+      if (byBinding) return byBinding;
+      return this.deployEventInfos.find((item) => item.code === code);
+    },
+    // 提交时用的事件编号：绑定事件的编码，未绑定事件时回落为算法编码本身
+    deployTaskEventCode(): string {
+      const bound = this.deployBoundEventInfo;
+      return (bound && bound.code) || this.deployPickedAlgorithmCode || "";
+    },
+    // 算法下拉下方的提示：让用户看清这次绑定了哪个事件，没绑上也要说清楚
+    deployEventHint(): string {
+      if (!this.deployPickedAlgorithmCode) return "";
+      const bound = this.deployBoundEventInfo;
+      if (bound) return `已绑定事件：${bound.code}（${bound.name}）`;
+      return "该算法未绑定事件：任务将按算法编码直接创建，如需关联事件请到「事件配置 → 事件信息配置」绑定";
     },
     deployCameraSummary(): string {
       const count = this.deploySelectedCameras.length;
@@ -353,7 +358,7 @@ export default {
       // mediaMove 分支在提交时读取它。
       if (this.modal && this.modal.item) this.modal.item.area = value;
     },
-    deployAlgorithmCode() {
+    deployPickedAlgorithmCode() {
       // 切换算法后重置布控目标，避免人脸错挂到其他引擎
       this.deployFaceLibraryPhoto = null;
     },
@@ -1033,7 +1038,7 @@ export default {
       const crop = this.deployTargetCrop;
       const defaultName = this.deployTargetImage ? `快速布防-${(crop && crop.sourceName) || "目标"}` : "";
       this.deployTaskName = (item && item.name) || defaultName;
-      this.deployAlgorithmCode = (item && item.algorithmCode) || "";
+      this.deployPickedAlgorithmCode = "";
       this.deploySelectedCameras = item && Array.isArray(item.cameraIds) ? [...item.cameraIds] : [];
       this.deployRecognitionPerMinute = (item && item.recognitionPerMinute) || 10;
       this.deployEffectiveStart = (item && item.effectiveStart) || "";
@@ -1068,6 +1073,12 @@ export default {
           this.deployCameras = cameras;
           this.deployAlgorithms = algorithms;
           this.deployEventInfos = eventInfos;
+          // 编辑回填：任务落库的是事件编号，按原有解析链路反推出当时选的算法
+          const itemCode = (item && item.algorithmCode) || "";
+          if (itemCode) {
+            const resolved = resolveEventAlgorithm(algorithms, eventInfos, itemCode).algorithm;
+            this.deployPickedAlgorithmCode = resolved ? resolved.code : "";
+          }
           const areas = this.deployCameraAreas.map((area: any) => area.name);
           if (areas.length) this.deployAreaExpanded = { [areas[0]]: true };
         })
@@ -1190,9 +1201,9 @@ export default {
           this.showToast("请选择生效时间");
           return;
         }
-        // 事件编号是建任务的必填项（后端也会拦），这里先给出可读提示
-        if (!this.deployAlgorithmCode) {
-          this.showToast("请选择事件编号");
+        // 算法是建任务的必填项（事件由算法绑定关系反查，后端也会拦），这里先给出可读提示
+        if (!this.deployPickedAlgorithmCode) {
+          this.showToast("请选择算法");
           return;
         }
         this.$emit("submit", "deployTask", {
@@ -1200,7 +1211,7 @@ export default {
           name: this.deployTaskName.trim(),
           algorithmId: algorithm ? algorithm.id : null,
           algorithmName: algorithm ? algorithm.name : null,
-          algorithmCode: this.deployAlgorithmCode || null,
+          algorithmCode: this.deployTaskEventCode || null,
           engineType: algorithm ? algorithm.engineType : null,
           cameraIds: [...this.deploySelectedCameras],
           // 人脸库选取的是外部照片，无内部 faceProfileId；有本地上传预览时上传图优先
@@ -1772,6 +1783,20 @@ export default {
         </template>
         <template v-if="modal.type === 'deployTask'">
           <div class="modal-form-row">
+            <label><span class="required">*</span>任务名称：</label>
+            <input class="input" v-model="deployTaskName" placeholder="请输入任务名称" />
+          </div>
+          <div class="modal-form-row">
+            <label><span class="required">*</span>算法：</label>
+            <div class="deploy-algorithm-field">
+              <select class="select" v-model="deployPickedAlgorithmCode">
+                <option value="">请选择算法</option>
+                <option v-for="item in deployAlgorithms" :key="item.id" :value="item.code">{{ item.name }}（{{ item.code }}）</option>
+              </select>
+              <span v-if="deployEventHint" class="hint-text" :class="{ 'hint-warn': !deployBoundEventInfo }">{{ deployEventHint }}</span>
+            </div>
+          </div>
+          <div class="modal-form-row">
             <label><span class="required">*</span>布控目标：</label>
             <div class="deploy-target-field">
               <input ref="deployTargetFileInput" class="hidden-file-input" type="file" accept="image/*" @change="handleDeployTargetFile" />
@@ -1793,20 +1818,6 @@ export default {
                 <span v-if="faceDescriptionOf(deployFaceLibraryPhoto)" class="face-pick-chip-desc" :title="faceDescriptionOf(deployFaceLibraryPhoto)">{{ faceDescriptionOf(deployFaceLibraryPhoto) }}</span>
                 <button class="face-combo-clear" type="button" aria-label="清除人脸库选择" @click="clearDeployFaceLibraryPhoto">×</button>
               </div>
-            </div>
-          </div>
-          <div class="modal-form-row">
-            <label><span class="required">*</span>任务名称：</label>
-            <input class="input" v-model="deployTaskName" placeholder="请输入任务名称" />
-          </div>
-          <div class="modal-form-row">
-            <label><span class="required">*</span>事件编号：</label>
-            <div class="deploy-algorithm-field">
-              <select class="select" v-model="deployAlgorithmCode">
-                <option value="">请选择事件编号</option>
-                <option v-for="item in deployEventInfos" :key="item.id" :value="item.code">{{ item.code }}（{{ item.name }}）</option>
-              </select>
-              <span v-if="deployAlgorithmHint" class="hint-text" :class="{ 'hint-warn': !deploySelectedAlgorithm }">{{ deployAlgorithmHint }}</span>
             </div>
           </div>
           <div class="modal-form-row">
