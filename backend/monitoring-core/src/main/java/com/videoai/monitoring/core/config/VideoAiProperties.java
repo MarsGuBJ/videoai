@@ -11,6 +11,7 @@ public record VideoAiProperties(
         Matching matching,
         Preview preview,
         Hikvision hikvision,
+        Mcp mcp,
         String liveRtspRelayMode,
         String liveFfmpegRelayStreams,
         String dinoCameraHosts,
@@ -35,5 +36,9 @@ public record VideoAiProperties(
     }
 
     public record Hikvision(String nvrBaseUrl, String nvrUsername, String nvrPassword) {
+    }
+
+    /** MCP 平台服务（videoai-mcp-server）：RTSP 不可用海康设备的 SDK 实时拉流兜底 */
+    public record Mcp(String baseUrl) {
     }
 }

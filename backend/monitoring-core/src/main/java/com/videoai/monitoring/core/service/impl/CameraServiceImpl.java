@@ -6,6 +6,7 @@ import com.videoai.monitoring.common.dto.CameraUpdateRequest;
 import com.videoai.monitoring.common.vo.CameraResponse;
 import com.videoai.monitoring.common.vo.DeviceEventMessage;
 import com.videoai.monitoring.core.client.DeviceSourceProbe;
+import com.videoai.monitoring.core.client.McpLivePullClient;
 import com.videoai.monitoring.core.client.ZlmClient;
 import com.videoai.monitoring.core.config.VideoAiProperties;
 import com.videoai.monitoring.core.dao.CameraDao;
@@ -47,6 +48,7 @@ public class CameraServiceImpl implements CameraService {
     private final LiveRelayService liveRelayService;
     private final PreviewRelayManager previewRelayManager;
     private final OpenSubscriptionService openSubscriptionService;
+    private final McpLivePullClient mcpLivePullClient;
     private final DeviceSourceProbe serialNumberResolver = new DeviceSourceProbe();
     /** 序列号回取走后台线程：慢速设备不能阻塞创建接口 */
     private final ExecutorService serialFetchExecutor = Executors.newSingleThreadExecutor(runnable -> {
@@ -57,13 +59,15 @@ public class CameraServiceImpl implements CameraService {
 
     public CameraServiceImpl(CameraDao cameraDao, VideoAiProperties properties, ZlmClient zlmClient,
                              LiveRelayService liveRelayService, PreviewRelayManager previewRelayManager,
-                             OpenSubscriptionService openSubscriptionService) {
+                             OpenSubscriptionService openSubscriptionService,
+                             McpLivePullClient mcpLivePullClient) {
         this.cameraDao = cameraDao;
         this.properties = properties;
         this.zlmClient = zlmClient;
         this.liveRelayService = liveRelayService;
         this.previewRelayManager = previewRelayManager;
         this.openSubscriptionService = openSubscriptionService;
+        this.mcpLivePullClient = mcpLivePullClient;
     }
 
     @Override
@@ -267,6 +271,7 @@ public class CameraServiceImpl implements CameraService {
             previewRelayManager.stopStream(camera.streamName());
             liveRelayService.removeZlmediakitProxy(camera.streamName());
             liveRelayService.removeZlmediakitProxy(StreamUrls.subStreamName(camera.streamName()));
+            mcpLivePullClient.stopPull(camera.streamName());
             cameraDao.deleteById(id);
             openSubscriptionService.publish(DeviceEventMessage.DELETED,
                     OpenDevicePayloads.deletedDevice(camera.id(), camera.name()));
@@ -285,6 +290,11 @@ public class CameraServiceImpl implements CameraService {
         // 支持音频的设备走 ffmpeg 中继转 AAC（浏览器 MSE 不支持摄像头常见的 G.711）
         boolean attached = liveRelayService.addZlmediakitProxy(
                 camera.sourceUrl(), camera.streamName(), false, camera.audioEnabled());
+        if (!attached) {
+            // SDK 实时拉流兜底：部分海康设备（现场 DS-2TD 热成像相机）RTSP 服务拒绝连接，
+            // 但 SDK 8000 端口可用；MCP 服务用 HCNetSDK 取流经 ffmpeg 推 ZLM，播放地址不变
+            attached = mcpLivePullClient.startPull(camera);
+        }
         if (!attached) {
             cameraDao.updateStatus(id, "STOPPED");
             log.warn("camera start rejected by relay: {} ({}) url={}", camera.name(), id, camera.sourceUrl());
@@ -307,6 +317,8 @@ public class CameraServiceImpl implements CameraService {
         previewRelayManager.stopStream(camera.streamName());
         liveRelayService.removeZlmediakitProxy(camera.streamName());
         liveRelayService.removeZlmediakitProxy(StreamUrls.subStreamName(camera.streamName()));
+        // 停掉可能的 SDK 实时拉流兜底会话（RTSP 拒绝的设备），释放设备连接
+        mcpLivePullClient.stopPull(camera.streamName());
         cameraDao.updateStatus(id, "STOPPED");
         return get(id);
     }

@@ -47,6 +47,9 @@ class DeviceCredentials:
     channel: int
     track_id: str
     sdk_port: int = DEFAULT_SDK_PORT
+    # 流ID 模式存储设备（如现场 DS-A CVR）的录像流标识；非空时 SDK 回放/下载按流ID定位，
+    # 忽略 channel（这类设备 ISAPI 关闭、通道回放返回"流ID不存在"）
+    stream_id: str = ""
 
 
 def parse_device_credentials(
@@ -277,8 +280,9 @@ async def resolve_device_credentials(
 ) -> DeviceCredentials:
     """解析摄像头录像检索/回放/下载应使用的 NVR 设备凭据。
 
-    - ``binding``（平台关联的录像存储设备）非空时优先：主机/凭据直接取自绑定，
-      通道用绑定凭据反查该设备 ISAPI 输入代理通道列表（按 sourceUrl 的 IP 匹配）；
+    - ``binding``（平台关联的录像存储设备）非空时优先：主机/凭据直接取自绑定；绑定带
+      流ID（``streamId``）时按流ID直接回放（ISAPI 不可用的流ID模式设备）；否则通道用
+      绑定凭据反查该设备 ISAPI 输入代理通道列表（按 sourceUrl 的 IP 匹配），
       反查未命中/失败时回退平台 nvrChannel/nvrTrackId（主机/凭据仍用绑定的）；
     - ``sourceUrl`` 指向已知 NVR/CVR：沿用内嵌凭据与 nvrTrackId/nvrChannel 换算的通道；
       平台未填 trackId 时从 sourceUrl 路径兜底（如 /Streaming/Channels/12801 → track 12801）；
@@ -316,7 +320,9 @@ async def resolve_device_credentials(
 async def _credentials_from_binding(camera: Camera, binding: Mapping[str, str]) -> DeviceCredentials:
     """按平台关联的录像存储设备解析凭据：主机/凭据取自绑定，通道自动反查。
 
-    通道用绑定凭据拉取该设备 ISAPI InputProxy 通道列表，按摄像头 sourceUrl 的 IP 匹配；
+    绑定含 ``streamId`` 时直接按流ID回放：这类设备（现场 DS-A CVR）ISAPI 关闭，
+    反查必然失败且失败无缓存会白等超时，通道回放也不可用（按通道起播报"流ID不存在"）。
+    否则通道用绑定凭据拉取该设备 ISAPI InputProxy 通道列表，按摄像头 sourceUrl 的 IP 匹配；
     反查未命中/失败时回退平台 nvrChannel/nvrTrackId（主机/凭据仍用绑定的）；
     完全没有通道信息时报 ``ValueError``。
     """
@@ -325,6 +331,16 @@ async def _credentials_from_binding(camera: Camera, binding: Mapping[str, str]) 
     password = binding.get("password") or ""
     if not host or not username or not password:
         raise ValueError(f"camera {camera.id} storage binding is incomplete: host/username/password required")
+    stream_id = (binding.get("streamId") or "").strip()
+    if stream_id:
+        return DeviceCredentials(
+            host=host,
+            username=username,
+            password=password,
+            channel=0,
+            track_id=stream_id,
+            stream_id=stream_id,
+        )
     ipc_host = urlparse((camera.sourceUrl or "").strip()).hostname or ""
     channel = await lookup_bound_storage_channel(host, username, password, ipc_host) if ipc_host else None
     if channel is not None:

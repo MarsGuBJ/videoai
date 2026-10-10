@@ -26,6 +26,7 @@ from ..hcnetsdk_playback import (
     CODEC_H265,
     NET_DVR_PLAYBACK_BY_TIME,
     HcNetSdkPlaybackProxy,
+    build_hcnetsdk_recording,
     normalize_playback_codec,
 )
 from ..models import Camera, RecordingSegment, StreamResponse
@@ -82,7 +83,7 @@ async def export_recording(trackId: str = "", startTime: str = "", endTime: str 
         )
         downloader = nvr_devices.proxy_for_credentials(credentials)
         data = await export_recording_via_downloader(
-            downloader, credentials.track_id, credentials.channel, start, end
+            downloader, credentials.track_id, credentials.channel, start, end, stream_id=credentials.stream_id
         )
         return {"data": data}
     track_id = (trackId or "").strip() or DEFAULT_RECORDING_TRACK_ID
@@ -211,6 +212,30 @@ async def search_camera_recordings(
     credentials = await resolve_device_credentials(
         camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
     )
+    if credentials.stream_id:
+        # 流ID模式存储设备（现场 DS-A CVR）的 ISAPI 检索不可用，无法反查录像段列表；
+        # 按查询窗口合成一段录像，回放时走流ID按时间回放（/recording-live）。
+        recording = build_hcnetsdk_recording(
+            credentials.host,
+            credentials.sdk_port,
+            credentials.channel,
+            start,
+            end,
+            stream_id=credentials.stream_id,
+        )
+        recording.cameraId = camera.id
+        recording.cameraName = camera.name
+        recording_cache.put_many([recording])
+        item = recording_item(recording)
+        if auto_proxy:
+            item["url"] = camera_recording_url(camera_id, start, end)
+            item["format"] = "flv"
+        return {
+            "data": [item],
+            "xml": build_video_list_xml([item]),
+            "searchedTrackIds": [recording.trackId],
+            "failedTrackIds": {},
+        }
     recordings = await search_segments(
         camera, start, end, limit, timeout=settings.request_timeout_seconds, credentials=credentials
     )
@@ -344,7 +369,9 @@ async def download_recording(
         end = parse_datetime(endTime)
         if end <= start:
             raise ValueError("endTime must be later than startTime")
-        return await download_and_store_recording(downloader, start, end, credentials.channel, camera, speed)
+        return await download_and_store_recording(
+            downloader, start, end, credentials.channel, camera, speed, stream_id=credentials.stream_id
+        )
 
     downloader = resolve_download_nvr(nvr)
     start = parse_datetime(startTime)
@@ -369,6 +396,7 @@ async def download_and_store_recording(
     sdk_channel: int | None,
     camera: Camera | None = None,
     speedx: int = 1,
+    stream_id: str = "",
 ) -> dict:
     """SDK 按时间下载、remux 并上传 MinIO 的公共流程；展示字段保持用户请求的时间。"""
     failed_tracks: dict[str, str] = {}
@@ -376,7 +404,7 @@ async def download_and_store_recording(
     # 但不能回写 recording.startTime/endTime——_download_mp4 用它们做 SDK 调用
     skew = await downloader.measure_clock_skew()
     shift = timedelta(seconds=skew)
-    recording = downloader.build_download_recording(start + shift, end + shift, sdk_channel)
+    recording = downloader.build_download_recording(start + shift, end + shift, sdk_channel, stream_id=stream_id)
     if camera is not None:
         recording.cameraId = camera.id
         recording.cameraName = camera.name

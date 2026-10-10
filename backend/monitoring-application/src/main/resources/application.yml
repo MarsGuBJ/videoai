@@ -60,6 +60,8 @@ videoai:
     nvr-base-url: ${HIKVISION_NVR_BASE_URL:}
     nvr-username: ${HIKVISION_NVR_USERNAME:}
     nvr-password: ${HIKVISION_NVR_PASSWORD:}
+  mcp:
+    base-url: ${MCP_SERVER_BASE_URL:http://localhost:8097}
   # 空间服务（spatialServer）基址兜底默认值：界面保存的 spatial_config 优先，仅当库中未配置时使用
   spatial-info:
     base-url: ${VIDEOAI_SPATIAL_BASE_URL:http://172.17.2.131:8080}

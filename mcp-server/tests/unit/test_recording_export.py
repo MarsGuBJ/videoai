@@ -191,7 +191,7 @@ def test_export_recording_prefers_sdk_download(monkeypatch, tmp_path):
     class FakeDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             calls["channel"] = channel
             calls["sdk_start"] = start_time
             return build_hcnetsdk_download_recording(
@@ -240,7 +240,7 @@ def test_export_recording_falls_back_to_rtsp_capture(monkeypatch, tmp_path):
     class FailingDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             return build_hcnetsdk_download_recording(
                 "192.168.11.251", 8000, channel or self.channel, start_time, end_time
             )
@@ -286,7 +286,7 @@ def test_export_recording_reports_both_errors_when_all_fail(monkeypatch):
     class FailingDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             return build_hcnetsdk_download_recording(
                 "192.168.11.251", 8000, channel or self.channel, start_time, end_time
             )
@@ -329,7 +329,7 @@ def test_export_recording_long_range_goes_straight_to_sdk_download(monkeypatch, 
     class FakeDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             calls["channel"] = channel
             return build_hcnetsdk_download_recording(
                 "192.168.11.251", 8000, channel or self.channel, start_time, end_time
@@ -369,7 +369,7 @@ def test_export_recording_long_range_sdk_failure_propagates(monkeypatch):
     class FailingDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             return build_hcnetsdk_download_recording(
                 "192.168.11.251", 8000, channel or self.channel, start_time, end_time
             )
@@ -409,7 +409,7 @@ def test_export_recording_with_camera_id_uses_camera_device(monkeypatch, tmp_pat
     class FakeDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             calls["channel"] = channel
             return build_hcnetsdk_download_recording(
                 "10.10.1.20", 8000, channel or self.channel, start_time, end_time
@@ -426,7 +426,7 @@ def test_export_recording_with_camera_id_uses_camera_device(monkeypatch, tmp_pat
         return SimpleNamespace(id=camera_id)
 
     async def fake_resolve_credentials(camera, lookup, known_hosts, binding=None):
-        return SimpleNamespace(track_id="101", channel=1)
+        return SimpleNamespace(track_id="101", channel=1, stream_id="")
 
     monkeypatch.setattr(recordings_tools.videoai, "get_camera", fake_get_camera)
     monkeypatch.setattr(recordings_tools, "resolve_device_credentials", fake_resolve_credentials)

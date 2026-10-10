@@ -2,6 +2,7 @@ package com.videoai.monitoring.core.service;
 
 import com.videoai.monitoring.common.dto.CameraCreateRequest;
 import com.videoai.monitoring.common.dto.CameraUpdateRequest;
+import com.videoai.monitoring.core.client.McpLivePullClient;
 import com.videoai.monitoring.core.client.ZlmClient;
 import com.videoai.monitoring.core.config.VideoAiProperties;
 import com.videoai.monitoring.core.dao.CameraDao;
@@ -31,12 +32,12 @@ class CameraAreaNormalizeTest {
     private final CameraDao dao = mock(CameraDao.class);
     private final CameraService service = new CameraServiceImpl(
             dao, properties(), mock(ZlmClient.class), mock(LiveRelayService.class), mock(PreviewRelayManager.class),
-            mock(OpenSubscriptionService.class));
+            mock(OpenSubscriptionService.class), mock(McpLivePullClient.class));
 
     private static VideoAiProperties properties() {
         return new VideoAiProperties(
                 new VideoAiProperties.Zlm("http://zlm", "http://zlm", "secret", "rtmp://zlm", "rtmp://zlm"),
-                null, null, null, null, null, null, "", "", "", "ffmpeg");
+                null, null, null, null, null, null, null, "", "", "", "ffmpeg");
     }
 
     @Test

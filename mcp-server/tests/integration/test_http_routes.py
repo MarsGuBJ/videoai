@@ -184,7 +184,7 @@ def test_download_recording_http_route(monkeypatch, tmp_path):
     class FakeDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             from app.hcnetsdk_playback import build_hcnetsdk_download_recording
 
             return build_hcnetsdk_download_recording("10.10.7.252", 8000, channel or self.channel, start_time, end_time)
@@ -225,7 +225,7 @@ def test_download_recording_http_passes_speedx(monkeypatch, tmp_path):
     class FakeDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             from app.hcnetsdk_playback import build_hcnetsdk_download_recording
 
             return build_hcnetsdk_download_recording("10.10.7.252", 8000, channel or self.channel, start_time, end_time)
@@ -590,7 +590,7 @@ def test_recording_live_with_camera_id_routes_to_camera_nvr(monkeypatch):
         async def measure_clock_skew(self):
             return 60.0
 
-        def build_recording(self, start_time, end_time, channel=None):
+        def build_recording(self, start_time, end_time, channel=None, stream_id=""):
             calls["start"] = start_time
             calls["channel"] = channel
             return RecordingSegment(
@@ -661,7 +661,7 @@ def test_recording_live_direct_ipc_camera_resolves_to_its_nvr(monkeypatch):
         async def measure_clock_skew(self):
             return 0.0
 
-        def build_recording(self, start_time, end_time, channel=None):
+        def build_recording(self, start_time, end_time, channel=None, stream_id=""):
             calls["channel"] = channel
             return RecordingSegment(
                 recordingId="rec-ipc-live",

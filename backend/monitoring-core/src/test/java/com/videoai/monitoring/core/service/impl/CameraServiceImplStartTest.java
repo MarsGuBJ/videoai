@@ -1,5 +1,6 @@
 package com.videoai.monitoring.core.service.impl;
 
+import com.videoai.monitoring.core.client.McpLivePullClient;
 import com.videoai.monitoring.core.client.ZlmClient;
 import com.videoai.monitoring.core.config.VideoAiProperties;
 import com.videoai.monitoring.core.dao.CameraDao;
@@ -17,6 +18,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -32,10 +34,11 @@ class CameraServiceImplStartTest {
     private final ZlmClient zlmClient = mock(ZlmClient.class);
     private final LiveRelayService liveRelayService = mock(LiveRelayService.class);
     private final PreviewRelayManager previewRelayManager = mock(PreviewRelayManager.class);
+    private final McpLivePullClient mcpLivePullClient = mock(McpLivePullClient.class);
 
     private final CameraServiceImpl service =
             new CameraServiceImpl(cameraDao, properties, zlmClient, liveRelayService, previewRelayManager,
-                    mock(OpenSubscriptionService.class));
+                    mock(OpenSubscriptionService.class), mcpLivePullClient);
 
     @BeforeEach
     void setUp() {
@@ -69,6 +72,33 @@ class CameraServiceImplStartTest {
         verify(cameraDao).updateStatus(id, "RUNNING");
         verify(liveRelayService).addZlmediakitProxy("rtsp://10.0.0.1:554/Streaming/Channels/101", "stream-1", false, false);
         verify(liveRelayService).addZlmediakitProxy("rtsp://10.0.0.1:554/Streaming/Channels/102", "stream-1-sub");
+    }
+
+    @Test
+    void sdkFallbackMarksStreamingWhenRelayRejects() {
+        UUID id = UUID.randomUUID();
+        when(cameraDao.selectById(id)).thenReturn(camera(id));
+        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean(), anyBoolean())).thenReturn(false);
+        when(mcpLivePullClient.startPull(any())).thenReturn(true);
+
+        service.start(id);
+
+        verify(cameraDao).updateStatus(id, "RUNNING");
+        verify(mcpLivePullClient).startPull(any());
+    }
+
+    @Test
+    void sdkFallbackFailureStillReportsConflict() {
+        UUID id = UUID.randomUUID();
+        when(cameraDao.selectById(id)).thenReturn(camera(id));
+        when(liveRelayService.addZlmediakitProxy(anyString(), anyString(), anyBoolean(), anyBoolean())).thenReturn(false);
+        when(mcpLivePullClient.startPull(any())).thenReturn(false);
+
+        ResponseStatusException exception =
+                assertThrows(ResponseStatusException.class, () -> service.start(id));
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        verify(cameraDao, never()).updateStatus(id, "RUNNING");
     }
 
     private static CameraEntity camera(UUID id) {

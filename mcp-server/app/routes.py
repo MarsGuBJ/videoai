@@ -6,11 +6,12 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from inspect import Parameter, signature
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from .context import channel_lookup, hcnetsdk_playback, known_nvr_hosts, mcp, nvr_devices, storage_bindings, videoai
+from .context import channel_lookup, hcnetsdk_live, hcnetsdk_playback, known_nvr_hosts, mcp, nvr_devices, storage_bindings, videoai
 from .nvr_devices import effective_storage_host, resolve_device_credentials, verify_storage_recording
 from .tools import (
     detect_persons,
@@ -65,6 +66,7 @@ def register_http_tool_routes() -> None:
         register_http_tool_route(tool_name, handler)
     register_recording_live_route()
     register_storage_binding_routes()
+    register_live_pull_routes()
 
 
 def register_storage_binding_routes() -> None:
@@ -120,6 +122,10 @@ def register_storage_binding_routes() -> None:
                 camera = cameras.get(str(item["cameraId"]))
                 if camera is None:
                     return item, "摄像头不存在或已删除"
+                # 绑定带流ID时映射即权威（来自 CVR 流源导出），跳过 ISAPI 校验直接绑定；
+                # 这类设备（现场 DS-A CVR）ISAPI 关闭，校验必然失败
+                if str(item.get("streamId") or "").strip():
+                    return item, None
                 reason = await verify_storage_recording(
                     camera,
                     str(item["host"]).strip(),
@@ -155,6 +161,57 @@ def register_storage_binding_routes() -> None:
             return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)
         except Exception as exc:  # noqa: BLE001  # 兜底：与 -http 接口一致，细节只进服务端日志
             logger.exception("storage-bindings/unbind failed with %s", type(exc).__name__)
+            return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500)
+
+
+def register_live_pull_routes() -> None:
+    """RTSP 不可用海康设备的 SDK 实时拉流（平台开播兜底，见 hcnetsdk_live）。"""
+
+    @mcp.custom_route("/live-pull/start", methods=["POST"], name="live_pull_start")
+    async def live_pull_start(request: Request) -> JSONResponse:
+        try:
+            payload = await read_json_object(request)
+            stream_name = str(payload.get("streamName") or "").strip()
+            source_url = str(payload.get("sourceUrl") or "").strip()
+            if not stream_name or not source_url:
+                raise ValueError("streamName and sourceUrl are required")
+            parsed = urlparse(source_url)
+            if parsed.scheme not in ("rtsp", "rtsps") or not parsed.hostname:
+                raise ValueError("sourceUrl must be an rtsp URL")
+            username = unquote(parsed.username or "")
+            password = unquote(parsed.password or "")
+            if not username:
+                raise ValueError("sourceUrl must carry credentials")
+            sdk_port = int(payload.get("sdkPort") or 8000)
+            stream_type = str(payload.get("streamType") or "main")
+            await hcnetsdk_live.start(
+                stream_name=stream_name,
+                host=parsed.hostname,
+                port=sdk_port,
+                username=username,
+                password=password,
+                stream_type=stream_type,
+            )
+            return JSONResponse({"data": {"streamName": stream_name, "pushed": True}})
+        except ValueError as exc:
+            return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)
+        except Exception as exc:  # noqa: BLE001  # 兜底：与 -http 接口一致，细节只进服务端日志
+            logger.exception("live-pull/start failed with %s", type(exc).__name__)
+            return JSONResponse(error_payload(type(exc).__name__, str(exc)), status_code=502)
+
+    @mcp.custom_route("/live-pull/stop", methods=["POST"], name="live_pull_stop")
+    async def live_pull_stop(request: Request) -> JSONResponse:
+        try:
+            payload = await read_json_object(request)
+            stream_name = str(payload.get("streamName") or "").strip()
+            if not stream_name:
+                raise ValueError("streamName is required")
+            await hcnetsdk_live.stop(stream_name)
+            return JSONResponse({"data": {"streamName": stream_name, "stopped": True}})
+        except ValueError as exc:
+            return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("live-pull/stop failed with %s", type(exc).__name__)
             return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500)
 
 
@@ -202,7 +259,9 @@ def register_recording_live_route() -> None:
                 proxy = nvr_devices.proxy_for_credentials(credentials)
                 # 设备时钟偏差补偿：SDK 回放时间按设备本地时钟解释
                 shift = timedelta(seconds=await proxy.measure_clock_skew())
-                recording = proxy.build_recording(start + shift, end + shift, credentials.channel)
+                recording = proxy.build_recording(
+                    start + shift, end + shift, credentials.channel or None, stream_id=credentials.stream_id
+                )
             else:
                 proxy = hcnetsdk_playback
                 recording = proxy.build_recording(start, end)

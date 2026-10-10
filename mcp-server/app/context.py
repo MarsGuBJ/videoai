@@ -4,6 +4,7 @@ from datetime import timedelta, timezone
 
 from mcp.server.fastmcp import FastMCP
 
+from .hcnetsdk_live import LivePullManager
 from .hcnetsdk_playback import HcNetSdkPlaybackProxy
 from .hikvision_nvr import HikvisionNvrClient
 from .media_proxy import MediaProxy
@@ -65,6 +66,13 @@ hcnetsdk_playback = HcNetSdkPlaybackProxy(
     settings.playback_ttl_seconds,
     settings.request_timeout_seconds,
     max_live_sessions=settings.hcnetsdk_max_live_sessions,
+)
+# RTSP 不可用海康设备（如现场热成像相机）的 SDK 实时拉流降级链路（/live-pull/*）
+hcnetsdk_live = LivePullManager(
+    settings.zlm_http_url,
+    settings.zlm_secret,
+    settings.zlm_rtmp_push_base,
+    settings.request_timeout_seconds,
 )
 # 按摄像头绑定的多 NVR 设备回放代理注册表（凭据来自摄像头 sourceUrl，按设备主机缓存）
 nvr_devices = NvrDeviceRegistry(

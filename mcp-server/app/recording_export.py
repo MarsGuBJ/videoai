@@ -97,6 +97,7 @@ async def export_recording_via_downloader(
     start_time: datetime,
     end_time: datetime,
     rtsp_error: Exception | None = None,
+    stream_id: str = "",
 ) -> dict[str, Any]:
     """通过给定 HCNetSDK 下载器按时间下载录像并上传 MinIO（非实时抓流，含时钟偏差补偿）。
 
@@ -105,13 +106,17 @@ async def export_recording_via_downloader(
         track_id: 展示与对象命名用的 track（如 ``201``）。
         channel: SDK 通道号（如 ``2``）；``None`` 时用下载器默认通道。
         rtsp_error: 仅在作为 RTSP 失败兜底调用时传入，错误消息会附带 RTSP 侧原因。
+        stream_id: 流ID模式存储设备（现场 DS-A CVR）的录像流标识；非空时下载走
+            SDK 按时间回放抓流 remux MP4。
 
     Raises:
         RecordingExportError: SDK 下载失败。
     """
     skew = await downloader.measure_clock_skew()
     shift = timedelta(seconds=skew)
-    recording = downloader.build_download_recording(start_time + shift, end_time + shift, channel or None)
+    recording = downloader.build_download_recording(
+        start_time + shift, end_time + shift, channel or None, stream_id=stream_id
+    )
     started = time.monotonic()
     try:
         mp4_file = await downloader.download_mp4(recording)

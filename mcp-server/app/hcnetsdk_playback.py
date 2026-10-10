@@ -27,6 +27,7 @@ from ctypes import (
     c_uint32,
     c_void_p,
     create_string_buffer,
+    memmove,
     sizeof,
     string_at,
 )
@@ -107,20 +108,32 @@ def find_first_video_idr(buffer: bytes | bytearray) -> int | None:
         if buffer[i] == 0 and buffer[i + 1] == 0 and buffer[i + 2] == 1:
             code = buffer[i + 3]
             if 0xE0 <= code <= 0xEF:
-                codec = _pes_idr_codec(buffer, i, n)
-                if codec:
-                    return _backtrack_to_parameter_sets(buffer, i, codec)
+                found = _pes_idr_codec(buffer, i, n)
+                if found:
+                    codec, idr_pos = found
+                    start = _backtrack_to_parameter_sets(buffer, i, codec)
+                    # IDR 候选校验：起点到 IDR 之间必须能找到参数集 NAL。
+                    # CVR 部分流的 P/B 帧 PES 载荷中有随机 00 00 01 65 字节组合
+                    # （现场 DS-A CVR 实测），若无校验会把起点定到无参数集的
+                    # 垃圾 PES 上，ffmpeg 探流失败（No start code is found）。
+                    # 窗口限 64KB：超出探流窗口的参数集对解码无意义。
+                    if _range_has_param_sets(buffer, start, min(idr_pos + 4, start + 65536, n), codec):
+                        return start
             i += 4
             continue
         i += 1
     return None
 
 
-def _pes_idr_codec(buffer: bytes | bytearray, start: int, limit: int) -> str | None:
-    """判断 start 处的视频 PES 包载荷内是否含 IDR/CRA NAL，命中返回编码类型。
+def _pes_idr_codec(buffer: bytes | bytearray, start: int, limit: int) -> tuple[str, int] | None:
+    """判断 start 处的视频 PES 包载荷内是否含 IDR/CRA NAL，命中返回 (编码类型, NAL 偏移)。
 
-    返回 "h264"（NAL type 5）或 "h265"（NAL type 19/20/21），无 IDR 返回 None；
-    编码类型供回溯参数集时区分 VCL NAL 用。
+    返回 "h264"（NAL type 5）或 "h265"（NAL type 19/20/21）与首个 IDR NAL 在 buffer
+    中的偏移，无 IDR 返回 None；编码类型供回溯参数集时区分 VCL NAL 用。
+
+    分类时先扫完整个 PES 再判定：H.264 的 SPS（0x27）/PPS（0x28）字节按 H.265
+    判读恰好落在 IDR 类型（19/20/21）上，若按扫描顺序先遇 0x27 会误判编码，
+    导致后续参数集校验用错类型（现场 DS-A CVR 流 SPS 实测为 0x27）。
     """
     header_len = buffer[start + 8]
     payload = start + 9 + header_len
@@ -134,20 +147,64 @@ def _pes_idr_codec(buffer: bytes | bytearray, start: int, limit: int) -> str | N
         nxt = buffer.find(b"\x00\x00\x01\xba", payload)
         if nxt != -1:
             end = min(limit, nxt)
+    h264_idr = -1
+    hevc_idr = -1
     j = payload
     while j + 4 <= end:
         if buffer[j] == 0 and buffer[j + 1] == 0 and buffer[j + 2] == 1:
             b0 = buffer[j + 3]
             # H.264：type = b0 & 0x1F，IDR = 5
-            if (b0 & 0x1F) == 5:
-                return "h264"
+            if h264_idr < 0 and (b0 & 0x1F) == 5:
+                h264_idr = j
             # H.265：type = (b0 & 0x7E) >> 1，IDR_W_RADL=19 / IDR_N_LP=20 / CRA=21
-            if ((b0 & 0x7E) >> 1) in (19, 20, 21):
-                return "h265"
+            if hevc_idr < 0 and ((b0 & 0x7E) >> 1) in (19, 20, 21):
+                hevc_idr = j
+            if h264_idr >= 0 and hevc_idr >= 0:
+                break
             j += 4
             continue
         j += 1
+    if h264_idr >= 0:
+        return "h264", h264_idr
+    if hevc_idr >= 0:
+        return "h265", hevc_idr
     return None
+
+
+def _nal_is_param_set(b0: int, codec: str) -> bool:
+    """NAL 头是否为参数集：H.264 SPS/PPS=type 7/8；H.265 VPS/SPS/PPS=type 32/33/34。"""
+    if codec == "h264":
+        return (b0 & 0x1F) in (7, 8)
+    return ((b0 & 0x7E) >> 1) in (32, 33, 34)
+
+
+def _range_has_param_sets(buffer: bytes | bytearray, start: int, end: int, codec: str) -> bool:
+    """在 [start, end) 字节范围内查找参数集 NAL 起始码（限定窗口，线性扫描一次）。
+
+    用于 IDR 候选校验：CVR 部分流的 P/B 帧 PES 载荷中会出现随机的
+    ``00 00 01 65`` 字节组合（现场 DS-A CVR 实测），单看 IDR 模式会把起点
+    定到无参数集的垃圾 PES 上，ffmpeg 探流失败（No start code is found）。
+    H.264 要求 SPS/PPS 成对出现（海康 IDR 前必然带全）；H.265 有任一参数集即可。
+    """
+    start = max(0, start)
+    end = min(len(buffer), end)
+    h264_seen: set[int] = set()
+    j = start
+    while j + 4 <= end:
+        if buffer[j] == 0 and buffer[j + 1] == 0 and buffer[j + 2] == 1:
+            b0 = buffer[j + 3]
+            if codec == "h264":
+                nal_type = b0 & 0x1F
+                if nal_type in (7, 8):
+                    h264_seen.add(nal_type)
+                    if len(h264_seen) == 2:
+                        return True
+            elif _nal_is_param_set(b0, codec):
+                return True
+            j += 4
+            continue
+        j += 1
+    return False
 
 
 def _pes_contains_vcl(buffer: bytes | bytearray, start: int, limit: int, codec: str) -> bool:
@@ -175,15 +232,45 @@ def _pes_contains_vcl(buffer: bytes | bytearray, start: int, limit: int, codec: 
     return False
 
 
-def _backtrack_to_parameter_sets(buffer: bytes | bytearray, idr_start: int, codec: str) -> int:
-    """从 IDR PES 向前回溯，把紧邻的不含 VCL 的视频 PES（VPS/SPS/PPS/SEI/AUD）一并纳入。
+_PARAM_SET_TYPES = {"h264": {7, 8}, "h265": {32, 33, 34}}
 
-    部分设备把参数集放在 IDR 前的独立 PES 中（现场 10.10.7.253 实测 VPS/SPS/PPS
-    各占一个 PES）；从 IDR PES 起喂会丢参数集，ffmpeg 解析不出码流
-    （PPS id out of range / dimensions not set）。遇到含 VCL 的 PES 即停止，
-    不回溯进上一 GOP 的帧数据。
+
+def _pes_param_set_types(buffer: bytes | bytearray, start: int, limit: int, codec: str) -> set[int]:
+    """视频 PES 载荷内出现的参数集 NAL 类型集合（H.264：SPS=7/PPS=8；H.265：VPS/SPS/PPS=32/33/34）。"""
+    header_len = buffer[start + 8]
+    payload = start + 9 + header_len
+    end = limit
+    pkt_len = (buffer[start + 4] << 8) | buffer[start + 5]
+    if pkt_len:
+        end = min(limit, start + 6 + pkt_len)
+    found: set[int] = set()
+    j = payload
+    while j + 4 <= end:
+        if buffer[j] == 0 and buffer[j + 1] == 0 and buffer[j + 2] == 1:
+            b0 = buffer[j + 3]
+            nal_type = (b0 & 0x1F) if codec == "h264" else ((b0 & 0x7E) >> 1)
+            if nal_type in _PARAM_SET_TYPES[codec]:
+                found.add(nal_type)
+            j += 4
+            continue
+        j += 1
+    return found
+
+
+def _backtrack_to_parameter_sets(buffer: bytes | bytearray, idr_start: int, codec: str) -> int:
+    """从 IDR PES 向前回溯到连续非 VCL PES 链中"参数集凑齐"的起点。
+
+    布局假设（海康设备实测）：参数集（VPS/SPS/PPS）与 IDR 紧邻——同 PES 或
+    紧前的独立 PES（10.10.7.253 实测各占一个）。回溯在遇到含 VCL 的 PES 时
+    停止；参数集类型凑齐（h264: SPS+PPS；h265: VPS+SPS+PPS）即返回链起点。
+    CVR 部分流的 IDR 之前是大量既无 VCL 也无参数集的垃圾 PES（现场 DS-A
+    实测），旧逻辑会一路回溯把起点定到垃圾数据上，让 ffmpeg 探流失败；
+    参数集凑不齐时退回到 IDR PES 自身（参数集常与 IDR 同 PES），或已收集到
+    部分参数集时的最远 PES（SPS/PPS 分跨两个 PES 的布局）。
     """
-    start = idr_start
+    needed = _PARAM_SET_TYPES[codec]
+    seen: set[int] = set()
+    chain_start = idr_start
     cursor = idr_start
     while cursor > 3:
         p = buffer.rfind(b"\x00\x00\x01", 0, cursor)
@@ -193,9 +280,12 @@ def _backtrack_to_parameter_sets(buffer: bytes | bytearray, idr_start: int, code
             break
         if _pes_contains_vcl(buffer, p, cursor, codec):
             break
-        start = p
+        seen |= _pes_param_set_types(buffer, p, cursor, codec)
+        chain_start = p
+        if needed <= seen:
+            return chain_start
         cursor = p
-    return start
+    return chain_start if seen else idr_start
 
 
 class HcNetSdkError(RuntimeError):
@@ -312,26 +402,40 @@ def build_hcnetsdk_recording(
     channel: int,
     start_time: datetime,
     end_time: datetime,
+    stream_id: str = "",
 ) -> RecordingSegment:
-    """Build a recording segment descriptor for HCNetSDK playback by time."""
-    playback_uri = f"hcnetsdk://{host}:{port}/channels/{channel}"
-    recording_id = stable_recording_id(host, channel, start_time, end_time)
+    """Build a recording segment descriptor for HCNetSDK playback by time.
+
+    ``stream_id`` 非空时为流ID模式设备（现场 DS-A CVR）：回放按流ID定位（忽略 channel），
+    标识/缓存键改用流ID保证唯一。
+    """
+    if stream_id:
+        playback_uri = f"hcnetsdk://{host}:{port}/streams/{stream_id}"
+        recording_id = stable_recording_id(host, stream_id, start_time, end_time)
+        track_id = stream_id
+    else:
+        playback_uri = f"hcnetsdk://{host}:{port}/channels/{channel}"
+        recording_id = stable_recording_id(host, channel, start_time, end_time)
+        track_id = str(channel)
+    metadata = {
+        "deviceHost": host,
+        "devicePort": port,
+        "channel": channel,
+        "protocol": "HCNetSDK",
+        "sdkApi": "NET_DVR_PlayBackByTime_V40",
+    }
+    if stream_id:
+        metadata["streamId"] = stream_id
     return RecordingSegment(
         recordingId=recording_id,
-        cameraId=f"{host}-channel-{channel}",
-        cameraName=f"IPC-{host}-{channel}",
-        trackId=str(channel),
+        cameraId=f"{host}-stream-{stream_id[:8]}" if stream_id else f"{host}-channel-{channel}",
+        cameraName=f"IPC-{host}-{stream_id[:8]}" if stream_id else f"IPC-{host}-{channel}",
+        trackId=track_id,
         startTime=start_time,
         endTime=end_time,
         playbackUri=playback_uri,
         source=NET_DVR_PLAYBACK_BY_TIME,
-        metadata={
-            "deviceHost": host,
-            "devicePort": port,
-            "channel": channel,
-            "protocol": "HCNetSDK",
-            "sdkApi": "NET_DVR_PlayBackByTime_V40",
-        },
+        metadata=metadata,
     )
 
 
@@ -341,8 +445,19 @@ def build_hcnetsdk_download_recording(
     channel: int,
     start_time: datetime,
     end_time: datetime,
+    stream_id: str = "",
 ) -> RecordingSegment:
-    """Build a recording segment descriptor for HCNetSDK download by time."""
+    """Build a download recording descriptor for HCNetSDK download by time.
+
+    流ID模式设备（``stream_id`` 非空，如现场 DS-A CVR）SDK 按时间下载不可用
+    （实测 ``NET_DVR_GetFileByTime_V40`` err=17）：下载描述符与回放同构（byID 定位），
+    实际下载走 SDK 按时间回放抓流经 ffmpeg remux MP4（见
+    ``HcNetSdkPlaybackProxy._download_mp4_via_playback``）。
+    """
+    if stream_id:
+        recording = build_hcnetsdk_recording(host, port, channel, start_time, end_time, stream_id=stream_id)
+        recording.metadata["downloadMode"] = "playback-capture"
+        return recording
     recording = build_hcnetsdk_recording(host, port, channel, start_time, end_time)
     recording.source = NET_DVR_DOWNLOAD_BY_TIME
     recording.metadata["sdkApi"] = "NET_DVR_GetFileByTime"
@@ -425,23 +540,39 @@ class HcNetSdkPlaybackProxy:
         # 0 表示不限制；仅特定部署环境（如 NVR 回放并发受限的 demo 环境）才设上限
         self._max_live_sessions = max_live_sessions
 
-    def build_recording(self, start_time: datetime, end_time: datetime, channel: int | None = None) -> RecordingSegment:
+    def build_recording(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        channel: int | None = None,
+        stream_id: str = "",
+    ) -> RecordingSegment:
         """Build a playback recording descriptor bound to this proxy's device.
 
         Args:
-            channel: 覆盖默认通道（未传时用配置的 ``self.channel``）。
+            channel: 覆盖默认通道（未传时用配置的 ``self.channel``）；流ID模式忽略。
+            stream_id: 流ID模式设备按流ID定位（非空时忽略 channel）。
         """
-        return build_hcnetsdk_recording(self.host, self.port, channel or self.channel, start_time, end_time)
+        return build_hcnetsdk_recording(
+            self.host, self.port, channel or self.channel, start_time, end_time, stream_id=stream_id
+        )
 
     def build_download_recording(
-        self, start_time: datetime, end_time: datetime, channel: int | None = None
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        channel: int | None = None,
+        stream_id: str = "",
     ) -> RecordingSegment:
         """Build a download recording descriptor bound to this proxy's device.
 
         Args:
-            channel: 覆盖默认通道（未传时用配置的 ``self.channel``）。
+            channel: 覆盖默认通道（未传时用配置的 ``self.channel``）；流ID模式忽略。
+            stream_id: 流ID模式设备不支持 SDK 按时间下载，非空时直接报错。
         """
-        return build_hcnetsdk_download_recording(self.host, self.port, channel or self.channel, start_time, end_time)
+        return build_hcnetsdk_download_recording(
+            self.host, self.port, channel or self.channel, start_time, end_time, stream_id=stream_id
+        )
 
     async def measure_clock_skew(self) -> float:
         """Measure the device clock offset in seconds (device time minus server time); 0 on failure.
@@ -569,6 +700,8 @@ class HcNetSdkPlaybackProxy:
             password=self.password,
             # 通道以录像段 metadata 为准（多摄像头同 NVR 时每路摄像头通道不同），缺省回落配置通道
             channel=int(recording.metadata.get("channel") or self.channel),
+            # 流ID模式设备（如现场 DS-A CVR）按流ID起播，忽略通道
+            stream_id=str(recording.metadata.get("streamId") or ""),
             start_time=recording.startTime,
             end_time=recording.endTime,
             rtmp_url=f"{self.zlm_rtmp_push_base}/{stream_name}",
@@ -607,6 +740,10 @@ class HcNetSdkPlaybackProxy:
         return await asyncio.to_thread(self._download_mp4, recording, speedx)
 
     def _download_mp4(self, recording: RecordingSegment, speedx: int = 1) -> Path:
+        if str(recording.metadata.get("streamId") or ""):
+            # 流ID模式设备（现场 DS-A CVR）SDK 按时间下载不可用（实测 err=17），
+            # 降级为 SDK 按时间回放抓流经 ffmpeg remux MP4
+            return self._download_mp4_via_playback(recording)
         work_dir = Path(tempfile.mkdtemp(prefix="hcnetsdk-download-"))
         ps_file = work_dir / f"{recording.recordingId}.ps"
         mp4_file = work_dir / f"{recording.recordingId}.mp4"
@@ -651,6 +788,91 @@ class HcNetSdkPlaybackProxy:
             if sdk is not None and user_id >= 0:
                 sdk.sdk.NET_DVR_Logout(user_id)
             shutil.rmtree(work_dir, ignore_errors=True)
+
+    def _download_mp4_via_playback(self, recording: RecordingSegment) -> Path:
+        """流ID模式设备（现场 DS-A CVR）的 MP4 下载：SDK 按时间回放抓流经 ffmpeg remux。
+
+        与推流播放共用 PlaybackSession（byID 起播、PS 回调、队列背压流控），
+        ffmpeg 输出本地 MP4（-c:v copy），不限速读取，下载速度取决于设备供流。
+        """
+        work_dir = Path(tempfile.mkdtemp(prefix="hcnetsdk-download-"))
+        mp4_file = work_dir / f"{recording.recordingId}.mp4"
+        session = PlaybackSession(
+            sdk=HcNetSdkLibrary.instance(),
+            stream_name=f"dl-{recording.recordingId[:12]}",
+            host=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+            channel=int(recording.metadata.get("channel") or self.channel),
+            stream_id=str(recording.metadata.get("streamId") or ""),
+            start_time=recording.startTime,
+            end_time=recording.endTime,
+            rtmp_url="",
+            playback_url="",
+            timeout=self.timeout,
+            expires_at=time.monotonic() + max(self.ttl_seconds, 1),
+            recording_id=recording.recordingId,
+            # MP4 输出恒为 -c:v copy，codec 字段仅影响 FLV 推流分支
+            codec=CODEC_H265,
+            mp4_output=str(mp4_file),
+        )
+        try:
+            session.start()
+            self._wait_until_playback_finished(session, recording)
+        finally:
+            session.stop()
+        if not mp4_file.is_file() or mp4_file.stat().st_size == 0:
+            raise HcNetSdkError(f"流ID模式下载未产出 MP4: {session.failed or 'empty ffmpeg output'}")
+        final_file = Path(tempfile.gettempdir()) / f"{recording.recordingId}.mp4"
+        shutil.move(str(mp4_file), final_file)
+        return final_file
+
+    def _wait_until_playback_finished(self, session: PlaybackSession, recording: RecordingSegment) -> None:
+        """等 SDK 回放推进到查询窗口末尾：优先按回放进度百分比判定。
+
+        ``NET_DVR_GetPlayBackPos`` 在流ID回放不受支持时返回负值：退化为数据空闲判定
+        （收到过数据且持续无新数据视为下载完成）。
+        """
+        duration_seconds = max((recording.endTime - recording.startTime).total_seconds(), 1)
+        deadline = time.monotonic() + max(self.timeout * 2, min(duration_seconds * 3 + 60, 3600))
+        no_data_timeout = max(self.timeout, 30)
+        last_pos = -1
+        idle_ticks = 0
+        pos_supported = True
+        while time.monotonic() < deadline:
+            if session.failed:
+                raise HcNetSdkError(session.failed)
+            if session.ffmpeg is not None and session.ffmpeg.poll() is not None:
+                raise HcNetSdkError(session.ffmpeg_error())
+            if pos_supported and session.playback_handle >= 0:
+                pos = int(session.sdk.sdk.NET_DVR_GetPlayBackPos(session.playback_handle))
+                if pos >= 100:
+                    return
+                if pos < 0:
+                    logger.warning(
+                        "NET_DVR_GetPlayBackPos unsupported on %s (%s); fall back to data-idle detection",
+                        self.host,
+                        session.sdk.last_error(),
+                    )
+                    pos_supported = False
+                else:
+                    if pos == last_pos:
+                        idle_ticks += 1
+                    else:
+                        idle_ticks = 0
+                        last_pos = pos
+                    if idle_ticks >= 60:
+                        raise TimeoutError(f"HCNetSDK playback download stalled at {pos}%")
+            elif session.last_data_at:
+                # 进度百分比不可用：设备把整段窗口推完后停止供流，数据空闲即完成
+                if time.monotonic() - session.last_data_at >= 10:
+                    return
+            else:
+                if session.timing.get("playstart", 0) and time.monotonic() - session.spawned_at > no_data_timeout:
+                    raise TimeoutError("HCNetSDK playback download produced no data")
+            time.sleep(1)
+        raise TimeoutError("HCNetSDK playback download timed out")
 
     def _wait_until_downloaded(self, sdk: HcNetSdkLibrary, download_handle: int, recording: RecordingSegment) -> None:
         duration_seconds = max((recording.endTime - recording.startTime).total_seconds(), 1)
@@ -839,6 +1061,8 @@ class HcNetSdkLibrary:
         self.sdk.NET_DVR_PlayBackControl.restype = c_bool
         self.sdk.NET_DVR_GetDownloadPos.argtypes = [c_long]
         self.sdk.NET_DVR_GetDownloadPos.restype = c_int
+        self.sdk.NET_DVR_GetPlayBackPos.argtypes = [c_long]
+        self.sdk.NET_DVR_GetPlayBackPos.restype = c_int
         self.sdk.NET_DVR_StopGetFile.argtypes = [c_long]
         self.sdk.NET_DVR_StopGetFile.restype = c_bool
 
@@ -903,6 +1127,10 @@ class PlaybackSession:
     speed: float = 1.0
     # 输出编码：h264（libx264 转码，兼容性最好）或 h265（原码流直通，仅等速）
     codec: str = CODEC_H264
+    # 流ID模式设备（如现场 DS-A CVR）的录像流标识：非空时 VOD 参数按流ID定位，忽略 channel
+    stream_id: str = ""
+    # 非空时为下载模式：ffmpeg 输出本地 MP4 文件（-c:v copy），不推 ZLM 流
+    mp4_output: str = ""
 
     def __post_init__(self) -> None:
         self.user_id = -1
@@ -915,6 +1143,7 @@ class PlaybackSession:
         self._paused = False
         self._flow_lock = threading.Lock()
         self._stopped = False
+        self.last_data_at = 0.0
         # 起流分段计时（诊断首帧慢）：spawn → login → playstart → 首块数据 → 流注册
         self.spawned_at = time.monotonic()
         self.timing: dict[str, float] = {}
@@ -924,6 +1153,32 @@ class PlaybackSession:
 
     def _ffmpeg_args(self) -> list[str]:
         # ffmpeg 可执行文件由部署环境 PATH 提供，参数均为内部构造
+        if self.mp4_output:
+            # 下载模式（流ID模式设备回放抓流）：PS 直通 remux 成本地 MP4，视频原码流
+            # copy（H.265/H.264 均可，与 SDK 按时间下载的 remux 语义一致），丢弃音频；
+            # 不限速读取（不下发 -re/-readrate），设备供流约 15MB/s，下载耗时远短于时段长度
+            return [
+                "ffmpeg",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-fflags",
+                "nobuffer",
+                "-f",
+                "mpeg",
+                "-probesize",
+                "1000000",
+                "-analyzeduration",
+                "1000000",
+                "-i",
+                "pipe:0",
+                "-an",
+                "-c:v",
+                "copy",
+                "-movflags",
+                "+faststart",
+                self.mp4_output,
+            ]
         args = [
             "ffmpeg",
             "-nostdin",
@@ -1040,7 +1295,14 @@ class PlaybackSession:
         vod = NET_DVR_VOD_PARA()
         vod.dwSize = sizeof(vod)
         vod.struIDInfo.dwSize = sizeof(vod.struIDInfo)
-        vod.struIDInfo.dwChannel = self.channel
+        if self.stream_id:
+            # 流ID模式设备（现场 DS-A CVR 实测）：byID 填流ID、dwChannel=0；
+            # 按通道起播在这类设备上报"流ID不存在"(956)
+            encoded = self.stream_id.encode("ascii", errors="ignore")[:32]
+            memmove(vod.struIDInfo.byID, encoded, len(encoded))
+            vod.struIDInfo.dwChannel = 0
+        else:
+            vod.struIDInfo.dwChannel = self.channel
         vod.struBeginTime = to_sdk_time(self.start_time)
         vod.struEndTime = to_sdk_time(self.end_time)
         vod.hWnd = None
@@ -1052,6 +1314,7 @@ class PlaybackSession:
             return
         if "first_data" not in self.timing:
             self._mark("first_data")
+        self.last_data_at = time.monotonic()
         self.queue_put(string_at(buffer, int(size)))
 
     def queue_put(self, item: bytes | None) -> None:

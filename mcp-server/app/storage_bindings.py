@@ -1,7 +1,9 @@
-"""摄像头 → 录像存储设备（host/username/password）绑定的内存存储与 JSON 落盘。
+"""摄像头 → 录像存储设备（host/username/password[/streamId]）绑定的内存存储与 JSON 落盘。
 
 平台把摄像头"关联"到某台录像存储设备后，该摄像头的录像检索/回放/下载优先使用
 绑定的主机与凭据（见 ``nvr_devices.resolve_device_credentials`` 的 ``binding`` 参数）。
+流ID 模式的存储设备（如现场 DS-A CVR，ISAPI 关闭、通道回放不可用）可在绑定中携带
+``streamId``，回放时直接用流ID起播（见 ``nvr_devices._credentials_from_binding``）。
 启动时从 JSON 文件加载（文件不存在视为空）；写操作先写临时文件再 ``os.replace``
 原子落盘，避免半截文件。注意：对外输出（``all()``）绝不包含密码。
 """
@@ -46,16 +48,22 @@ class StorageBindings:
                 "host": str(item.get("host") or ""),
                 "username": str(item.get("username") or ""),
                 "password": str(item.get("password") or ""),
+                "streamId": str(item.get("streamId") or ""),
             }
             for camera_id, item in raw.items()
             if isinstance(item, dict)
         }
 
     def all(self) -> list[dict[str, str]]:
-        """返回全部绑定的对外视图（cameraId/host/username），不含密码。"""
+        """返回全部绑定的对外视图（cameraId/host/username，流ID绑带含 streamId），不含密码。"""
         with self._lock:
             return [
-                {"cameraId": camera_id, "host": binding["host"], "username": binding["username"]}
+                {
+                    "cameraId": camera_id,
+                    "host": binding["host"],
+                    "username": binding["username"],
+                    **({"streamId": binding["streamId"]} if binding.get("streamId") else {}),
+                }
                 for camera_id, binding in self._bindings.items()
             ]
 
@@ -63,16 +71,25 @@ class StorageBindings:
         """返回摄像头的完整绑定（含密码，仅供内部解析设备凭据用）；未绑定返回 None。"""
         with self._lock:
             binding = self._bindings.get(camera_id)
-            return dict(binding) if binding is not None else None
+            if binding is None:
+                return None
+            result = dict(binding)
+            if not result.get("streamId"):
+                result.pop("streamId", None)
+            return result
 
     def bind(self, items: list[dict[str, str]]) -> int:
-        """批量绑定/覆盖（同 cameraId 覆盖），返回写入条数。"""
+        """批量绑定/覆盖（同 cameraId 覆盖），返回写入条数。
+
+        ``streamId`` 可选：流ID 模式的存储设备（ISAPI 不可用）回放时按流ID直接起播。
+        """
         with self._lock:
             for item in items:
                 self._bindings[str(item["cameraId"])] = {
                     "host": str(item["host"]),
                     "username": str(item["username"]),
                     "password": str(item["password"]),
+                    "streamId": str(item.get("streamId") or ""),
                 }
             self._save_locked()
             return len(items)

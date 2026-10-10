@@ -154,7 +154,7 @@ def test_download_recording_routes_to_selected_nvr_and_cleans_temp_file(monkeypa
     class FakeDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             return build_hcnetsdk_download_recording(nvr, 8000, channel or self.channel, start_time, end_time)
 
         async def measure_clock_skew(self):
@@ -215,7 +215,7 @@ def test_download_recording_derives_channel_from_track_id_and_compensates_skew(m
     class FakeDownloader:
         channel = 1
 
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             calls["sdk_start"] = start_time
             calls["channel"] = channel or self.channel
             return build_hcnetsdk_download_recording("10.10.7.252", 8000, channel or self.channel, start_time, end_time)

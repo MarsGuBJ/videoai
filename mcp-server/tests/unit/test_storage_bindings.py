@@ -476,3 +476,101 @@ def test_verify_fails_without_source_url(monkeypatch):
 
     assert reason is not None
     assert "sourceUrl" in reason
+
+
+# --- 流ID绑定（现场 DS-A CVR：ISAPI 关闭、通道回放不可用，按流ID直接回放） ---
+
+STREAM_BINDING = {
+    "host": "172.19.200.21",
+    "username": "admin",
+    "password": "nvr-secret",
+    "streamId": "405c14ed5fe147e7970485eecade27e3",
+}
+
+
+def test_storage_bindings_stream_id_roundtrip(tmp_path):
+    """带 streamId 的绑定：get/all 暴露、落盘并可重载。"""
+    file_path = tmp_path / "bindings.json"
+    bindings = StorageBindings(str(file_path))
+
+    bindings.bind([{"cameraId": "cam-1", **STREAM_BINDING}])
+
+    assert bindings.get("cam-1") == STREAM_BINDING
+    assert bindings.all() == [
+        {
+            "cameraId": "cam-1",
+            "host": STREAM_BINDING["host"],
+            "username": STREAM_BINDING["username"],
+            "streamId": STREAM_BINDING["streamId"],
+        }
+    ]
+    reloaded = StorageBindings(str(file_path))
+    assert reloaded.get("cam-1") == STREAM_BINDING
+    # 密码绝不进对外视图
+    assert "nvr-secret" not in json.dumps(bindings.all())
+
+
+def test_storage_bindings_without_stream_id_omits_key(tmp_path):
+    """旧格式绑定（无 streamId）：get/all 不出现 streamId 字段，保持对外形状兼容。"""
+    bindings = StorageBindings(str(tmp_path / "bindings.json"))
+    bindings.bind([{"cameraId": "cam-1", **BINDING}])
+
+    assert bindings.get("cam-1") == BINDING
+    assert bindings.all() == [
+        {"cameraId": "cam-1", "host": BINDING["host"], "username": BINDING["username"]}
+    ]
+
+
+def test_binding_with_stream_id_skips_isapi_lookup(monkeypatch):
+    """绑定带流ID：不做 ISAPI 通道反查（这类设备 ISAPI 已关闭），直接返回流ID凭据。"""
+    async def forbidden_lookup(*args, **kwargs):
+        raise AssertionError("stream-id binding must not call ISAPI channel lookup")
+
+    monkeypatch.setattr(nvr_devices, "lookup_bound_storage_channel", forbidden_lookup)
+    camera = make_camera(
+        sourceUrl="rtsp://admin:cisdi2024@172.19.102.23:554/Streaming/Channels/101",
+        nvrChannel=None,
+        nvrTrackId=None,
+    )
+
+    credentials = run(resolve_device_credentials(camera, None, frozenset(), binding=STREAM_BINDING))
+
+    assert credentials.host == "172.19.200.21"
+    assert credentials.stream_id == STREAM_BINDING["streamId"]
+    assert credentials.track_id == STREAM_BINDING["streamId"]
+    assert credentials.channel == 0
+
+
+def test_bind_route_with_stream_id_skips_recording_verification(monkeypatch, tmp_path):
+    """带 streamId 的绑定项跳过录像校验直接绑定（映射来自 CVR 流源导出，视为权威）。"""
+    bindings = install_tmp_bindings(monkeypatch, tmp_path)
+
+    async def forbidden_verify(camera, host, username, password):
+        raise AssertionError("stream-id bind must not verify recordings via ISAPI")
+
+    async def fake_list_cameras():
+        return [make_camera(id="cam-1")]
+
+    monkeypatch.setattr(server.videoai, "list_cameras", fake_list_cameras)
+    monkeypatch.setattr("app.routes.verify_storage_recording", forbidden_verify)
+
+    response = post(
+        "/storage-bindings/bind",
+        {
+            "items": [
+                {
+                    "cameraId": "cam-1",
+                    "host": STREAM_BINDING["host"],
+                    "username": STREAM_BINDING["username"],
+                    "password": STREAM_BINDING["password"],
+                    "streamId": STREAM_BINDING["streamId"],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"data": {"bound": 1, "skipped": []}}
+    assert bindings.get("cam-1") == STREAM_BINDING
+    listed = get("/storage-bindings").json()["data"]
+    assert listed[0]["streamId"] == STREAM_BINDING["streamId"]

@@ -207,6 +207,63 @@ def test_search_recordings_with_camera_id_returns_empty_when_device_has_no_recor
     assert result["failedTrackIds"] == {}
 
 
+STREAM_ID = "405c14ed5fe147e7970485eecade27e3"
+
+
+def test_search_recordings_with_stream_id_camera_synthesizes_segment(monkeypatch):
+    """流ID绑定摄像头（现场 DS-A CVR）：ISAPI 检索不可用，按查询窗口合成单段并给回放链接。"""
+    camera = make_nvr_camera(id="cam-cvr", name="消控室半球", nvrChannel=None, nvrTrackId=None)
+    install_camera_lookup(monkeypatch, camera)
+
+    async def fake_resolve_credentials(cam, lookup, hosts, binding=None):
+        return SimpleNamespace(
+            host="172.19.200.24",
+            sdk_port=8000,
+            username="admin",
+            password="secret",
+            channel=0,
+            track_id=STREAM_ID,
+            stream_id=STREAM_ID,
+        )
+
+    async def fail_search_segments(*args, **kwargs):
+        raise AssertionError("stream-id camera must not trigger an ISAPI search")
+
+    monkeypatch.setattr("app.tools.recordings.resolve_device_credentials", fake_resolve_credentials)
+    monkeypatch.setattr("app.tools.recordings.search_segments", fail_search_segments)
+    monkeypatch.setattr(
+        "app.tools.recordings.settings",
+        SimpleNamespace(mcp_public_base_url="http://mcp.test:8097", request_timeout_seconds=15),
+    )
+
+    start = datetime(2026, 9, 1, 9, 0, tzinfo=BJT)
+    end = start + timedelta(minutes=5)
+    result = asyncio.run(
+        server.search_recordings(
+            cameraId="cam-cvr",
+            startTime=start.isoformat(),
+            endTime=end.isoformat(),
+        )
+    )
+
+    assert len(result["data"]) == 1
+    item = result["data"][0]
+    assert item["cameraId"] == "cam-cvr"
+    assert item["cameraName"] == "消控室半球"
+    assert item["trackId"] == STREAM_ID
+    assert "2026-09-01T09:00:00" in item["startTime"]
+    assert "2026-09-01T09:05:00" in item["endTime"]
+    assert item["metadata"]["streamId"] == STREAM_ID
+    assert item["url"] == (
+        "http://mcp.test:8097/recording-live?cameraId=cam-cvr"
+        f"&startTime={quote(start.isoformat())}&endTime={quote(end.isoformat())}"
+    )
+    assert item["format"] == "flv"
+    assert result["searchedTrackIds"] == [STREAM_ID]
+    assert result["failedTrackIds"] == {}
+    assert server.recording_cache.get(item["recordingId"]) is not None
+
+
 def test_search_recordings_with_camera_id_rejects_unbound_camera(monkeypatch):
     camera = make_nvr_camera(nvrChannel=None, nvrTrackId=None)
     install_camera_lookup(monkeypatch, camera)
@@ -235,7 +292,7 @@ def test_download_recording_with_camera_id_uses_per_device_proxy(monkeypatch, tm
     calls = {}
 
     class FakeProxy:
-        def build_download_recording(self, start_time, end_time, channel=None):
+        def build_download_recording(self, start_time, end_time, channel=None, stream_id=""):
             calls["sdk_start"] = start_time
             calls["channel"] = channel
             return build_hcnetsdk_download_recording("10.10.8.10", 8000, channel or 1, start_time, end_time)
