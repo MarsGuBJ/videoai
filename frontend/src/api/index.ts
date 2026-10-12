@@ -167,6 +167,13 @@ export type SimilarPersonResult = {
   accessory?: string;
   top_color?: string | string[];
   action?: string;
+  // ES 文档可能携带的其余人员属性字段（图搜图页前端二次筛选用），缺失时前端自动容错
+  gender?: string;
+  bottom_color?: string | string[];
+  shoe_type?: string;
+  hair_type?: string;
+  hair_color?: string;
+  bottom_type?: string;
 };
 
 export type PersonSearchResultResponse = {
@@ -564,6 +571,10 @@ export const api = {
     endTime?: string;
     similarityThreshold: number;
     topK: number;
+    // 服务端属性筛选（上游 2026-10 新增）：性别/年龄段/上衣颜色，不传 = 不过滤
+    sex?: string;
+    age?: string;
+    topColor?: string;
   }) =>
     request<PersonSearchSubmitResponse>('/api/person-search/search-by-bbox', {
       method: 'POST',

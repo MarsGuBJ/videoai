@@ -1387,6 +1387,88 @@
       font-size: 12px;
     }
 
+    /* ===== 图搜图页两栏布局（对齐原型 ImageSearchPage）：左 360px 检索条件面板 ===== */
+    /* 上传区在左侧面板中占满整行 */
+    .image-search-page .i2i-upload-zone {
+      width: 100%;
+      height: 148px;
+    }
+
+    .image-search-page .i2i-upload-zone small {
+      display: block;
+    }
+
+    /* 人员属性 2×2 下拉网格 */
+    .image-search-page .i2i-attr-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    /* 搜索 / 重置按钮横向平分 */
+    .image-search-page .track-query-actions {
+      flex-direction: row;
+    }
+
+    .image-search-page .track-query-actions .btn {
+      flex: 1 1 0;
+      width: auto;
+    }
+
+    /* 检索统计条：命中 / 耗时 / 最高相似度 / 阈值 */
+    .image-search-page .i2i-search-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      margin: 12px 0;
+      padding: 8px 12px;
+      border: 1px solid #edf0f5;
+      border-radius: 6px;
+      background: #fbfcfe;
+      color: #667085;
+      font-size: 12px;
+    }
+
+    .image-search-page .i2i-search-stats b {
+      color: var(--blue);
+    }
+
+    /* 结果二次筛选行：6 个属性输入 + 筛选 / 二次研判 / 步态过滤 */
+    .image-search-page .i2i-result-filters {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr)) auto auto auto;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    /* 相似度阈值快捷预设 */
+    .image-search-page .i2i-threshold-presets {
+      display: flex;
+      gap: 8px;
+    }
+
+    .image-search-page .i2i-threshold-presets button {
+      flex: 1 1 0;
+      padding: 4px 0;
+      border: 1px solid #d0d5dd;
+      border-radius: 4px;
+      background: #fff;
+      color: #475467;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .image-search-page .i2i-threshold-presets button:hover {
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+
+    .image-search-page .i2i-threshold-presets button.active {
+      border-color: var(--blue);
+      background: #edf5ff;
+      color: var(--blue);
+    }
+
     /* 提高特异性覆盖 .upload-card 的 140x140 固定尺寸：横向占满，高度按比例 */
     .track-target-upload.upload-card {
       position: relative;

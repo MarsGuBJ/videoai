@@ -128,6 +128,12 @@ curl -X POST http://10.10.3.100:15501/vlm-application/search/detectPersons \
 | `end_time` | string | 否 | 结束时间过滤 `"YYYY-MM-DD HH:MM:SS"` |
 | `similarity_threshold` | float | 否 | 余弦相似度阈值，默认 `0.6` |
 | `top_k` | int | 否 | 返回的最大结果数，默认 `10` |
+| `sex` | string | 否 | 属性筛选：性别（如 `"男"`），与 ES 文档 `sex` 数组元素匹配 |
+| `age` | string | 否 | 属性筛选：年龄段（如 `"青年"`） |
+| `top_color` | string | 否 | 属性筛选：上衣颜色（如 `"白色"`） |
+| `top_type` | string | 否 | 属性筛选：上衣类型（如 `"Polo"`） |
+
+> 属性筛选说明（所有搜索接口通用）：ES 中属性为分词后的数组（如 `top_type: ["Polo","衫","衣服"]`），匹配规则 = 数组任一元素与传入值**相等（忽略大小写与首尾空格）**；多个属性同时传为 **AND**（同时满足）；不传或传空 = 不过滤；启用筛选后 ES 中该属性为空（未知）的记录会被过滤掉。
 
 ##### 返回值
 
@@ -150,7 +156,25 @@ curl -X POST http://10.10.3.100:15501/vlm-application/search/detectPersons \
 
 #### POST /vlm-application/search/searchPersonFull
 
-异步接口，入参与 `searchPersonBrief` **完全一致**（请求体、参数表同上），区别在结果：**返回命中的 ES 全量文档**（服务端按 es_id 逐条查 ES，组装 `similar_persons` 数组返回，含相似度）。
+异步接口，入参与 `searchPersonBrief` **完全一致**（请求体、参数表同上，含属性筛选），区别在结果：**返回命中的 ES 全量文档**（服务端按 es_id 逐条查 ES，组装 `similar_persons` 数组返回，含相似度）。
+
+页面功能常用组合示例（属性筛选）：
+
+```json
+{
+    "image_url": "http://xxx/query.jpg",
+    "bbox": [{"x":113,"y":110},{"x":157,"y":110},{"x":157,"y":230},{"x":113,"y":230}],
+    "search_method": "reid",
+    "start_time": "2025-01-01 13:10:49",
+    "end_time": "2027-01-01 13:10:49",
+    "similarity_threshold": 0.75,
+    "top_k": 20,
+    "sex": "男",
+    "age": "青年",
+    "top_color": "白色",
+    "top_type": "Polo"
+}
+```
 
 ##### 返回值
 
@@ -158,11 +182,94 @@ curl -X POST http://10.10.3.100:15501/vlm-application/search/detectPersons \
 
 ---
 
-### 4. 查询搜索结果
+### 4. 轨迹还原（简版）
+
+#### POST /vlm-application/search/searchPersonTrackBrief
+
+异步接口，入参同 `searchPersonBrief`，额外支持 `window_seconds`。**在搜索结果基础上做轨迹还原过滤**：按时间升序排序，同一 `camera_locate` 在时间窗口内只保留相似度最高的一条。
+
+> **轨迹语义约束**：轨迹 = 单次事件时段内的移动路径（非"出没记录"）。因此 `start_time` / `end_time` **必填**，且跨度不得超过 **72 小时**。
+
+##### 必填约束（轨迹接口特有）
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `start_time` | string | **是** | 事件时段起 `"YYYY-MM-DD HH:MM:SS"` |
+| `end_time` | string | **是** | 事件时段止，跨度 ≤ 72h |
+
+##### 额外参数
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `window_seconds` | int | 否 | 同点位时间窗口（秒），默认 `300` |
+
+##### 测试示例（192 研发环境）
+
+```bash
+# 提交轨迹还原任务（image_url / bbox 来自 detectPersons 或已知数据）
+curl -X POST http://192.168.11.192:15501/vlm-application/search/searchPersonTrackBrief \
+     -H "Content-Type: application/json" \
+     -d '{
+       "image_url":"http://192.168.11.194:9000/zhcs/event/image/202607/bc433619a458f10a3fbbc3a970467ede_d5a2c4b1ef4499aad3867ed6a9c5899e_1782975177472_origin.jpg",
+       "bbox":[{"x":113,"y":110},{"x":157,"y":110},{"x":157,"y":230},{"x":113,"y":230}],
+       "search_method":"reid",
+       "start_time":"2025-01-01 13:10:49",
+       "end_time":"2027-01-01 13:10:49",
+       "similarity_threshold":0.75,
+       "top_k":20
+     }'
+
+# 轮询结果（task_id 替换为上一步返回值）
+curl http://192.168.11.192:15501/vlm-application/search/searchPersonResult/<task_id>
+```
+
+##### 返回值
+
+**成功 (200)**：同上，返回 `task_id`。轮询结果见下。
+
+##### 轮询结果结构（searchPersonResult/{task_id}）
+
+```json
+{
+    "code": 200,
+    "message": "成功",
+    "data": {
+        "status": "success",
+        "message": "轨迹还原完成：命中 30 条，过滤后保留 8 条",
+        "data": {
+            "raw_count": 30,
+            "kept_count": 8,
+            "window_seconds": 300,
+            "trajectory": [
+                {
+                    "es_doc_id": "...",
+                    "camera_id": null,
+                    "camera_locate": "B6-1F-服务台侧半球",
+                    "create_time": "2026-07-02 14:52:57",
+                    "image_url": "http://xxx/...jpg",
+                    "similarity_score": 0.9999998807907104
+                }
+            ]
+        }
+    }
+}
+```
+
+---
+
+### 5. 轨迹还原（详版）
+
+#### POST /vlm-application/search/searchPersonTrackFull
+
+异步接口，入参同 `searchPersonFull`，额外支持 `window_seconds`。过滤规则同简版（同样要求 `start_time`/`end_time` 必填且跨度 ≤ 72h）；轨迹点为 **ES 全量文档**（轮询结果中 `data.trajectory` 数组的每项即过滤后的全量记录，按时间升序）。
+
+---
+
+### 6. 查询搜索结果
 
 #### GET /vlm-application/search/searchPersonResult/{task_id}
 
-同步接口，轮询 Celery 任务状态。`searchPersonBrief` 与 `searchPersonFull` 提交的任务**共用本接口**，返回结构由提交时的模式决定。
+同步接口，轮询 Celery 任务状态。`searchPersonBrief` / `searchPersonFull` / `searchPersonTrackBrief` / `searchPersonTrackFull` 提交的任务**共用本接口**，返回结构由提交时的模式决定（轨迹模式返回结构见上文第 4/5 节）。
 
 ##### 请求参数
 
@@ -281,9 +388,15 @@ curl -X POST http://10.10.3.100:15501/vlm-application/search/detectPersons \
 ### 调用流程
 
 ```
+# 图搜图（简版/详版）
 步骤一：detectPersons（同步）→ 获取人体 bbox
 步骤二：searchPersonBrief（简版）或 searchPersonFull（详版）（异步）→ 提交搜索，返回 task_id
 步骤三：searchPersonResult/{task_id}（轮询，间隔 1-2 秒），返回结构由步骤二选择的模式决定
+
+# 轨迹还原（简版/详版）
+步骤一：detectPersons（同步）→ 获取人体 bbox
+步骤二：searchPersonTrackBrief 或 searchPersonTrackFull（异步，可用 window_seconds）→ 提交搜索，返回 task_id
+步骤三：searchPersonResult/{task_id}（轮询），data.trajectory 为按时间升序的轨迹点
 ```
 
 ---

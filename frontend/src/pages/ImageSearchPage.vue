@@ -1,36 +1,99 @@
 <template>
   <section class="content wide search-experience-page image-search-page">
     <div class="search-page-head"><div class="title-row"><div><h1 class="page-title">图搜图</h1><p class="page-subtitle">通过图片精准搜索人员或者车辆</p></div></div></div>
-    <div class="panel search-panel i2i-search-panel">
-      <input ref="imageSearchInput" class="hidden-file-input" type="file" accept="image/*" @change="handleImageUpload" />
-      <div class="i2i-form-grid">
-        <button class="i2i-upload-zone" :title="imagePreview ? '点击放大并框选裁剪，拖拽可替换图片' : '点击或拖拽图片到此处'" @click="handleUploadZoneClick" @dragover.prevent @drop.prevent="handleImageUpload">
-          <img v-if="imagePreview" :src="imagePreview" alt="参考图" />
-          <span v-if="imagePreview && imageCrop" class="i2i-crop-box" :style="imageCropStyle"></span>
-          <span v-if="imagePreview" class="i2i-reupload-hint">点击放大裁剪</span>
-          <span v-if="!imagePreview"><span class="upload-mark">☁</span><strong>上传图片</strong><small>点击或拖拽图片到此处</small></span>
-        </button>
-        <div class="deploy-field"><date-time-range-picker v-model:start="start" v-model:end="end" /></div>
-        <div class="deploy-field"><area-camera-picker v-model="place" aria-label="地点" /></div>
-        <div class="deploy-field similarity-field"><label>相似度：<b>{{ similarity }}%</b></label><input type="range" min="0" max="100" v-model.number="similarity" /></div>
-        <button class="btn primary" :disabled="searching" title="搜索图片" @click="searchSimilar">⌕ 搜索图片</button>
+    <div class="track-workbench">
+      <div class="panel search-panel track-query-panel i2i-search-panel">
+        <div class="track-section-head"><div><h3>检索条件</h3></div></div>
+        <input ref="imageSearchInput" class="hidden-file-input" type="file" accept="image/*" @change="handleImageUpload" />
+        <div class="track-query-grid">
+          <div class="track-query-block">
+            <div class="field-label">目标参考图</div>
+            <div v-if="imagePreview" class="upload-card track-target-upload" role="button" tabindex="0" title="点击放大并框选裁剪，拖拽可替换图片" @click="openUploadCrop" @keydown.enter="openUploadCrop" @dragover.prevent @drop.prevent="handleImageUpload">
+              <img :src="imagePreview" alt="目标参考图" />
+              <span v-if="imageCrop" class="transferred-crop-box" :style="imageCropStyle"></span>
+              <button class="track-target-upload-btn" type="button" title="上传/更换图片" aria-label="上传/更换图片" @click.stop="triggerImageUpload">⭱</button>
+            </div>
+            <button v-else class="i2i-upload-zone" title="点击或拖拽图片到此处" @click="handleUploadZoneClick" @dragover.prevent @drop.prevent="handleImageUpload">
+              <span><span class="upload-mark">☁</span><strong>上传图片</strong><small>点击或拖拽图片到此处</small></span>
+            </button>
+            <span v-if="imageFileName" class="hint-text">{{ imageFileName }}</span>
+          </div>
+          <div class="track-query-block">
+            <div class="field-label">时间范围</div>
+            <date-time-range-picker v-model:start="start" v-model:end="end" />
+          </div>
+          <div class="track-query-block">
+            <div class="field-label">检索区域</div>
+            <area-camera-picker v-model="place" aria-label="检索区域" />
+          </div>
+          <div class="track-query-block">
+            <div class="field-label">人员属性</div>
+            <div class="i2i-attr-grid">
+              <select class="select" v-model="gender" aria-label="性别"><option>全部性别</option><option>男</option><option>女</option></select>
+              <select class="select" v-model="ageGroup" aria-label="年龄段"><option>全部年龄段</option><option>儿童</option><option>青年</option><option>中年</option><option>老年</option></select>
+              <select class="select" v-model="topColor" aria-label="上衣颜色"><option>全部颜色</option><option>黑色</option><option>白色</option><option>灰色</option><option>红色</option><option>橙色</option><option>黄色</option><option>绿色</option><option>蓝色</option><option>紫色</option><option>棕色</option></select>
+              <select class="select" v-model="bottomColor" aria-label="下衣颜色"><option>全部颜色</option><option>黑色</option><option>白色</option><option>灰色</option><option>红色</option><option>橙色</option><option>黄色</option><option>绿色</option><option>蓝色</option><option>紫色</option><option>棕色</option></select>
+            </div>
+          </div>
+          <div class="track-query-block">
+            <div class="field-label">相似度阈值</div>
+            <div class="track-threshold-control"><input type="range" min="0" max="100" v-model.number="similarity" /><strong>{{ similarity }}%</strong></div>
+            <div class="i2i-threshold-presets">
+              <button type="button" :class="{ active: similarity === 50 }" @click="similarity = 50">50%</button>
+              <button type="button" :class="{ active: similarity === 70 }" @click="similarity = 70">70%</button>
+              <button type="button" :class="{ active: similarity === 85 }" @click="similarity = 85">85%</button>
+            </div>
+          </div>
+        </div>
+        <div class="track-query-actions">
+          <button class="btn primary" :disabled="searching" title="搜索图片" @click="searchSimilar">⌕ 搜索图片</button>
+          <button class="btn" @click="resetFilters">重置</button>
+        </div>
+      </div>
+      <div class="track-main-grid">
+        <div class="panel track-result-panel">
+          <div class="track-section-head"><div><h3>搜索结果</h3></div><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? filteredResults.length : 0 }}</b> 条相似结果</div></div>
+          <div v-if="searched" class="i2i-search-stats">
+            <span>检索统计：</span>
+            <span>命中 <b>{{ allResults.length }}</b> 条</span>
+            <span>耗时 <b>{{ searchElapsedMs }}</b> ms</span>
+            <span>最高相似度 <b>{{ maxScore }}%</b></span>
+            <span>阈值 <b>{{ lastThreshold }}%</b></span>
+          </div>
+          <div v-if="searched" class="i2i-result-filters">
+            <input class="input" v-model="resultFilters.shoeType" list="i2i-shoe-type-options" placeholder="鞋子类型" aria-label="鞋子类型" />
+            <datalist id="i2i-shoe-type-options"><option v-for="opt in filterOptions('shoeType')" :key="opt" :value="opt"></option></datalist>
+            <input class="input" v-model="resultFilters.hairType" list="i2i-hair-type-options" placeholder="头发类型" aria-label="头发类型" />
+            <datalist id="i2i-hair-type-options"><option v-for="opt in filterOptions('hairType')" :key="opt" :value="opt"></option></datalist>
+            <input class="input" v-model="resultFilters.hairColor" list="i2i-hair-color-options" placeholder="头发颜色" aria-label="头发颜色" />
+            <datalist id="i2i-hair-color-options"><option v-for="opt in filterOptions('hairColor')" :key="opt" :value="opt"></option></datalist>
+            <input class="input" v-model="resultFilters.action" list="i2i-action-options" placeholder="动作" aria-label="动作" />
+            <datalist id="i2i-action-options"><option v-for="opt in filterOptions('action')" :key="opt" :value="opt"></option></datalist>
+            <input class="input" v-model="resultFilters.bottomType" list="i2i-bottom-type-options" placeholder="下装类型" aria-label="下装类型" />
+            <datalist id="i2i-bottom-type-options"><option v-for="opt in filterOptions('bottomType')" :key="opt" :value="opt"></option></datalist>
+            <input class="input" v-model="resultFilters.bottomColor" list="i2i-bottom-color-options" placeholder="下装颜色" aria-label="下装颜色" />
+            <datalist id="i2i-bottom-color-options"><option v-for="opt in filterOptions('bottomColor')" :key="opt" :value="opt"></option></datalist>
+            <button class="btn primary" @click="applyResultFilters">筛选</button>
+            <button class="btn" title="功能暂未开放" @click="todoFeature">二次研判</button>
+            <button class="btn" title="功能暂未开放" @click="todoFeature">步态过滤</button>
+          </div>
+          <image-results v-if="searched" :items="paginatedResults" :show-score="true" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @open-result="openResultSearch"></image-results>
+          <div v-if="searched" class="image-search-result-footer">
+            <div class="exact-pagination">
+              <span>显示 {{ pageStart }}-{{ pageEnd }} 共 {{ filteredResults.length }} 条</span>
+              <select class="page-size-select" v-model.number="pageSize" @change="handlePageSizeChange" aria-label="每页条数">
+                <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }} 条/页</option>
+              </select>
+              <button :disabled="page === 1" @click="goToPage(page - 1)">上一页</button>
+              <button v-for="pageNumber in pageCount" :key="pageNumber" :class="{ active: page === pageNumber }" @click="goToPage(pageNumber)">{{ pageNumber }}</button>
+              <button :disabled="page === pageCount" @click="goToPage(page + 1)">下一页</button>
+              <span class="page-jump"><input class="page-jump-input" type="number" min="1" :max="pageCount" v-model="jumpPage" placeholder="页码" aria-label="跳转页码" @keyup.enter="jumpToPage" /><button @click="jumpToPage">确定</button></span>
+            </div>
+          </div>
+          <div v-else class="search-empty-state"><img :src="emptyBg" alt="" class="search-empty-illustration" /><strong>暂无搜索结果</strong><strong>上传参考图并点击「搜索」查看匹配结果</strong></div>
+        </div>
       </div>
     </div>
-    <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? allResults.length : 0 }}</b> 条相似结果</div></div>
-    <image-results v-if="searched" :items="paginatedResults" :show-score="true" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @open-result="openResultSearch"></image-results>
-    <div v-if="searched" class="image-search-result-footer">
-      <div class="exact-pagination">
-        <span>显示 {{ pageStart }}-{{ pageEnd }} 共 {{ allResults.length }} 条</span>
-        <select class="page-size-select" v-model.number="pageSize" @change="handlePageSizeChange" aria-label="每页条数">
-          <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }} 条/页</option>
-        </select>
-        <button :disabled="page === 1" @click="goToPage(page - 1)">上一页</button>
-        <button v-for="pageNumber in pageCount" :key="pageNumber" :class="{ active: page === pageNumber }" @click="goToPage(pageNumber)">{{ pageNumber }}</button>
-        <button :disabled="page === pageCount" @click="goToPage(page + 1)">下一页</button>
-        <span class="page-jump"><input class="page-jump-input" type="number" min="1" :max="pageCount" v-model="jumpPage" placeholder="页码" aria-label="跳转页码" @keyup.enter="jumpToPage" /><button @click="jumpToPage">确定</button></span>
-      </div>
-    </div>
-    <div v-else class="search-empty-state"><img :src="emptyBg" alt="" class="search-empty-illustration" /><strong>暂无搜索结果</strong><strong>上传参考图并点击「搜索」查看匹配结果</strong></div>
     <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索，请稍候…</p></div></div>
     <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
   </section>
@@ -47,14 +110,63 @@ import { api, assetUrl } from "../api";
 import type { PersonSearchBboxPoint, PersonSearchResultResponse, SimilarPersonResult } from "../api";
 import { cropImageToFile, cropToPixelBbox } from "../utils/person-search";
 import type { ImageCropSelection } from "../utils/person-search";
+import { attributeText } from "../utils/attributes";
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_MAX_ATTEMPTS = 60;
+
+// 结果二次筛选的 6 个属性字段（对齐原型 resultFilters）
+type ResultFilterKey = "shoeType" | "hairType" | "hairColor" | "action" | "bottomType" | "bottomColor";
+const RESULT_FILTER_KEYS: ResultFilterKey[] = ["shoeType", "hairType", "hairColor", "action", "bottomType", "bottomColor"];
+
+function emptyResultFilters(): Record<ResultFilterKey, string> {
+  return { shoeType: "", hairType: "", hairColor: "", action: "", bottomType: "", bottomColor: "" };
+}
+
+// 年龄段数值映射：结果 age 为数值时按区间判定，为文本（"青年"等）时直接包含匹配
+const AGE_GROUP_RANGES: Record<string, [number, number]> = {
+  儿童: [0, 12],
+  青年: [13, 39],
+  中年: [40, 59],
+  老年: [60, 200]
+};
+
+// 通用属性过滤：条件为空或以「全部」开头时不过滤；
+// 结果集该字段完全无数据（上游未返回）时忽略该条件，避免误清空结果。
+// stripColor：颜色字段两侧都去掉「色」再包含匹配（结果可能是「黑」也可能是「黑色」）。
+function filterByField(items: any[], field: string, selected: string, stripColor = false): any[] {
+  const value = (selected || "").trim();
+  if (!value || value.startsWith("全部")) return items;
+  const strip = (text: string) => (stripColor ? text.replace(/色/g, "") : text);
+  const textOf = (item: any) => strip(attributeText(item[field]));
+  if (!items.some(item => textOf(item))) return items;
+  const needle = strip(value);
+  return items.filter(item => textOf(item).includes(needle));
+}
+
+function filterByAgeGroup(items: any[], group: string): any[] {
+  if (!group || group.startsWith("全部")) return items;
+  if (!items.some(item => attributeText(item.age))) return items;
+  const range = AGE_GROUP_RANGES[group];
+  return items.filter(item => {
+    const text = attributeText(item.age);
+    if (!text) return false;
+    if (text.includes(group)) return true;
+    const num = Number.parseFloat(text);
+    return !!range && Number.isFinite(num) && num >= range[0] && num <= range[1];
+  });
+}
 
 function delay(ms: number) {
   return new Promise(resolve => {
     window.setTimeout(resolve, ms);
   });
+}
+
+// 属性下拉值 → 服务端筛选参数：「全部*」/空 = 不过滤（不传该字段）
+function attributeParam(value: string): string | undefined {
+  const text = (value || "").trim();
+  return !text || text.startsWith("全部") ? undefined : text;
 }
 
 // "2026-07-12T08:30" -> "2026-07-12 08:30:00" (person-search API format)
@@ -114,7 +226,14 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
     age: result.age,
     accessory: result.accessory,
     topColor: result.top_color,
-    action: result.action
+    action: result.action,
+    // 其余人员属性字段（ES 文档可能返回）：供人员属性条件与结果二次筛选做前端过滤
+    gender: result.gender,
+    bottomColor: result.bottom_color,
+    shoeType: result.shoe_type,
+    hairType: result.hair_type,
+    hairColor: result.hair_color,
+    bottomType: result.bottom_type
   };
 }
 
@@ -133,6 +252,18 @@ export default defineComponent({
       end: "",
       place: "",
       similarity: 50,
+      // 人员属性查询条件（对齐原型）：性别/年龄段/上衣颜色随检索请求走服务端筛选，
+      // 同时在前端再过滤一次兜底（旧版上游会忽略未知字段）；下衣颜色上游不支持，仅前端过滤
+      gender: "全部性别",
+      ageGroup: "全部年龄段",
+      topColor: "全部颜色",
+      bottomColor: "全部颜色",
+      // 结果二次筛选：输入中的条件（resultFilters）点「筛选」后才应用到 appliedResultFilters
+      resultFilters: emptyResultFilters(),
+      appliedResultFilters: emptyResultFilters(),
+      // 检索统计条：最近一次搜索的耗时与提交时的相似度阈值
+      searchElapsedMs: 0,
+      lastThreshold: 50,
       imageFileName: "",
       imagePreview: this.state.prefill || "",
       imageCrop: this.state.imageCrop,
@@ -157,18 +288,39 @@ export default defineComponent({
       // 只展示真实接口结果；未检索或检索失败时不回退到内置 mock 图库
       return this.realResults;
     },
+    // 人员属性条件过滤（性别/年龄段/上衣颜色/下衣颜色）
+    attributeFilteredResults(): any[] {
+      let items = this.allResults;
+      items = filterByField(items, "gender", this.gender);
+      items = filterByAgeGroup(items, this.ageGroup);
+      items = filterByField(items, "topColor", this.topColor, true);
+      items = filterByField(items, "bottomColor", this.bottomColor, true);
+      return items;
+    },
+    // 叠加结果二次筛选（点「筛选」后生效的 appliedResultFilters）
+    filteredResults(): any[] {
+      let items = this.attributeFilteredResults;
+      RESULT_FILTER_KEYS.forEach(key => {
+        items = filterByField(items, key, this.appliedResultFilters[key]);
+      });
+      return items;
+    },
+    maxScore(): number {
+      if (!this.allResults.length) return 0;
+      return Math.max(...this.allResults.map(item => item.score));
+    },
     pageCount() {
-      return Math.max(1, Math.ceil(this.allResults.length / this.pageSize));
+      return Math.max(1, Math.ceil(this.filteredResults.length / this.pageSize));
     },
     paginatedResults() {
       const start = (this.page - 1) * this.pageSize;
-      return this.allResults.slice(start, start + this.pageSize);
+      return this.filteredResults.slice(start, start + this.pageSize);
     },
     pageStart() {
-      return this.allResults.length ? (this.page - 1) * this.pageSize + 1 : 0;
+      return this.filteredResults.length ? (this.page - 1) * this.pageSize + 1 : 0;
     },
     pageEnd() {
-      return Math.min(this.page * this.pageSize, this.allResults.length);
+      return Math.min(this.page * this.pageSize, this.filteredResults.length);
     },
     imageCropStyle() {
       const crop = this.imageCrop || { x: 0, y: 0, width: 0, height: 0 };
@@ -268,6 +420,49 @@ export default defineComponent({
         this.searchSimilar();
       }
     },
+    // 二次筛选 datalist 选项：从当前结果集按字段去重（多值属性拆分为单值）
+    filterOptions(field: ResultFilterKey): string[] {
+      const values = new Set<string>();
+      this.attributeFilteredResults.forEach(item => {
+        const text = attributeText(item[field]);
+        if (text) text.split("、").forEach(part => values.add(part));
+      });
+      return [...values];
+    },
+    applyResultFilters() {
+      this.appliedResultFilters = { ...this.resultFilters };
+      this.page = 1;
+      this.jumpPage = "";
+      this.showToast(`已按属性筛选，命中 ${this.filteredResults.length} 条结果`);
+    },
+    // 二次研判 / 步态过滤：上游接口未就绪，仅保留入口
+    todoFeature() {
+      this.showToast("功能暂未开放，敬请期待");
+    },
+    // 重置（对齐原型）：清空全部检索条件、参考图与当前结果
+    resetFilters() {
+      if (this.imagePreview && this.imagePreview.startsWith("blob:")) URL.revokeObjectURL(this.imagePreview);
+      this.imagePreview = "";
+      this.imageFileName = "";
+      this.imageCrop = null;
+      this.selectedFile = null;
+      this.start = "";
+      this.end = "";
+      this.place = "";
+      this.similarity = 50;
+      this.gender = "全部性别";
+      this.ageGroup = "全部年龄段";
+      this.topColor = "全部颜色";
+      this.bottomColor = "全部颜色";
+      this.resultFilters = emptyResultFilters();
+      this.appliedResultFilters = emptyResultFilters();
+      this.searched = false;
+      this.realResults = [];
+      this.page = 1;
+      this.jumpPage = "";
+      this.pollRunId += 1;
+      this.showToast("检索条件已重置");
+    },
     async searchSimilar() {
       if (!this.imagePreview) {
         this.showToast("请先上传参考图片");
@@ -276,6 +471,8 @@ export default defineComponent({
       if (this.searching) return;
       this.searched = true;
       this.page = 1;
+      const startedAt = performance.now();
+      this.lastThreshold = this.similarity;
       const runId = ++this.pollRunId;
       this.searching = true;
       try {
@@ -306,6 +503,8 @@ export default defineComponent({
           bbox = detected[0]?.bbox;
         }
         // 3. Submit the search task for the selected/detected target.
+        //    性别/年龄段/上衣颜色走服务端属性筛选（上游 2026-10 新增 sex/age/top_color）；
+        //    下衣颜色上游不支持，仅在前端对结果过滤。
         const submitResponse = await api.searchPersonByBbox({
           imageUrl,
           bbox,
@@ -313,7 +512,10 @@ export default defineComponent({
           startTime: toPersonApiDateTime(this.start),
           endTime: toPersonApiDateTime(this.end),
           similarityThreshold: this.similarity / 100,
-          topK: 20
+          topK: 20,
+          sex: attributeParam(this.gender),
+          age: attributeParam(this.ageGroup),
+          topColor: attributeParam(this.topColor)
         });
         if (runId !== this.pollRunId) return;
         const taskId = submitResponse.data?.task_id ?? submitResponse.data?.data?.task_id;
@@ -328,6 +530,7 @@ export default defineComponent({
         this.showToast(error instanceof Error ? error.message : "图搜人任务失败");
       } finally {
         if (runId === this.pollRunId) {
+          this.searchElapsedMs = Math.max(1, Math.round(performance.now() - startedAt));
           this.searching = false;
         }
       }
@@ -342,6 +545,9 @@ export default defineComponent({
           const payload = personSearchResultPayload(response);
           const similarPersons = payload?.similar_persons ?? [];
           this.realResults = similarPersons.map(mapSimilarPerson);
+          // 新一轮结果：清空二次筛选条件，避免旧条件误作用于新结果集
+          this.resultFilters = emptyResultFilters();
+          this.appliedResultFilters = emptyResultFilters();
           this.showToast(payload?.message || `找到 ${similarPersons.length} 个相似人员`);
           return;
         }

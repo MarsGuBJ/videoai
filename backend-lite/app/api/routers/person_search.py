@@ -92,6 +92,13 @@ def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest) -> dict:
         payload["start_time"] = request.startTime
     if request.endTime:
         payload["end_time"] = request.endTime
+    # 服务端属性筛选（性别/年龄段/上衣颜色），上游字段为 sex/age/top_color
+    if request.sex:
+        payload["sex"] = request.sex
+    if request.age:
+        payload["age"] = request.age
+    if request.topColor:
+        payload["top_color"] = request.topColor
     return person_api_post("/vlm-application/search/searchPersonFull", payload)
 
 

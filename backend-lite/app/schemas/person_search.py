@@ -20,6 +20,11 @@ class PersonSearchByBboxRequest(BaseModel):
     endTime: str | None = None
     similarityThreshold: float = 0.6
     topK: int = 10
+    # 服务端属性筛选（上游 2026-10 新增，见 docs/person-api.md）：不传/传空 = 不过滤；
+    # 启用后 ES 中该属性为空的记录会被过滤掉；多属性为 AND 关系
+    sex: str | None = None
+    age: str | None = None
+    topColor: str | None = None
 
 
 class TextSearchQueryRequest(BaseModel):

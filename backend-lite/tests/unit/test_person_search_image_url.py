@@ -116,3 +116,54 @@ def test_search_by_bbox_forwards_absolute_image_url(client: TestClient, monkeypa
     )
     assert captured["json"]["similarity_threshold"] == 0.82
     assert captured["json"]["top_k"] == 50
+
+
+def test_search_by_bbox_forwards_attribute_filters(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """search-by-bbox：人员属性筛选（性别/年龄段/上衣颜色）映射为上游 sex/age/top_color。"""
+    captured = {}
+
+    def fake_post(url, json, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        return FakeResponse({"code": "00000", "data": {"status": "success"}})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(person_search, "get_settings", lambda: _stub_settings(PUBLIC_BASE))
+
+    response = client.post(
+        "/api/person-search/search-by-bbox",
+        json={
+            "imageUrl": "http://minio/a.jpg",
+            "searchMethod": "reid",
+            "sex": "男",
+            "age": "青年",
+            "topColor": "白色",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["json"]["sex"] == "男"
+    assert captured["json"]["age"] == "青年"
+    assert captured["json"]["top_color"] == "白色"
+
+
+def test_search_by_bbox_omits_empty_attribute_filters(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """search-by-bbox：属性筛选不传/传空时不往上游带这些字段（上游语义：不传 = 不过滤）。"""
+    captured = {}
+
+    def fake_post(url, json, timeout):
+        captured["json"] = json
+        return FakeResponse({"code": "00000", "data": {"status": "success"}})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(person_search, "get_settings", lambda: _stub_settings(PUBLIC_BASE))
+
+    response = client.post(
+        "/api/person-search/search-by-bbox",
+        json={"imageUrl": "http://minio/a.jpg", "searchMethod": "reid", "sex": "", "topColor": None},
+    )
+
+    assert response.status_code == 200
+    assert "sex" not in captured["json"]
+    assert "age" not in captured["json"]
+    assert "top_color" not in captured["json"]
