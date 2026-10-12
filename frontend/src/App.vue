@@ -71,6 +71,8 @@ export default defineComponent({
       reviewTaskSubmitting: false,
       sidebarCollapsed: false,
       sxinOpen: false,
+      // 悬浮按钮被拖拽后的自定义位置（视口坐标），null 表示使用 CSS 默认右下角位置
+      sxinFabPos: null as { x: number; y: number } | null,
       sxinMessageHandler: null as any
     };
   },
@@ -78,6 +80,10 @@ export default defineComponent({
     // URL 含 lm=no 参数时隐藏左侧菜单树和顶部 banner（面包屑 + 账号栏）（仅首次加载时判定，路由跳转不受影响）
     sidebarHidden(): boolean {
       return /[?&]lm=no(?:&|$|#)/.test(window.location.href);
+    },
+    sxinFabStyle(): Record<string, string> {
+      if (!this.sxinFabPos) return {};
+      return { left: `${this.sxinFabPos.x}px`, top: `${this.sxinFabPos.y}px`, right: "auto", bottom: "auto" };
     }
   },
   watch: {
@@ -523,6 +529,34 @@ export default defineComponent({
     openSxin() {
       this.sxinOpen = true;
     },
+    // 悬浮按钮拖拽：按下后移动超过阈值视为拖动并更新位置，否则视为点击打开；
+    // 用 pointerup 判定点击而不是 click 事件，避免拖拽结束时误触打开
+    onSxinFabPointerDown(event: PointerEvent) {
+      if (event.button !== 0) return;
+      const el = event.currentTarget as HTMLElement;
+      const rect = el.getBoundingClientRect();
+      const offsetX = event.clientX - rect.left;
+      const offsetY = event.clientY - rect.top;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let moved = false;
+      const onMove = (e: PointerEvent) => {
+        if (!moved && Math.abs(e.clientX - startX) < 5 && Math.abs(e.clientY - startY) < 5) return;
+        moved = true;
+        this.sxinFabPos = {
+          x: Math.min(Math.max(e.clientX - offsetX, 0), window.innerWidth - rect.width),
+          y: Math.min(Math.max(e.clientY - offsetY, 0), window.innerHeight - rect.height)
+        };
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        if (!moved) this.openSxin();
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      event.preventDefault();
+    },
     closeSxin() {
       this.sxinOpen = false;
     },
@@ -581,7 +615,7 @@ export default defineComponent({
   <drawer-host :drawer="drawer" :store="store" @close="closeDrawer" @route="handleDrawerRoute" @action="handleDrawerAction" @quick-deploy="openQuickDeployModal" @crop-action="openDrawerCrop"></drawer-host>
   <image-crop-dialog :open="drawerCrop.open" :item="drawerCrop.item" :action="drawerCrop.action" :item-index="drawerCrop.itemIndex" @close="closeDrawerCrop" @confirm="confirmDrawerCrop"></image-crop-dialog>
   <modal-host :modal="modal" :store="store" :state="state" :review-task-submitting="reviewTaskSubmitting" @close="closeModal" @submit="submitModal"></modal-host>
-  <button v-if="!sxinOpen" class="sxin-fab" title="打开 SXin 智能体" aria-label="打开 SXin 智能体" @click="openSxin"><span class="sxin-fab-mark">S</span></button>
+  <button v-if="!sxinOpen" class="sxin-fab" :style="sxinFabStyle" title="打开 SXin 智能体（可拖动）" aria-label="打开 SXin 智能体" @pointerdown="onSxinFabPointerDown"><span class="sxin-fab-mark">S</span></button>
   <sxin-agent v-if="sxinOpen" @close="closeSxin"></sxin-agent>
   <div class="toast" :class="{ show: toast.show }">{{ toast.message }}</div>
 </template>
