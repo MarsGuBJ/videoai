@@ -3,7 +3,7 @@
     <div class="review-titlebar"><div><h1>任务管理</h1><p>异常事件复查、人工补核、离线分析与效果测试</p></div></div>
     <div class="review-board">
       <div class="prototype-filter">
-        <div class="review-task-filter-actions"><button class="btn primary" @click="openModal('reviewTask')">上传复核任务</button><button class="btn" @click="applyFilters">查询</button><button class="btn" @click="resetFilters">重置</button></div>
+        <div class="review-task-filter-actions"><button class="btn primary" @click="openModal('reviewTask')">上传复核任务</button><button class="btn" @click="applyFilters">查询</button><button class="btn" @click="resetFilters">重置</button><button class="btn danger" :disabled="!checkedIds.length" @click="removeSelected">删除</button></div>
         <div class="filter-item"><span>搜索：</span><input class="input" v-model="keyword" placeholder="搜索任务ID、事件类型" /></div>
         <div class="filter-item"><span>状态：</span><select class="select" v-model="statusFilter"><option value="">全部</option><option>进行中</option><option>已完成</option><option>失败</option></select></div>
         <div class="filter-item"><span>时间范围：</span><date-time-range-picker v-model:start="startTime" v-model:end="endTime" /></div>
@@ -204,6 +204,25 @@ export default defineComponent({
         await this.loadRows();
       } catch (error) {
         this.showToast(error instanceof Error ? error.message : "复核任务删除失败");
+      }
+    },
+    // 批量删除勾选条目：逐条删除，全部成功后刷新列表（loadRows 会剔除已失效的勾选）
+    async removeSelected() {
+      if (!this.checkedIds.length) {
+        this.showToast("请先勾选要删除的复核任务");
+        return;
+      }
+      if (!window.confirm(`确认删除勾选的 ${this.checkedIds.length} 个复核任务？`)) return;
+      const ids = [...this.checkedIds];
+      try {
+        for (const id of ids) {
+          await api.deleteReviewTask(id);
+        }
+        this.showToast(`已删除 ${ids.length} 个复核任务`);
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "复核任务删除失败");
+      } finally {
+        await this.loadRows();
       }
     }
   }
