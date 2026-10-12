@@ -612,20 +612,6 @@ function toLocalDateTimeSeconds(ms: number): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
 }
 
-// “查询不到录像”类错误（与录像回放页 RECORDING_UNAVAILABLE_PATTERNS 保持一致）：
-// 后端在设备未绑定 NVR / 反查不到录像通道（无 ISAPI 的录像设备无法反查）/ 该时段无录像时
-// 返回的报错（多为英文技术描述），页面统一按“查询不到录像”处理，不把原始报错展示给用户
-const RECORDING_UNAVAILABLE_PATTERNS: RegExp[] = [
-  /not bound to an NVR/i,
-  /reverse lookup missed/i,
-  /known NVR\/CVR input channel/i,
-  /录像/
-];
-
-function isRecordingUnavailable(message: string): boolean {
-  return RECORDING_UNAVAILABLE_PATTERNS.some((pattern) => pattern.test(message || ""));
-}
-
 // 上游分析服务以 HTTP 200 包裹业务错误（code>=400 + error/message），需识别为失败
 function findAnalysisError(node: any): string {
   if (!node || typeof node !== "object" || Array.isArray(node)) return "";
@@ -784,7 +770,6 @@ export default defineComponent({
   inject: {
     showToast: { from: "showToast", default: (m: string) => {} },
     openResult: { from: "openResult", default: (index: number, item?: any) => {} },
-    openModal: { from: "openModal", default: (type: string, item?: any) => {} },
   },
   mounted() {
     this.loadCameras();
@@ -1159,22 +1144,15 @@ export default defineComponent({
           streamUrl = stream.url || "";
         } catch (error: any) {
           this.searching = false;
-          const message = (error && error.message) || "";
-          // 设备未绑定 NVR / 反查不到录像通道（无 ISAPI 的录像设备）/ 该时段无录像：
-          // 与录像回放页一致弹友好提示，不暴露后端原始报错；其它错误仍展示错误详情便于排查
-          if (isRecordingUnavailable(message)) {
-            this.openRecordEmptyModal(startTime, endTime);
-          } else {
-            this.openSearchErrorDialog(
-              "回放流启动失败，未能查询到该监控点在所选时段的录像。",
-              message || "服务未返回具体错误信息"
-            );
-          }
+          this.openSearchErrorDialog(
+            "回放流启动失败，未能查询到该监控点在所选时段的录像。",
+            (error && error.message) || "服务未返回具体错误信息"
+          );
           return;
         }
         if (!streamUrl) {
           this.searching = false;
-          this.openRecordEmptyModal(startTime, endTime);
+          this.openSearchErrorDialog("该时段未查询到录像，请调整时间范围后重试。");
           return;
         }
         recordingParams = { cameraId: selectedCamera.code, startTime, endTime };
@@ -2551,14 +2529,6 @@ export default defineComponent({
         detail: String(detail || "").trim(),
         hint: "建议：确认监控点在线、所选时段存在录像后重试；若多次失败请联系管理员检查 NVR 回放服务。"
       };
-    },
-    // 查询不到录像时弹出友好提示弹窗（与录像回放页一致，复用全局 recordEmpty modal）
-    openRecordEmptyModal(startTime: string, endTime: string) {
-      this.openModal("recordEmpty", {
-        camera: this.selectedCamera,
-        startTime,
-        endTime
-      });
     },
     closeSearchErrorDialog() {
       this.searchErrorDialog = null;
