@@ -73,6 +73,7 @@ class Settings:
     cvr_password: str
     hcnetsdk_max_live_sessions: int
     storage_bindings_file: str
+    stream_id_mappings_file: str
     minio_endpoint: str
     minio_port: int
     minio_use_ssl: bool
@@ -175,6 +176,8 @@ def load_settings() -> Settings:
         hcnetsdk_max_live_sessions=_env_int("HCNETSDK_MAX_LIVE_SESSIONS", 0),
         # 摄像头→录像存储设备绑定（平台关联，优先于 NVR/CVR 反查）的持久化文件
         storage_bindings_file=_env("STORAGE_BINDINGS_FILE", "./storage_bindings.json"),
+        # 摄像头 IP→非ISAPI CVR 流ID映射（无绑定且无法解析凭据时的兜底）的持久化文件
+        stream_id_mappings_file=_env("STREAM_ID_MAPPINGS_FILE", "./stream_id_mappings.json"),
         minio_endpoint=_env("MINIO_ENDPOINT", "192.168.11.194"),
         minio_port=_env_int("MINIO_PORT", 9000),
         minio_use_ssl=_env_bool("MINIO_USE_SSL", False),

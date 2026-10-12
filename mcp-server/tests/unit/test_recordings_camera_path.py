@@ -215,7 +215,7 @@ def test_search_recordings_with_stream_id_camera_synthesizes_segment(monkeypatch
     camera = make_nvr_camera(id="cam-cvr", name="消控室半球", nvrChannel=None, nvrTrackId=None)
     install_camera_lookup(monkeypatch, camera)
 
-    async def fake_resolve_credentials(cam, lookup, hosts, binding=None):
+    async def fake_resolve_credentials(cam, lookup, hosts, binding=None, stream_id_mappings=None):
         return SimpleNamespace(
             host="172.19.200.24",
             sdk_port=8000,

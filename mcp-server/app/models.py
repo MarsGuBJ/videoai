@@ -21,6 +21,8 @@ class Camera(BaseModel):
     nvrChannel: str | None = None
     nvrTrackId: str | None = None
     nvrStreamType: str | None = None
+    # 平台登记的摄像头 IP（backend 落库的接入地址）；流ID映射按它定位摄像头
+    ip: str | None = None
 
     @property
     def nvr_bound(self) -> bool:

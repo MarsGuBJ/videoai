@@ -15,6 +15,7 @@ from .recording_cache import RecordingCache
 from .retrieve_api_client import RetrieveApiClient
 from .settings import load_settings
 from .storage_bindings import StorageBindings
+from .stream_id_mappings import StreamIdMappings
 from .video_understanding_client import VideoUnderstandingClient
 from .videoai_client import VideoAiClient
 
@@ -91,6 +92,8 @@ known_nvr_hosts = frozenset(
 )
 # 摄像头 → 录像存储设备绑定（平台关联；绑定摄像头的录像检索/回放/下载优先用绑定的主机与凭据）
 storage_bindings = StorageBindings(settings.storage_bindings_file)
+# 摄像头 IP → 非ISAPI CVR 流ID映射（无显式绑定且 NVR 反查/解析失败时的兜底）
+stream_id_mappings = StreamIdMappings(settings.stream_id_mappings_file)
 # 反查覆盖 NVR 下载白名单与 CVR 集群；CVR 凭据与 NVR 不同，按设备主机取凭据
 channel_lookup = NvrChannelLookup(
     (*settings.hcnetsdk_download_nvr_hosts, *settings.cvr_hosts),

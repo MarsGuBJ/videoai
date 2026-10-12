@@ -1,7 +1,7 @@
 <script lang="ts">
 import * as XLSX from "xlsx";
 import { api, sameOriginAssetUrl } from "../api";
-import type { RecordingSegment, ResolvedStorageBinding } from "../api";
+import type { RecordingSegment, ResolvedStorageBinding, StreamIdMappingImportResult, StreamIdMappingRow } from "../api";
 import type { AccessGb28181Entry, Algorithm, AlgorithmEngine, Camera, CloudPlatform, CloudSyncPrecheck, EventInfo, FaceLibraryRecord, NvrImportPrecheck, ReviewType } from "../types";
 import { statusClass } from "../utils/prototype-helpers";
 import { deviceStatusLabel, onlineStatusOf, streamStatusLabel } from "../utils/device-status";
@@ -188,6 +188,19 @@ export default {
       storageUsername: "",
       storagePassword: "",
       storageBusy: false,
+      // 流ID映射的设备（存储设备列为「流ID映射」，供筛选用；不可在此解除）
+      storageStreamIdMappedIds: {} as Record<string, boolean>,
+      // 「导入非ISAPI CVR设备关联」二级弹窗（仿「关联存储」内嵌层）
+      streamIdImportOpen: false,
+      streamIdImportFile: null as File | null,
+      streamIdImportFileName: "",
+      streamIdImportRows: [] as StreamIdMappingRow[],
+      streamIdImportSkipped: 0,
+      streamIdImportBusy: false,
+      cvrHost: "",
+      cvrPort: 8000,
+      cvrUsername: "",
+      cvrPassword: "",
       // 录像下载弹窗（上下文来自回放页 openModal('recordDownload', { camera, startTime, endTime })）
       recordDownloadStart: "",
       recordDownloadEnd: "",
@@ -317,12 +330,12 @@ export default {
     storageAreaOptions(): { fullPath: string; label: string }[] {
       return this.storageRegions.map((item) => ({ fullPath: item.fullPath, label: "　".repeat(item.depth) + item.name }));
     },
-    // 存储设备筛选下拉：去重后的已关联 NVR/CVR 地址（「全部」「未关联」在模板中固定）
+    // 存储设备筛选下拉：去重后的已关联 NVR/CVR 地址（「全部」「未关联」「流ID映射」在模板中固定）
     storageHostOptions(): string[] {
-      const hosts = Object.values(this.storageBindings).filter((host): host is string => !!host);
+      const hosts = Object.values(this.storageBindings).filter((host): host is string => !!host && host !== "流ID映射");
       return [...new Set(hosts)].sort();
     },
-    // 前端本地过滤：区域含下级区域，名称/IP 不区分大小写子串匹配，存储设备按绑定地址精确匹配
+    // 前端本地过滤：区域含下级区域，名称/IP 不区分大小写子串匹配，存储设备按绑定地址精确匹配；「流ID映射」按映射标记匹配
     storageFilteredCameras(): Camera[] {
       const name = this.storageFilterName.toLowerCase();
       const ip = this.storageFilterIp.toLowerCase();
@@ -332,7 +345,13 @@ export default {
         const matchesName = !name || String(camera.name || "").toLowerCase().includes(name);
         const matchesIp = !ip || String(camera.ip || "").toLowerCase().includes(ip);
         const bound = this.storageBindings[camera.id] || "";
-        const matchesHost = this.storageFilterHost === "全部" || (this.storageFilterHost === "未关联" ? !bound : bound === this.storageFilterHost);
+        const matchesHost =
+          this.storageFilterHost === "全部" ||
+          (this.storageFilterHost === "未关联"
+            ? !bound
+            : this.storageFilterHost === "流ID映射"
+              ? !!this.storageStreamIdMappedIds[camera.id]
+              : bound === this.storageFilterHost);
         return matchesArea && matchesName && matchesIp && matchesHost;
       });
     },
@@ -695,6 +714,8 @@ export default {
       this.storageUsername = "";
       this.storagePassword = "";
       this.storageBusy = false;
+      this.storageStreamIdMappedIds = {};
+      this.streamIdImportOpen = false;
       this.loadStorageData();
     },
     async loadStorageData() {
@@ -724,13 +745,16 @@ export default {
     applyResolvedBindings(resolved: ResolvedStorageBinding[]) {
       const map: Record<string, string> = {};
       const boundIds: Record<string, boolean> = {};
+      const streamIdMappedIds: Record<string, boolean> = {};
       (resolved || []).forEach((item) => {
         if (!item || !item.cameraId) return;
         map[item.cameraId] = item.storageHost || "已关联";
         if (item.bound) boundIds[item.cameraId] = true;
+        if (item.streamIdMapped) streamIdMappedIds[item.cameraId] = true;
       });
       this.storageBindings = map;
       this.storageBoundIds = boundIds;
+      this.storageStreamIdMappedIds = streamIdMappedIds;
     },
     storageAreaOf(camera: Camera): string {
       return normalizePath(camera.area || "") || "未分配";
@@ -787,6 +811,95 @@ export default {
         this.showToast(error instanceof Error ? error.message : "解除关联失败，请稍后重试");
       } finally {
         this.storageBusy = false;
+      }
+    },
+    // --- 「导入非ISAPI CVR设备关联」二级弹窗 ---
+    openStreamIdImport() {
+      this.streamIdImportFile = null;
+      this.streamIdImportFileName = "";
+      this.streamIdImportRows = [];
+      this.streamIdImportSkipped = 0;
+      this.streamIdImportBusy = false;
+      this.cvrHost = "";
+      this.cvrPort = 8000;
+      this.cvrUsername = "";
+      this.cvrPassword = "";
+      this.streamIdImportOpen = true;
+    },
+    closeStreamIdImport() {
+      if (this.streamIdImportBusy) return;
+      this.streamIdImportOpen = false;
+    },
+    triggerStreamIdImportFile() {
+      const input: any = this.$refs.streamIdImportFileInput;
+      if (input) input.click();
+    },
+    handleStreamIdImportFile(event: any) {
+      const file = event.target.files && event.target.files[0];
+      if (file) this.pickStreamIdImportFile(file);
+      event.target.value = "";
+    },
+    handleStreamIdImportDrop(event: any) {
+      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) this.pickStreamIdImportFile(file);
+    },
+    pickStreamIdImportFile(file: File) {
+      this.streamIdImportFile = file;
+      this.streamIdImportFileName = file.name;
+      this.streamIdImportRows = [];
+      this.streamIdImportSkipped = 0;
+      this.parseStreamIdImportFile(file);
+    },
+    // 解析 CSV（表头 NAME,CHANNEL,HOST,PORT,USER,PASSWORD,ENABLED,DEVICESN，大小写不敏感）：
+    // 流ID 取 NAME 去掉 * 与空白字符，设备IP 取 HOST；两者任一为空则跳过该行
+    async parseStreamIdImportFile(file: File) {
+      try {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as any[];
+        const rows: StreamIdMappingRow[] = [];
+        let skipped = 0;
+        rawRows.forEach((raw) => {
+          const cell = (header: string) => {
+            const key = Object.keys(raw).find((name) => name.trim().toUpperCase() === header);
+            return key ? String(raw[key] ?? "") : "";
+          };
+          const streamId = cell("NAME").replace(/[\s*]+/g, "");
+          const cameraHost = cell("HOST").trim();
+          if (!streamId || !cameraHost) {
+            skipped += 1;
+            return;
+          }
+          rows.push({ streamId, cameraHost });
+        });
+        this.streamIdImportRows = rows;
+        this.streamIdImportSkipped = skipped;
+        if (!rows.length) this.showToast("文件中没有可导入的有效映射行");
+      } catch (error: any) {
+        this.showToast(`文件解析失败：${error?.message || error}`);
+      }
+    },
+    async submitStreamIdImport() {
+      if (this.streamIdImportBusy || !this.streamIdImportRows.length || !this.cvrHost) return;
+      this.streamIdImportBusy = true;
+      try {
+        const result: StreamIdMappingImportResult = await api.importStreamIdMappings({
+          rows: this.streamIdImportRows,
+          cvr: {
+            host: this.cvrHost.trim(),
+            port: this.cvrPort || 8000,
+            username: this.cvrUsername.trim(),
+            password: this.cvrPassword
+          }
+        });
+        this.showToast(`导入完成：成功 ${result.imported} 条，跳过 ${result.skipped.length} 条`);
+        this.streamIdImportOpen = false;
+        await this.reloadStorageBindings();
+      } catch (error) {
+        this.showToast(error instanceof Error ? error.message : "流ID映射导入失败，请稍后重试");
+      } finally {
+        this.streamIdImportBusy = false;
       }
     },
     // 能力配置弹窗：回填勾选设备当前的云台开关（全部勾选设备都开启时才勾上），用户可再编辑
@@ -2290,7 +2403,7 @@ export default {
             <div class="modal-form-row"><label>所在区域：</label><select class="select" v-model="storageFilterArea"><option>全部区域</option><option v-for="option in storageAreaOptions" :key="option.fullPath" :value="option.fullPath">{{ option.label }}</option></select></div>
             <div class="modal-form-row"><label>设备名称：</label><input class="input" v-model.trim="storageFilterName" placeholder="请输入设备名称" /></div>
             <div class="modal-form-row"><label>IP地址：</label><input class="input" v-model.trim="storageFilterIp" placeholder="请输入 IP 地址" /></div>
-            <div class="modal-form-row"><label>存储设备：</label><select class="select" v-model="storageFilterHost"><option>未关联</option><option>全部</option><option v-for="host in storageHostOptions" :key="host" :value="host">{{ host }}</option></select></div>
+            <div class="modal-form-row"><label>存储设备：</label><select class="select" v-model="storageFilterHost"><option>未关联</option><option>全部</option><option>流ID映射</option><option v-for="host in storageHostOptions" :key="host" :value="host">{{ host }}</option></select></div>
           </div>
           <div class="modal-summary-strip"><strong>设备列表</strong><span>共 {{ storageFilteredCameras.length }} 台，已选 {{ storageSelected.length }} 台</span></div>
           <p v-if="storageError" class="modal-hint danger">{{ storageError }}</p>
@@ -2404,6 +2517,7 @@ export default {
           <button class="btn primary" :disabled="nvrBusy || !nvrCheckedItems.length" @click="runNvrSync">开始导入</button>
         </template>
         <template v-else-if="modal.type === 'mediaStorage'">
+          <button class="btn" style="margin-right:auto" :disabled="storageBusy" @click="openStreamIdImport">导入非ISAPI CVR设备关联</button>
           <button class="btn" :disabled="storageBusy || !storageSelected.length" @click="openStorageBind">关联存储</button>
           <button class="btn danger" :disabled="storageBusy || !storageBoundSelectedIds.length" @click="unbindStorageSelected">{{ storageBusy ? '处理中…' : '解除关联' }}</button>
           <button class="btn primary" @click="$emit('close')">关闭</button>
@@ -2488,6 +2602,31 @@ export default {
         <div class="modal-footer">
           <button class="btn" @click="closeStorageBind">取消</button>
           <button class="btn primary" :disabled="!storageHost || !storageUsername || !storagePassword" @click="confirmStorageBind">确定</button>
+        </div>
+      </section>
+    </div>
+    <div v-if="streamIdImportOpen" class="face-picker-mask" @click.self="closeStreamIdImport">
+      <section class="face-picker-dialog" aria-label="导入非ISAPI CVR设备关联">
+        <div class="modal-head">
+          <h3>导入非ISAPI CVR设备关联</h3>
+          <button class="modal-close" aria-label="关闭" @click="closeStreamIdImport">×</button>
+        </div>
+        <div class="face-picker-body">
+          <p class="modal-hint">上传 CSV 映射文件（表头：NAME,CHANNEL,HOST,PORT,USER,PASSWORD,ENABLED,DEVICESN），将 NAME 中的流ID与 HOST 中的设备IP关联到指定的 CVR 设备。</p>
+          <input ref="streamIdImportFileInput" type="file" accept=".csv" style="display:none" aria-label="选择映射文件" @change="handleStreamIdImportFile" />
+          <div class="modal-drop-zone" style="cursor:pointer;" @click="triggerStreamIdImportFile" @dragover.prevent @drop.prevent="handleStreamIdImportDrop">
+            <strong><span class="required">*</span>{{ streamIdImportFileName || '拖拽或点击选择 CSV 文件上传' }}</strong>
+            <span>支持 .csv，NAME 列为流ID（自动去除 * 与空白字符），HOST 列为设备IP，其余列忽略。</span>
+          </div>
+          <div v-if="streamIdImportFileName" class="modal-summary-strip" style="margin-top:10px;"><strong>解析结果</strong><span>有效 {{ streamIdImportRows.length }} 条，跳过 {{ streamIdImportSkipped }} 条</span></div>
+          <div class="modal-form-row"><label><span class="required">*</span>CVR设备IP：</label><input class="input" v-model.trim="cvrHost" placeholder="如 192.168.1.100" /></div>
+          <div class="modal-form-row"><label>端口：</label><input class="input" type="number" min="1" max="65535" v-model.number="cvrPort" /></div>
+          <div class="modal-form-row"><label>账号：</label><input class="input" v-model.trim="cvrUsername" placeholder="请输入 CVR 设备账号" /></div>
+          <div class="modal-form-row"><label>密码：</label><input class="input" type="password" v-model="cvrPassword" placeholder="请输入 CVR 设备密码" /></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" :disabled="streamIdImportBusy" @click="closeStreamIdImport">取消</button>
+          <button class="btn primary" :disabled="streamIdImportBusy || !streamIdImportRows.length || !cvrHost" @click="submitStreamIdImport">{{ streamIdImportBusy ? '导入中…' : '导入' }}</button>
         </div>
       </section>
     </div>

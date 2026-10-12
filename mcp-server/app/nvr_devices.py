@@ -26,6 +26,7 @@ import httpx
 from .hcnetsdk_playback import NET_DVR_PLAYBACK_BY_TIME, HcNetSdkPlaybackProxy
 from .hikvision_nvr import build_search_body, parse_hik_time, text_at
 from .models import Camera, RecordingSegment
+from .stream_id_mappings import StreamIdMappings
 
 logger = logging.getLogger(__name__)
 
@@ -277,6 +278,7 @@ async def resolve_device_credentials(
     channel_lookup: NvrChannelLookup | None,
     known_nvr_hosts: Collection[str],
     binding: Mapping[str, str] | None = None,
+    stream_id_mappings: StreamIdMappings | None = None,
 ) -> DeviceCredentials:
     """解析摄像头录像检索/回放/下载应使用的 NVR 设备凭据。
 
@@ -288,7 +290,9 @@ async def resolve_device_credentials(
       平台未填 trackId 时从 sourceUrl 路径兜底（如 /Streaming/Channels/12801 → track 12801）；
     - ``sourceUrl`` 直连 IPC：反查已知 NVR/CVR 的输入通道映射，命中时用该设备的凭据与
       实际通道号（直连 IPC 的平台 nvrTrackId 可能是批量导入的脏数据，不作准）；
-    - 反查未命中：回退原解析逻辑（未绑定 NVR 时报 ``ValueError``，消息注明反查未命中）。
+    - 反查未命中且原解析失败（未绑定 NVR）：回退流ID映射（``stream_id_mappings``，
+      按摄像头 IP 匹配非ISAPI CVR 设备，按流ID直接回放）；
+    - 映射也未命中：报 ``ValueError``（消息注明反查未命中）。
     """
     if binding:
         return await _credentials_from_binding(camera, binding)
@@ -302,6 +306,11 @@ async def resolve_device_credentials(
         try:
             return parse_device_credentials(camera)
         except ValueError as exc:
+            # 流ID映射兜底：非ISAPI CVR 设备（现场 DS-A）无法反查也无平台通道字段，
+            # 按摄像头 IP 命中映射后直接用流ID从 CVR 回放
+            mapped = credentials_from_stream_id_mapping(camera, stream_id_mappings)
+            if mapped is not None:
+                return mapped
             raise ValueError(
                 f"{exc}; IPC {host} reverse lookup missed:"
                 " not found in any known NVR/CVR input channel list"
@@ -314,6 +323,38 @@ async def resolve_device_credentials(
         password=password,
         channel=channel,
         track_id=str(channel * 100 + 1),
+    )
+
+
+def camera_ip(camera: Camera) -> str:
+    """摄像头的 IPC 地址：优先平台登记的 ``ip`` 字段，缺失时取 sourceUrl 的主机。"""
+    ip = (camera.ip or "").strip()
+    if ip:
+        return ip
+    return urlparse((camera.sourceUrl or "").strip()).hostname or ""
+
+
+def credentials_from_stream_id_mapping(
+    camera: Camera, stream_id_mappings: StreamIdMappings | None
+) -> DeviceCredentials | None:
+    """按摄像头 IP 查流ID映射，命中时构造按流ID回放的 CVR 凭据（通道固定 0）；未命中返回 None。"""
+    if stream_id_mappings is None:
+        return None
+    host = camera_ip(camera)
+    if not host:
+        return None
+    mapping = stream_id_mappings.get(host)
+    if mapping is None:
+        return None
+    stream_id = str(mapping["streamId"]).strip()
+    return DeviceCredentials(
+        host=str(mapping["cvrHost"]),
+        username=str(mapping["username"]),
+        password=str(mapping["password"]),
+        channel=0,
+        track_id=stream_id,
+        sdk_port=int(mapping.get("cvrPort") or DEFAULT_SDK_PORT),
+        stream_id=stream_id,
     )
 
 
@@ -364,20 +405,28 @@ async def _credentials_from_binding(camera: Camera, binding: Mapping[str, str]) 
     )
 
 
+# 流ID映射摄像头在"录像存储配置"展示中的存储设备标识（这类摄像头无实体绑定主机，
+# 录像按流ID从映射的 CVR 回放）
+STREAM_ID_MAPPED_LABEL = "流ID映射"
+
+
 async def effective_storage_host(
     camera: Camera,
     channel_lookup: NvrChannelLookup | None,
     known_nvr_hosts: Collection[str],
     binding: Mapping[str, str] | None = None,
+    stream_id_mappings: StreamIdMappings | None = None,
 ) -> str | None:
     """返回摄像头实际生效的录像存储设备主机（供平台"录像存储配置"展示），解析不到返回 None。
 
-    优先级与 ``resolve_device_credentials`` 一致：显式绑定 > sourceUrl 指向已知 NVR/CVR >
-    直连 IPC 反查已知设备的输入通道。仅做主机定位，不涉及凭据。
+    优先级：显式绑定 > 流ID映射（命中时返回 ``STREAM_ID_MAPPED_LABEL``）>
+    sourceUrl 指向已知 NVR/CVR > 直连 IPC 反查已知设备的输入通道。仅做主机定位，不涉及凭据。
     """
     bound_host = ((binding or {}).get("host") or "").strip()
     if bound_host:
         return bound_host
+    if stream_id_mappings is not None and stream_id_mappings.get(camera_ip(camera)) is not None:
+        return STREAM_ID_MAPPED_LABEL
     host = urlparse((camera.sourceUrl or "").strip()).hostname or ""
     if not host:
         return None

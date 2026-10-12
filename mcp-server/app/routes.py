@@ -11,8 +11,23 @@ from urllib.parse import unquote, urlparse
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from .context import channel_lookup, hcnetsdk_live, hcnetsdk_playback, known_nvr_hosts, mcp, nvr_devices, storage_bindings, videoai
-from .nvr_devices import effective_storage_host, resolve_device_credentials, verify_storage_recording
+from .context import (
+    channel_lookup,
+    hcnetsdk_live,
+    hcnetsdk_playback,
+    known_nvr_hosts,
+    mcp,
+    nvr_devices,
+    storage_bindings,
+    stream_id_mappings,
+    videoai,
+)
+from .nvr_devices import (
+    STREAM_ID_MAPPED_LABEL,
+    effective_storage_host,
+    resolve_device_credentials,
+    verify_storage_recording,
+)
 from .tools import (
     detect_persons,
     dino_events,
@@ -66,7 +81,40 @@ def register_http_tool_routes() -> None:
         register_http_tool_route(tool_name, handler)
     register_recording_live_route()
     register_storage_binding_routes()
+    register_stream_id_mapping_routes()
     register_live_pull_routes()
+
+
+def register_stream_id_mapping_routes() -> None:
+    """摄像头 IP→非ISAPI CVR 流ID映射的查询/导入 HTTP 接口（平台侧调用）。"""
+
+    @mcp.custom_route("/stream-id-mappings", methods=["GET"], name="stream_id_mappings_list")
+    async def list_stream_id_mappings(request: Request) -> JSONResponse:
+        # 对外视图不含密码
+        return JSONResponse({"data": stream_id_mappings.all()})
+
+    @mcp.custom_route("/stream-id-mappings/import", methods=["POST"], name="stream_id_mappings_import")
+    async def import_stream_id_mappings(request: Request) -> JSONResponse:
+        """批量导入流ID映射（同 cameraHost 覆盖），校验不通过的行跳过并返回原因。
+
+        请求体：{"rows": [{"streamId", "cameraHost"}], "cvr": {"host", "port"=8000,
+        "username", "password"}}；cvr 对整批生效。streamId 去除 * 与空白后必须非空、
+        cameraHost 必须是合法 IPv4、cvr.host 必须非空，不满足的行进入 skipped。
+        """
+        try:
+            payload = await read_json_object(request)
+            rows = payload.get("rows")
+            if not isinstance(rows, list):
+                raise ValueError("rows must be a list")
+            cvr = payload.get("cvr")
+            if not isinstance(cvr, dict):
+                raise ValueError("cvr must be an object")
+            return JSONResponse({"data": stream_id_mappings.import_rows(rows, cvr)})
+        except ValueError as exc:
+            return JSONResponse(error_payload("ValueError", str(exc)), status_code=400)
+        except Exception as exc:  # noqa: BLE001  # 兜底：与 -http 接口一致，细节只进服务端日志
+            logger.exception("stream-id-mappings/import failed with %s", type(exc).__name__)
+            return JSONResponse(error_payload(type(exc).__name__, "internal server error"), status_code=500)
 
 
 def register_storage_binding_routes() -> None:
@@ -83,16 +131,22 @@ def register_storage_binding_routes() -> None:
 
         供平台"录像存储配置"展示：设备大多数并非显式绑定，而是回放链路按
         ``effective_storage_host`` 解析出的 NVR/CVR。``bound`` 标记是否为显式绑定
-        （只有显式绑定可通过 unbind 解除）。
+        （只有显式绑定可通过 unbind 解除）。无显式绑定但命中流ID映射的摄像头
+        host 为 ``流ID映射`` 且带 ``streamIdMapped: true``。
         """
         try:
             cameras = await videoai.list_cameras()
             data = []
             for camera in cameras:
                 binding = storage_bindings.get(camera.id)
-                host = await effective_storage_host(camera, channel_lookup, known_nvr_hosts, binding=binding)
+                host = await effective_storage_host(
+                    camera, channel_lookup, known_nvr_hosts, binding=binding, stream_id_mappings=stream_id_mappings
+                )
                 if host:
-                    data.append({"cameraId": camera.id, "host": host, "bound": binding is not None})
+                    entry = {"cameraId": camera.id, "host": host, "bound": binding is not None}
+                    if host == STREAM_ID_MAPPED_LABEL:
+                        entry["streamIdMapped"] = True
+                    data.append(entry)
             return JSONResponse({"data": data})
         except Exception as exc:  # noqa: BLE001  # 兜底：与 -http 接口一致，细节只进服务端日志
             logger.exception("storage-bindings/resolved failed with %s", type(exc).__name__)
@@ -254,7 +308,11 @@ def register_recording_live_route() -> None:
                 # 与录像检索/下载走同一套解析：sourceUrl 直连 IPC 时反查所属 NVR，
                 # 否则会把回放打到 IPC 自己身上（录像存在 NVR 上）而起流失败
                 credentials = await resolve_device_credentials(
-                    camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+                    camera,
+                    channel_lookup,
+                    known_nvr_hosts,
+                    binding=storage_bindings.get(camera.id),
+                    stream_id_mappings=stream_id_mappings,
                 )
                 proxy = nvr_devices.proxy_for_credentials(credentials)
                 # 设备时钟偏差补偿：SDK 回放时间按设备本地时钟解释

@@ -20,6 +20,7 @@ from ..context import (
     recording_mp4_storage,
     settings,
     storage_bindings,
+    stream_id_mappings,
     videoai,
 )
 from ..hcnetsdk_playback import (
@@ -79,7 +80,11 @@ async def export_recording(trackId: str = "", startTime: str = "", endTime: str 
         # 按摄像头定位其 NVR（sourceUrl 直连 IPC 时反查所属 NVR），SDK 按时间下载，非实时抓流
         camera = await videoai.get_camera(camera_id)
         credentials = await resolve_device_credentials(
-            camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+            camera,
+            channel_lookup,
+            known_nvr_hosts,
+            binding=storage_bindings.get(camera.id),
+            stream_id_mappings=stream_id_mappings,
         )
         downloader = nvr_devices.proxy_for_credentials(credentials)
         data = await export_recording_via_downloader(
@@ -210,7 +215,11 @@ async def search_camera_recordings(
     camera = await videoai.get_camera(camera_id)
     # 解析 NVR 凭据（反查未命中且未绑定时报 ValueError）
     credentials = await resolve_device_credentials(
-        camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+        camera,
+        channel_lookup,
+        known_nvr_hosts,
+        binding=storage_bindings.get(camera.id),
+        stream_id_mappings=stream_id_mappings,
     )
     if credentials.stream_id:
         # 流ID模式存储设备（现场 DS-A CVR）的 ISAPI 检索不可用，无法反查录像段列表；
@@ -339,7 +348,11 @@ async def resolve_playback_proxy(recording: RecordingSegment) -> HcNetSdkPlaybac
         return hcnetsdk_playback
     camera = await videoai.get_camera(recording.cameraId)
     credentials = await resolve_device_credentials(
-        camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+        camera,
+        channel_lookup,
+        known_nvr_hosts,
+        binding=storage_bindings.get(camera.id),
+        stream_id_mappings=stream_id_mappings,
     )
     return nvr_devices.proxy_for_credentials(credentials)
 
@@ -362,7 +375,11 @@ async def download_recording(
     if camera_id:
         camera = await videoai.get_camera(camera_id)
         credentials = await resolve_device_credentials(
-            camera, channel_lookup, known_nvr_hosts, binding=storage_bindings.get(camera.id)
+            camera,
+            channel_lookup,
+            known_nvr_hosts,
+            binding=storage_bindings.get(camera.id),
+            stream_id_mappings=stream_id_mappings,
         )
         downloader = nvr_devices.proxy_for_credentials(credentials)
         start = parse_datetime(startTime)

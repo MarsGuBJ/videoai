@@ -254,6 +254,19 @@ export type ResolvedStorageBinding = {
   cameraId: string;
   storageHost: string;
   bound: boolean;
+  // 非显式绑定、来自流ID映射（/api/stream-id-mappings）时后端置 true，此时 storageHost 为「流ID映射」
+  streamIdMapped?: boolean;
+};
+
+// 非ISAPI CVR 流ID映射导入：CSV 中的单行映射（流ID ↔ 设备IP）
+export type StreamIdMappingRow = {
+  streamId: string;
+  cameraHost: string;
+};
+
+export type StreamIdMappingImportResult = {
+  imported: number;
+  skipped: { row: unknown; reason: string }[];
 };
 
 // NVR 录像导出为 MP4 文件后的响应（backend-lite 透传 MCP export_recording 的 data）。
@@ -670,6 +683,12 @@ export const api = {
     request<{ bound: number; skipped: { cameraId: string; reason: string }[] }>('/api/storage-bindings/bind', { method: 'POST', body: JSON.stringify(payload) }),
   unbindStorage: (cameraIds: string[]) =>
     request<{ unbound: number }>('/api/storage-bindings/unbind', { method: 'POST', body: JSON.stringify({ cameraIds }) }),
+
+  // 非ISAPI CVR 流ID映射：导入 CSV 映射（流ID ↔ 设备IP + 目标 CVR 连接信息）
+  importStreamIdMappings: (payload: { rows: StreamIdMappingRow[]; cvr: { host: string; port: number; username: string; password: string } }) =>
+    request<StreamIdMappingImportResult>('/api/stream-id-mappings/import', { method: 'POST', body: JSON.stringify(payload) }),
+  streamIdMappings: () =>
+    request<{ cameraHost: string; streamId: string; cvrHost: string; cvrPort: number; username: string }[]>('/api/stream-id-mappings'),
 
   llmConfigs: () => request<LlmConfig[]>('/api/llm-configs'),
   createLlmConfig: (payload: LlmConfigPayload) =>

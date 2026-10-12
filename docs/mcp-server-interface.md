@@ -107,6 +107,7 @@ MCP Server 依赖以下服务：
 | `HCNETSDK_DOWNLOAD_PASSWORD` | 空 | 录像下载设备共用的登录密码，必须通过部署环境配置。 |
 | `HCNETSDK_DOWNLOAD_CHANNEL` | `1` | 录像下载设备共用的通道。 |
 | `STORAGE_BINDINGS_FILE` | `./storage_bindings.json` | 录像存储设备关联关系（摄像头 → 存储设备 IP/账号/密码）的 JSON 持久化文件路径，见 5.1。 |
+| `STREAM_ID_MAPPINGS_FILE` | `./stream_id_mappings.json` | 摄像头 IP → 非ISAPI CVR 流ID映射的 JSON 持久化文件路径，见 5.2。 |
 | `MINIO_ENDPOINT` | `192.168.11.194` | MinIO 服务地址。 |
 | `MINIO_PORT` | `9000` | MinIO 服务端口。 |
 | `MINIO_USE_SSL` | `false` | 是否使用 HTTPS 访问 MinIO。 |
@@ -143,7 +144,8 @@ MCP Server 依赖以下服务：
 ```text
 GET  /storage-bindings          # {"data": [{"cameraId", "host", "username"}]}，不含密码，仅显式绑定
 GET  /storage-bindings/resolved # {"data": [{"cameraId", "host", "bound"}]}，各摄像头实际生效的存储设备
-                                # （显式绑定 > sourceUrl 已知设备 > 反查命中）；bound=true 表示显式绑定（可 unbind）
+                                # （显式绑定 > 流ID映射 > sourceUrl 已知设备 > 反查命中）；bound=true 表示显式绑定（可 unbind）。
+                                # 命中流ID映射（无显式绑定）的摄像头 host 为"流ID映射"且带 streamIdMapped: true，见 5.2
 POST /storage-bindings/bind     # {"items": [{"cameraId", "host", "username", "password"}]}
                                 #   → {"data": {"bound": N, "skipped": [{"cameraId", "reason"}]}}，同 cameraId 覆盖。
                                 #   绑定前逐台校验（并发）：存储设备输入通道列表中存在该摄像头 IP，
@@ -154,6 +156,23 @@ POST /storage-bindings/unbind   # {"cameraIds": [...]} → {"data": {"unbound": 
 ```
 
 backend-lite 提供同名代理接口供前端使用：`GET /api/storage-bindings`（响应中 `host` 映射为 `storageHost`）、`GET /api/storage-bindings/resolved`、`POST /api/storage-bindings/bind`（`{cameraIds, storageHost, username, password}`，响应含 `bound` 与 `skipped` 明细）、`POST /api/storage-bindings/unbind`（`{cameraIds}`）。前端入口为设备管理页"录像存储配置"弹窗（列表"存储设备"列与筛选基于 resolved 数据，与回放实际来源一致）；关联存储提交后若有设备被跳过，逐台弹出原因。
+
+### 5.2 非ISAPI CVR 流ID映射（Stream ID Mappings）
+
+现场部分 CVR（非ISAPI，如 DS-A 系列）ISAPI 关闭、通道回放不可用，录像只能按流ID回放。平台从 CVR 导出流源清单后，按"摄像头 IP → 流ID"批量导入映射；映射由 MCP 持有，内存映射 + JSON 文件持久化（路径见 `STREAM_ID_MAPPINGS_FILE`），值为 `{streamId, cvrHost, cvrPort, username, password}`（cvr 凭据对整批生效）。
+
+凭据解析优先级：显式存储绑定 > 原有解析（sourceUrl 已知设备 / NVR 反查 / 平台 nvrTrackId）> **流ID映射兜底** —— 仅当摄像头无显式绑定、反查未命中且平台未配置通道字段（原解析报"未绑定 NVR"）时，按摄像头 IP（优先平台登记的 `ip` 字段，缺失时取 `sourceUrl` 主机）查映射，命中后直接按流ID从 CVR 回放（SDK 通道固定 0，回放链路与流ID绑定一致）。映射未命中时报错行为不变。
+
+仅提供 HTTP 入口（不注册为 MCP tool）：
+
+```text
+POST /stream-id-mappings/import # {"rows": [{"streamId", "cameraHost"}],
+                                #  "cvr": {"host", "port"=8000, "username", "password"}}
+                                #   → {"data": {"imported": N, "skipped": [{"row", "reason"}]}}，同 cameraHost 覆盖。
+                                #   逐行校验：streamId 去除 * 与空白后必须非空（导出清单可能用 * 打码）、
+                                #   cameraHost 必须是合法 IPv4 地址、cvr.host 必须非空；不满足的行进入 skipped。
+GET  /stream-id-mappings        # {"data": [{"cameraHost", "streamId", "cvrHost", "cvrPort", "username"}]}，不含密码
+```
 
 ## 6. Tools
 
