@@ -32,7 +32,13 @@
             <svg v-if="!playerFullscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
             <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
           </button>
-          <div class="exact-player-controls"><button @click="togglePlay">{{ playerPlaying ? '暂停' : '播放' }}</button><span>{{ formatTime(currentTime) }}</span><input type="range" min="0" :max="playerDuration" step="1" :value="currentTime" @input="seekVideo($event)" /><span>{{ formatTime(playerDuration) }}</span><select v-model.number="playbackRate" class="exact-rate-select" @change="changePlaybackRate"><option :value="0.5">0.5x</option><option :value="1">1x</option><option :value="1.5">1.5x</option><option :value="2">2x</option></select></div>
+          <button v-if="selectedSource.videoUrl || selectedSource.recordingParams" class="exact-player-action-btn exact-download-btn" type="button" :title="playerDownloading ? '录像导出中…' : '下载录像'" :aria-label="playerDownloading ? '录像导出中…' : '下载录像'" :disabled="playerDownloading" @click="downloadPlayerVideo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          </button>
+          <button v-if="selectedSource.videoUrl || selectedSource.streamUrl" class="exact-player-action-btn exact-snapshot-btn" type="button" title="截图" aria-label="截图" @click="capturePlayerSnapshot">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          </button>
+          <div class="exact-player-controls"><button @click="togglePlay">{{ playerPlaying ? '暂停' : '播放' }}</button><span>{{ formatTime(currentTime) }}</span><input type="range" min="0" :max="playerDuration" step="1" :value="currentTime" @input="seekVideo($event)" /><span>{{ formatTime(playerDuration) }}</span><select v-model.number="playbackRate" class="exact-rate-select" @change="changePlaybackRate"><option :value="0.5">0.5x</option><option :value="1">1x</option><option :value="1.5">1.5x</option><option :value="2">2x</option><option :value="4">4x</option><option :value="8">8x</option></select></div>
         </div>
       </div>
       <section class="exact-query-panel">
@@ -331,6 +337,13 @@ function isStreamUrl(url: string): boolean {
 // <video> 可直接播放的文件格式
 function isPlayableFileUrl(url: string): boolean {
   return /\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(url);
+}
+
+// 下载文件名时间戳：YYYYMMDD_HHmmss（截图、录像下载文件共用）
+function fileTimeStamp(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
 // 摄像头可分析视频地址：回放地址优先，其次源地址；均为流地址时返回空
@@ -891,6 +904,8 @@ export default defineComponent({
       playerDuration: 3600,
       playerPlaying: false,
       playerFullscreen: false,
+      // 录像下载按钮的导出中状态：导出耗时随时段增长，期间置灰防重复点击
+      playerDownloading: false,
       playbackRate: 1,
       playTimer: null,
       areas: [],
@@ -1786,6 +1801,93 @@ export default defineComponent({
     },
     syncFullscreenState() {
       this.playerFullscreen = !!document.fullscreenElement;
+    },
+    // 截图：抓取当前播放画面下载为 JPG；流模式复用 VideoPlayer.snapshot，文件模式直接画 canvas
+    capturePlayerSnapshot() {
+      const source = this.selectedSource as any;
+      if (!source) {
+        this.showToast("请先确定视频源");
+        return;
+      }
+      let dataUrl: string | null = null;
+      const video = this.$refs.exactVideo as HTMLVideoElement | undefined;
+      if (source.videoUrl && video) {
+        if (video.videoWidth) {
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext("2d");
+          try {
+            if (ctx) {
+              ctx.drawImage(video, 0, 0);
+              dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+            }
+          } catch {
+            // 跨域画面受污染时 toDataURL 抛错，按无可抓画面处理
+            dataUrl = null;
+          }
+        }
+      } else {
+        const streamPlayer = this.$refs.exactStreamPlayer as any;
+        dataUrl = (streamPlayer && streamPlayer.snapshot && streamPlayer.snapshot()) || null;
+      }
+      if (!dataUrl) {
+        this.showToast("暂无可抓取的画面");
+        return;
+      }
+      const name = source.cameraName || source.name || "视频截图";
+      this.triggerFileDownload(dataUrl, `${name}_${fileTimeStamp()}.jpg`);
+      this.showToast("截图成功");
+    },
+    // 下载录像：本地上传直接下载本地文件；在线监控调录像导出接口拿到 MP4 地址后下载
+    async downloadPlayerVideo() {
+      const source = this.selectedSource as any;
+      if (!source) {
+        this.showToast("请先确定视频源");
+        return;
+      }
+      if (this.playerDownloading) return;
+      if (source.sourceType === "本地上传") {
+        if (!source.videoUrl) {
+          this.showToast("暂无可下载的视频文件");
+          return;
+        }
+        this.triggerFileDownload(source.videoUrl, this.localFileName || `${source.name || "本地视频"}`);
+        this.showToast("开始下载视频文件");
+        return;
+      }
+      const params = source.recordingParams;
+      if (!params) {
+        this.showToast("当前视频源暂不支持下载");
+        return;
+      }
+      this.playerDownloading = true;
+      try {
+        const result = await api.downloadRecording(params);
+        const fileUrl = result && result.url;
+        if (!fileUrl) {
+          this.showToast("该时段暂无可下载的录像文件");
+          return;
+        }
+        const name = source.cameraName || source.name || "录像";
+        // 经后端代理下载：避免 MinIO 直链跨域时 download 属性失效变成跳转播放
+        this.triggerFileDownload(videoAnalysisStreamUrl(fileUrl), `${name}_${fileTimeStamp()}.mp4`);
+        this.showToast("开始下载录像文件");
+      } catch (error) {
+        this.showToast(`录像下载失败：${error instanceof Error ? error.message : error}`);
+      } finally {
+        this.playerDownloading = false;
+      }
+    },
+    // 触发浏览器下载：同源地址 download 属性生效，按指定文件名保存
+    triggerFileDownload(url: string, filename: string) {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     },
     togglePlay() {
       const video = this.$refs.exactVideo as HTMLVideoElement;

@@ -6258,6 +6258,49 @@
       height: 16px;
     }
 
+    /* 播放器角落操作按钮：右上角录像下载（全屏左侧）、右下角截图（控制条上方） */
+    .exact-player-action-btn {
+      position: absolute;
+      z-index: 3;
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      background: rgba(9, 18, 32, .55);
+      color: #e8f1ff;
+      cursor: pointer;
+      opacity: .75;
+      transition: opacity .15s ease, background .15s ease;
+    }
+
+    .exact-player-action-btn:hover {
+      opacity: 1;
+      background: rgba(20, 42, 70, .85);
+    }
+
+    .exact-player-action-btn:disabled {
+      cursor: wait;
+      opacity: .45;
+    }
+
+    .exact-player-action-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .exact-download-btn {
+      right: 52px;
+      top: 10px;
+    }
+
+    .exact-snapshot-btn {
+      right: 12px;
+      bottom: 54px;
+    }
+
     /* 全屏态：画面充满并保持比例 */
     .exact-player:fullscreen {
       border-radius: 0;
