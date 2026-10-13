@@ -167,3 +167,86 @@ def test_search_by_bbox_omits_empty_attribute_filters(client: TestClient, monkey
     assert "sex" not in captured["json"]
     assert "age" not in captured["json"]
     assert "top_color" not in captured["json"]
+
+
+@pytest.mark.parametrize("missing_status", [404, 500])
+def test_search_by_bbox_falls_back_to_legacy_path(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    missing_status: int,
+):
+    """旧版上游镜像没有 searchPersonFull 路由（Flask 统一回 404/500）时自动回退旧版提交。
+
+    团结湖现场 172.17.136.189:15501 部署的 vlm-application v3.20260915-1020 即此情况：
+    未注册路由被 Flask ErrorHandler 包成 HTTP 500 + {"code":"00001",...}。
+    """
+    captured_urls = []
+
+    def fake_post(url, json, timeout):
+        captured_urls.append(url)
+        if url.endswith("searchPersonFull"):
+            return FakeResponse(
+                {"code": "00001", "data": None, "message": "操作失败", "status": False},
+                status_code=missing_status,
+            )
+        return FakeResponse(
+            {"code": "00000", "data": {"data": {"task_id": "t-1"}}, "message": "任务已提交", "status": True}
+        )
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(person_search, "get_settings", lambda: _stub_settings(PUBLIC_BASE))
+
+    response = client.post(
+        "/api/person-search/search-by-bbox",
+        json={"imageUrl": f"{PUBLIC_BASE}/api/assets/query-images/a.jpg"},
+    )
+
+    assert response.status_code == 200
+    assert captured_urls == [
+        f"{PERSON_BASE}/vlm-application/search/searchPersonFull",
+        f"{PERSON_BASE}/vlm-application/search/searchPersonByBbox",
+    ]
+    assert response.json()["data"]["data"]["task_id"] == "t-1"
+
+
+def test_search_by_bbox_does_not_fallback_on_business_error(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """详版返回 400 这类业务错误时不回退，单次调用直接透传。"""
+    captured_urls = []
+
+    def fake_post(url, json, timeout):
+        captured_urls.append(url)
+        return FakeResponse({"detail": "similarity_threshold out of range"}, status_code=400)
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(person_search, "get_settings", lambda: _stub_settings(PUBLIC_BASE))
+
+    response = client.post(
+        "/api/person-search/search-by-bbox",
+        json={"imageUrl": f"{PUBLIC_BASE}/api/assets/query-images/a.jpg"},
+    )
+
+    assert response.status_code == 400
+    assert len(captured_urls) == 1
+    assert captured_urls[0].endswith("searchPersonFull")
+
+
+def test_search_by_bbox_fallback_failure_keeps_original_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """回退后旧版接口也失败时，抛详版的原始报错，避免旧版错误掩盖根因。"""
+    def fake_post(url, json, timeout):
+        if url.endswith("searchPersonFull"):
+            return FakeResponse({"code": "00001", "data": None, "message": "操作失败", "status": False}, status_code=500)
+        return FakeResponse({"message": "legacy unavailable"}, status_code=502)
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setattr(person_search, "get_settings", lambda: _stub_settings(PUBLIC_BASE))
+
+    response = client.post(
+        "/api/person-search/search-by-bbox",
+        json={"imageUrl": f"{PUBLIC_BASE}/api/assets/query-images/a.jpg"},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == {"code": "00001", "data": None, "message": "操作失败", "status": False}

@@ -1,13 +1,32 @@
 """以图搜人 / 文本检索的外部 API 代理。"""
 
+import logging
+
 import requests
 from fastapi import HTTPException
 
 from app.core.config import get_settings
 
+logger = logging.getLogger(__name__)
+
 PERSON_API_TIMEOUT_SECONDS = 60
 RETRIEVE_API_TIMEOUT_SECONDS = 120
 ES_DOCUMENT_API_TIMEOUT_SECONDS = 60
+
+PERSON_SEARCH_FULL_PATH = "/vlm-application/search/searchPersonFull"
+"""2026-09 上游重构后的详版提交接口：结果直接带 ES 全量文档组成的 similar_persons。"""
+
+PERSON_SEARCH_LEGACY_PATH = "/vlm-application/search/searchPersonByBbox"
+"""旧版提交接口：结果只有 es_ids + index_name，由 es-documents/by-ids 兜底补齐。"""
+
+PERSON_SEARCH_FALLBACK_STATUSES = frozenset({404, 405, 500, 501})
+"""触发回退到旧版提交接口的上游状态码。
+
+部分现场（如团结湖 172.17.136.189:15501）部署的上游镜像较旧（v3.20260915-1020），
+没有注册 searchPersonFull 路由；其 Flask ErrorHandler 对未注册路由统一回 500
+（body 为 {"code":"00001","data":null,"message":"操作失败","status":false}），
+无法与内部错误按响应体区分，只能连同 500 一起兜底。
+"""
 
 
 def required_text(value: str, name: str) -> str:
@@ -161,3 +180,37 @@ def es_document_api_post(path: str, payload: dict) -> dict:
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"ES document API unavailable: {exc}") from exc
     return parse_person_api_response(response)
+
+
+def person_search_submit(payload: dict) -> dict:
+    """提交以图搜人异步任务：详版 searchPersonFull 优先，旧版上游自动回退。
+
+    新部署的上游应走详版 searchPersonFull；旧版镜像（路由缺失统一回 404/500 等）
+    自动回退 searchPersonByBbox，两种提交方式返回的 task_id 均交给
+    searchPersonResult 轮询，resolve_similar_persons 兼容详版全量文档与
+    简版 es_ids 两种结果格式。
+
+    Args:
+        payload: 提交请求体（image_url/search_method/similarity_threshold/top_k 等）。
+
+    Returns:
+        上游提交响应（含 task_id）。
+
+    Raises:
+        HTTPException: 详版报错不在回退范围时直接抛出；回退后旧版仍失败时
+            抛详版的原始异常，避免旧版下游错误掩盖根因。
+    """
+    try:
+        return person_api_post(PERSON_SEARCH_FULL_PATH, payload)
+    except HTTPException as exc:
+        if exc.status_code not in PERSON_SEARCH_FALLBACK_STATUSES:
+            raise
+        logger.warning(
+            "searchPersonFull 不可用（HTTP %s），回退旧版 searchPersonByBbox",
+            exc.status_code,
+        )
+        try:
+            return person_api_post(PERSON_SEARCH_LEGACY_PATH, payload)
+        except HTTPException:
+            logger.warning("旧版 searchPersonByBbox 同样失败，抛回详版原始报错", exc_info=True)
+            raise exc
