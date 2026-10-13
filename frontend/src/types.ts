@@ -140,6 +140,7 @@ export type ReviewType = {
   code: string;
   prompt: string;
   injectEvent: string;
+  roi: string;
   remark: string;
   reviewEndpoint?: string | null;
   createdAt: string;
@@ -171,6 +172,9 @@ export type ReviewTask = {
   status: string;
   verdict: string;
   reason: string;
+  elapsedSeconds: number | null;
+  confidence: number | null;
+  evidence: string;
   createdAt: string;
   updatedAt: string;
 };

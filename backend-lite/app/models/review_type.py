@@ -20,7 +20,10 @@ class ReviewTypeORM(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     code: Mapped[str] = mapped_column(String(100), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    # 注入事件坐标模式：空串（不注入）/ bbox（识别对象）/ roi（电子围栏）
     inject_event: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    # 电子围栏 ROI 区域坐标（用户录入，inject_event 为 roi 时使用）
+    roi: Mapped[str] = mapped_column(Text, nullable=False, default="")
     remark: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     # 关联的大模型配置（llm_configs.id），可为空
     llm_config_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

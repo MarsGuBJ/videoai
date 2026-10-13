@@ -2004,10 +2004,16 @@ export default {
             <dl class="event-detail-field"><dt>复核接口</dt><dd>{{ modal.item.reviewEndpoint || '-' }}</dd></dl>
             <dl class="event-detail-field"><dt>任务状态</dt><dd><span class="status-pill" :class="statusClass(modal.item.status)">{{ modal.item.status }}</span></dd></dl>
             <dl class="event-detail-field"><dt>判定结果</dt><dd :class="modal.item.verdict === '有效' ? 'text-success' : (modal.item.verdict === '无效' ? 'text-danger' : '')">{{ modal.item.verdict || '-' }}</dd></dl>
+            <dl class="event-detail-field"><dt>复核耗时</dt><dd>{{ modal.item.elapsedSeconds != null ? modal.item.elapsedSeconds.toFixed(2) + ' 秒' : '-' }}</dd></dl>
+            <dl class="event-detail-field"><dt>置信度</dt><dd>{{ modal.item.confidence != null ? modal.item.confidence : '-' }}</dd></dl>
           </div>
           <div class="event-detail-section">
             <h4>研判原因</h4>
             <p>{{ modal.item.reason || '-' }}</p>
+          </div>
+          <div class="event-detail-section">
+            <h4>判断依据</h4>
+            <pre class="event-detail-evidence">{{ modal.item.evidence || '-' }}</pre>
           </div>
           <div class="event-detail-section">
             <h4>事件图片</h4>

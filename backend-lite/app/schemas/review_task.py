@@ -17,5 +17,8 @@ class ReviewTaskOut(BaseModel):
     status: str
     verdict: str
     reason: str
+    elapsedSeconds: float | None = None
+    confidence: float | None = None
+    evidence: str = ""
     createdAt: datetime
     updatedAt: datetime

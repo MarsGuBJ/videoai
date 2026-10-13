@@ -6,6 +6,7 @@
         <div class="review-task-filter-actions"><button class="btn primary" @click="openModal('reviewTask')">上传复核任务</button><button class="btn" @click="applyFilters">查询</button><button class="btn" @click="resetFilters">重置</button><button class="btn danger" :disabled="!checkedIds.length" @click="removeSelected">删除</button></div>
         <div class="filter-item"><span>搜索：</span><input class="input" v-model="keyword" placeholder="搜索任务ID、事件类型" /></div>
         <div class="filter-item"><span>状态：</span><select class="select" v-model="statusFilter"><option value="">全部</option><option>进行中</option><option>已完成</option><option>失败</option></select></div>
+        <div class="filter-item"><span>复核结果：</span><select class="select" v-model="verdictFilter"><option value="">全部</option><option value="unreviewed">未复核</option><option>有效</option><option>无效</option></select></div>
         <div class="filter-item"><span>时间范围：</span><date-time-range-picker v-model:start="startTime" v-model:end="endTime" /></div>
       </div>
       <table class="prototype-table">
@@ -58,6 +59,7 @@ export default defineComponent({
       rows: [] as ReviewTask[],
       loading: false,
       statusFilter: "",
+      verdictFilter: "",
       keyword: "",
       startTime: "",
       endTime: "",
@@ -75,6 +77,11 @@ export default defineComponent({
       const end = this.endTime ? new Date(this.endTime).getTime() + 59999 : null;
       return this.rows.filter((row) => {
         if (this.statusFilter && row.status !== this.statusFilter) return false;
+        // 未复核对应 verdict 空串，其余按 verdict 精确匹配
+        if (this.verdictFilter) {
+          const verdict = this.verdictFilter === "unreviewed" ? "" : this.verdictFilter;
+          if ((row.verdict || "") !== verdict) return false;
+        }
         if (start !== null || end !== null) {
           const created = new Date(row.createdAt).getTime();
           if (Number.isNaN(created)) return false;
@@ -115,6 +122,7 @@ export default defineComponent({
     // 过滤条件变化时回到第一页
     keyword() { this.currentPage = 1; },
     statusFilter() { this.currentPage = 1; },
+    verdictFilter() { this.currentPage = 1; },
     startTime() { this.currentPage = 1; },
     endTime() { this.currentPage = 1; },
     // 上传复核任务提交成功后 App 会自增 reviewTasksVersion，触发列表刷新
@@ -171,6 +179,7 @@ export default defineComponent({
     },
     resetFilters() {
       this.statusFilter = "";
+      this.verdictFilter = "";
       this.keyword = "";
       this.startTime = "";
       this.endTime = "";

@@ -38,6 +38,7 @@ def create_review_type(request: ReviewTypeCreate) -> ReviewTypeOut:
         "code": request.code,
         "prompt": request.prompt,
         "inject_event": request.injectEvent or "",
+        "roi": request.roi or "",
         "remark": request.remark or "",
         "review_endpoint": request.reviewEndpoint,
         "created_at": now,
@@ -64,6 +65,8 @@ def update_review_type(type_id: str, request: ReviewTypeUpdate) -> ReviewTypeOut
         record["prompt"] = request.prompt
     if request.injectEvent is not None:
         record["inject_event"] = request.injectEvent
+    if request.roi is not None:
+        record["roi"] = request.roi
     if request.remark is not None:
         record["remark"] = request.remark
     if request.reviewEndpoint is not None:  # 空字符串表示清除复核接口

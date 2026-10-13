@@ -56,6 +56,9 @@ def review_task_out(record: dict[str, Any]) -> ReviewTaskOut:
         status=str(record["status"]),
         verdict=str(record.get("verdict") or ""),
         reason=str(record.get("reason") or ""),
+        elapsedSeconds=record.get("elapsed_seconds"),
+        confidence=record.get("confidence"),
+        evidence=str(record.get("evidence") or ""),
         createdAt=record["created_at"],
         updatedAt=record["updated_at"],
     )
@@ -69,6 +72,13 @@ def ensure_review_task_schema() -> None:
             conn.execute(
                 text("ALTER TABLE review_tasks ADD COLUMN IF NOT EXISTS review_endpoint VARCHAR(500)")
             )
+            conn.execute(
+                text("ALTER TABLE review_tasks ADD COLUMN IF NOT EXISTS elapsed_seconds DOUBLE PRECISION")
+            )
+            conn.execute(
+                text("ALTER TABLE review_tasks ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION")
+            )
+            conn.execute(text("ALTER TABLE review_tasks ADD COLUMN IF NOT EXISTS evidence TEXT"))
     except SQLAlchemyError as exc:  # 数据库不可达时跳过迁移，不阻断启动
         logger.error("review task schema ensure failed: %s", exc)
 
@@ -90,6 +100,9 @@ def load_review_tasks_from_db() -> None:
                     "status": row.status,
                     "verdict": row.verdict or "",
                     "reason": row.reason or "",
+                    "elapsed_seconds": row.elapsed_seconds,
+                    "confidence": row.confidence,
+                    "evidence": row.evidence or "",
                     "created_at": row.created_at,
                     "updated_at": row.updated_at,
                 }
@@ -117,6 +130,9 @@ def persist_review_task(record: dict[str, Any]) -> None:
             row.status = str(record["status"])
             row.verdict = str(record.get("verdict") or "")
             row.reason = str(record.get("reason") or "")
+            row.elapsed_seconds = record.get("elapsed_seconds")
+            row.confidence = record.get("confidence")
+            row.evidence = str(record.get("evidence") or "")
             row.created_at = record["created_at"]
             row.updated_at = record["updated_at"]
             pgdb.commit()
@@ -159,17 +175,24 @@ def run_review_task_judgment(task_id: str, image_bytes: bytes, video_bytes: byte
         review_endpoint = str(review_type.get("review_endpoint") or "")
         if not review_endpoint:
             raise ValueError("复核类型未配置复核接口")
-        verdict, reason = second_review_client.judge_event(
+        # 注入事件坐标：电子围栏模式上送复核类型配置的 ROI；手工上传无事件 bbox 可注入
+        inject_event = str(review_type.get("inject_event") or "")
+        roi = str(review_type.get("roi") or "") if inject_event == "roi" else None
+        judge_result = second_review_client.judge_event(
             endpoint=review_endpoint,
             event_type=str(review_type["name"]),
             prompt=str(review_type["prompt"]),
             image_bytes=image_bytes,
             video_bytes=video_bytes,
             event_id=task_id,
+            roi=roi or None,
         )
         record["status"] = "已完成"
-        record["verdict"] = verdict
-        record["reason"] = reason
+        record["verdict"] = judge_result.verdict
+        record["reason"] = judge_result.reason
+        record["elapsed_seconds"] = judge_result.elapsed_seconds
+        record["confidence"] = judge_result.confidence
+        record["evidence"] = judge_result.evidence
     except Exception as exc:  # noqa: BLE001  # 后台线程内任何失败都落为任务失败状态
         logger.error("review task judgment failed: %s", exc)
         record = state.review_tasks_store.get(task_id)

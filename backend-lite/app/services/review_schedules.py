@@ -316,19 +316,19 @@ def _read_snapshot_bytes(snapshot_url: str) -> bytes | None:
         return None
 
 
-def _query_pending_events(schedule: dict[str, Any]) -> list[tuple[str, str]]:
+def _query_pending_events(schedule: dict[str, Any]) -> list[tuple[str, str, list[dict[str, Any]]]]:
     """抽取待复核事件：匹配 algorithm_code、复核状态为空、带快照，按发生时间升序限量。
 
     Args:
         schedule: 内存态定时复核任务字典。
 
     Returns:
-        (事件 ID, 快照 URL) 列表，最多 batch_size 条。
+        (事件 ID, 快照 URL, 检测对象列表) 三元组列表，最多 batch_size 条。
     """
     batch_size = int(schedule.get("batch_size") or 50)
     with SessionLocal() as pgdb:
         rows = (
-            pgdb.query(DeploymentEventORM.id, DeploymentEventORM.snapshot_url)
+            pgdb.query(DeploymentEventORM.id, DeploymentEventORM.snapshot_url, DeploymentEventORM.objects)
             .filter(
                 DeploymentEventORM.algorithm_code == str(schedule["review_type_code"]),
                 or_(DeploymentEventORM.review_status.is_(None), DeploymentEventORM.review_status == ""),
@@ -339,16 +339,34 @@ def _query_pending_events(schedule: dict[str, Any]) -> list[tuple[str, str]]:
             .limit(batch_size)
             .all()
         )
-        return [(str(event_id), str(snapshot_url)) for event_id, snapshot_url in rows]
+        return [(str(event_id), str(snapshot_url), objects or []) for event_id, snapshot_url, objects in rows]
 
 
-def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: str, failures: list[str]) -> str:
+def _extract_bbox(objects: list[dict[str, Any]]) -> list[list[float]]:
+    """从事件检测对象列表提取 bbox 坐标 [[x1,y1,x2,y2], ...]，缺字段的对象跳过。"""
+    bbox: list[list[float]] = []
+    for obj in objects:
+        try:
+            bbox.append([float(obj["x1"]), float(obj["y1"]), float(obj["x2"]), float(obj["y2"])])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return bbox
+
+
+def _review_single_event(
+    schedule: dict[str, Any],
+    event_id: str,
+    snapshot_url: str,
+    objects: list[dict[str, Any]],
+    failures: list[str],
+) -> str:
     """对单条事件执行复核：读快照 → 建复核任务 → 二次复核判定 → 回写事件复核状态。
 
     Args:
         schedule: 内存态定时复核任务字典。
         event_id: 布控事件 ID。
         snapshot_url: 事件快照 URL。
+        objects: 事件检测对象列表（注入事件为 bbox 时提取坐标上送）。
         failures: 失败明细收集器，判定失败时追加一行（写入当次执行日志）。
 
     Returns:
@@ -371,6 +389,9 @@ def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: 
         "status": "进行中",
         "verdict": "",
         "reason": "",
+        "elapsed_seconds": None,
+        "confidence": None,
+        "evidence": "",
         "created_at": now,
         "updated_at": now,
     }
@@ -384,16 +405,25 @@ def _review_single_event(schedule: dict[str, Any], event_id: str, snapshot_url: 
         failures.append(f"事件 {event_id} / 复核任务 {task_id}：复核类型未配置复核接口")
         return "failed"
     try:
-        verdict, reason = second_review_client.judge_event(
+        # 注入事件坐标：识别对象模式上送事件 bbox，电子围栏模式上送复核类型配置的 ROI
+        inject_event = str(review_type.get("inject_event") or "")
+        bbox = _extract_bbox(objects) if inject_event == "bbox" else None
+        roi = str(review_type.get("roi") or "") if inject_event == "roi" else None
+        judge_result = second_review_client.judge_event(
             endpoint=review_endpoint,
             event_type=str(review_type["name"]),
             prompt=str(review_type["prompt"]),
             image_bytes=image_bytes,
             event_id=task_id,
+            bbox=bbox or None,
+            roi=roi or None,
         )
         record["status"] = "已完成"
-        record["verdict"] = verdict
-        record["reason"] = reason
+        record["verdict"] = judge_result.verdict
+        record["reason"] = judge_result.reason
+        record["elapsed_seconds"] = judge_result.elapsed_seconds
+        record["confidence"] = judge_result.confidence
+        record["evidence"] = judge_result.evidence
     except Exception as exc:  # noqa: BLE001  # 单条事件判定失败仅计入失败数，不中断整批
         logger.error("review schedule event judgment failed (%s): %s", event_id, exc)
         record["status"] = "失败"
@@ -427,8 +457,8 @@ def execute_review_schedule(schedule_id: str) -> None:
         events = _query_pending_events(schedule)
         counts = {"valid": 0, "invalid": 0, "failed": 0, "skipped": 0}
         failures: list[str] = []
-        for event_id, snapshot_url in events:
-            outcome = _review_single_event(schedule, event_id, snapshot_url, failures)
+        for event_id, snapshot_url, objects in events:
+            outcome = _review_single_event(schedule, event_id, snapshot_url, objects, failures)
             counts[outcome] += 1
         schedule["last_result"] = (
             f"处理 {len(events)} 条：有效 {counts['valid']} / 无效 {counts['invalid']}"

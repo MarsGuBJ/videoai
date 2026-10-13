@@ -8,7 +8,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, Float, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, utcnow
@@ -33,6 +33,10 @@ class ReviewTaskORM(Base):
     # 有效 / 无效 / 空串（未判定）
     verdict: Mapped[str] = mapped_column(String(10), nullable=False, default="")
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 复核接口返回的耗时（秒）、置信度与判断依据；未判定/失败时为空
+    elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

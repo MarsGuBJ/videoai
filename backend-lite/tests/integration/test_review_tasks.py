@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 import app.api.routers.review_tasks as review_tasks_router
 import app.services.review_tasks as review_tasks_service
 from app import state
+from app.services.second_review_client import JudgeResult
 
 FAKE_IMAGE_BYTES = b"\xff\xd8\xff\xe0fake-jpeg-bytes"
 FAKE_IMAGE_URL = "/api/assets/review-images/fake.jpg"
@@ -112,7 +113,13 @@ def test_judgment_success_marks_task_completed(client: TestClient, monkeypatch):
     monkeypatch.setattr(
         review_tasks_service.second_review_client,
         "judge_event",
-        lambda **kwargs: ("有效", "检测到目标"),
+        lambda **kwargs: JudgeResult(
+            verdict="有效",
+            reason="检测到目标",
+            elapsed_seconds=1.5,
+            confidence=0.98,
+            evidence="检测到人员跌倒",
+        ),
     )
     monkeypatch.setattr(review_tasks_service, "persist_review_task", lambda record: None)
 
@@ -122,6 +129,9 @@ def test_judgment_success_marks_task_completed(client: TestClient, monkeypatch):
     assert fetched["status"] == "已完成"
     assert fetched["verdict"] == "有效"
     assert fetched["reason"] == "检测到目标"
+    assert fetched["elapsedSeconds"] == 1.5
+    assert fetched["confidence"] == 0.98
+    assert fetched["evidence"] == "检测到人员跌倒"
     assert fetched["updatedAt"] >= created["updatedAt"]
 
 

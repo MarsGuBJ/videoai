@@ -104,6 +104,7 @@ def review_type_out(record: dict[str, Any]) -> ReviewTypeOut:
         code=str(record["code"]),
         prompt=str(record["prompt"]),
         injectEvent=str(record.get("inject_event") or ""),
+        roi=str(record.get("roi") or ""),
         remark=str(record.get("remark") or ""),
         reviewEndpoint=record.get("review_endpoint"),
         createdAt=record["created_at"],
@@ -122,6 +123,7 @@ def ensure_review_type_schema() -> None:
             conn.execute(
                 text("ALTER TABLE review_types ADD COLUMN IF NOT EXISTS review_endpoint VARCHAR(500)")
             )
+            conn.execute(text("ALTER TABLE review_types ADD COLUMN IF NOT EXISTS roi TEXT"))
     except SQLAlchemyError as exc:  # 数据库不可达时跳过迁移，不阻断启动
         logger.error("review type schema ensure failed: %s", exc)
 
@@ -139,6 +141,7 @@ def load_review_types_from_db() -> None:
                     "code": row.code,
                     "prompt": row.prompt,
                     "inject_event": row.inject_event or "",
+                    "roi": row.roi or "",
                     "remark": row.remark or "",
                     "review_endpoint": row.review_endpoint,
                     "created_at": row.created_at,
@@ -164,6 +167,7 @@ def persist_review_type(record: dict[str, Any]) -> None:
             row.code = str(record["code"])
             row.prompt = str(record["prompt"])
             row.inject_event = str(record.get("inject_event") or "")
+            row.roi = str(record.get("roi") or "")
             row.remark = str(record.get("remark") or "")
             row.review_endpoint = record.get("review_endpoint")
             row.created_at = record["created_at"]

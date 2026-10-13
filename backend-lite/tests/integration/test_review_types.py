@@ -13,6 +13,7 @@ CREATE_PAYLOAD = {
     "code": "person_fall",
     "prompt": "请判断画面中是否有人跌倒",
     "injectEvent": "event_info",
+    "roi": "[[0,0],[100,0],[100,100],[0,100]]",
     "remark": "一期上线",
     "reviewEndpoint": "http://second-review.local",
 }
@@ -46,6 +47,7 @@ def test_create_then_list_contains_created_record(client: TestClient, monkeypatc
     assert created["code"] == "person_fall"
     assert created["prompt"] == "请判断画面中是否有人跌倒"
     assert created["injectEvent"] == "event_info"
+    assert created["roi"] == "[[0,0],[100,0],[100,100],[0,100]]"
     assert created["remark"] == "一期上线"
     assert created["id"]
     assert created["createdAt"]
@@ -70,6 +72,7 @@ def test_create_review_type_optional_fields_default_empty(client: TestClient, mo
     assert response.status_code == 200
     body = response.json()
     assert body["injectEvent"] == ""
+    assert body["roi"] == ""
     assert body["remark"] == ""
 
 
@@ -89,6 +92,7 @@ def test_update_review_type_partial_fields(client: TestClient, monkeypatch):
     assert payload["code"] == "person_fall"
     assert payload["prompt"] == "请判断画面中是否有人跌倒"
     assert payload["injectEvent"] == "event_info"
+    assert payload["roi"] == "[[0,0],[100,0],[100,100],[0,100]]"
     assert payload["updatedAt"] >= created["updatedAt"]
 
 

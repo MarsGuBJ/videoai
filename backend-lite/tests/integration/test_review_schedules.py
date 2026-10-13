@@ -12,6 +12,7 @@ import app.api.routers.review_schedules as review_schedules_router
 import app.services.review_schedules as review_schedules_service
 from app import state
 from app.core.config import get_settings
+from app.services.second_review_client import JudgeResult
 
 FAKE_IMAGE_BYTES = b"\xff\xd8\xff\xe0fake-jpeg-bytes"
 SNAPSHOT_URL = "/api/assets/snapshots/fake.jpg"
@@ -218,7 +219,7 @@ def _mock_execution_env(monkeypatch, events: list, updated: list) -> None:
     monkeypatch.setattr(
         review_schedules_service.second_review_client,
         "judge_event",
-        lambda **kwargs: ("有效", "检测到目标"),
+        lambda **kwargs: JudgeResult(verdict="有效", reason="检测到目标"),
     )
 
     def _fake_update(event_id, verdict):
@@ -231,7 +232,7 @@ def test_manual_run_reviews_events_and_writes_back(client: TestClient, monkeypat
     created = _create_review_schedule(client, monkeypatch)
     event_id = str(uuid4())
     updated: list = []
-    _mock_execution_env(monkeypatch, [(event_id, SNAPSHOT_URL)], updated)
+    _mock_execution_env(monkeypatch, [(event_id, SNAPSHOT_URL, [])], updated)
 
     response = client.post(f"/api/review-schedules/{created['id']}/run")
 
@@ -259,10 +260,30 @@ def test_manual_run_reviews_events_and_writes_back(client: TestClient, monkeypat
     assert schedule["lastResult"] == last_result
 
 
+def test_run_injects_bbox_when_inject_event_is_bbox(client: TestClient, monkeypatch):
+    created = _create_review_schedule(client, monkeypatch)
+    state.review_types_store[REVIEW_TYPE_ID]["inject_event"] = "bbox"
+    objects = [{"labelId": 1, "labelName": "person", "score": 0.9, "x1": 1, "y1": 2, "x2": 3, "y2": 4}]
+    updated: list = []
+    captured: dict = {}
+    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL, objects)], updated)
+
+    def _fake_judge(**kwargs):
+        captured.update(kwargs)
+        return JudgeResult(verdict="有效", reason="检测到目标")
+
+    monkeypatch.setattr(review_schedules_service.second_review_client, "judge_event", _fake_judge)
+
+    review_schedules_service.execute_review_schedule(created["id"])
+
+    assert captured["bbox"] == [[1.0, 2.0, 3.0, 4.0]]
+    assert captured["roi"] is None
+
+
 def test_run_skips_missing_snapshot_and_counts_it(client: TestClient, monkeypatch):
     created = _create_review_schedule(client, monkeypatch)
     updated: list = []
-    events = [(str(uuid4()), SNAPSHOT_URL), (str(uuid4()), "/api/assets/snapshots/missing.jpg")]
+    events = [(str(uuid4()), SNAPSHOT_URL, []), (str(uuid4()), "/api/assets/snapshots/missing.jpg", [])]
     _mock_execution_env(monkeypatch, events, updated)
 
     review_schedules_service.execute_review_schedule(created["id"])
@@ -276,7 +297,7 @@ def test_run_marks_failure_when_review_endpoint_missing(client: TestClient, monk
     created = _create_review_schedule(client, monkeypatch)
     state.review_types_store[REVIEW_TYPE_ID]["review_endpoint"] = None  # 复核类型未配置复核接口
     updated: list = []
-    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL)], updated)
+    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL, [])], updated)
 
     review_schedules_service.execute_review_schedule(created["id"])
 
@@ -303,7 +324,7 @@ def test_failed_run_writes_log_and_lists_and_downloads(client: TestClient, monke
     created = _create_review_schedule(client, monkeypatch)
     state.review_types_store[REVIEW_TYPE_ID]["review_endpoint"] = None  # 触发判定失败
     updated: list = []
-    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL)], updated)
+    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL, [])], updated)
 
     review_schedules_service.execute_review_schedule(created["id"])
 
@@ -321,7 +342,7 @@ def test_failed_run_writes_log_and_lists_and_downloads(client: TestClient, monke
 def test_successful_run_writes_no_log(client: TestClient, monkeypatch, review_log_dir):
     created = _create_review_schedule(client, monkeypatch)
     updated: list = []
-    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL)], updated)
+    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL, [])], updated)
 
     review_schedules_service.execute_review_schedule(created["id"])
 

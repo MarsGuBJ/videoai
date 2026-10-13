@@ -36,13 +36,14 @@ def test_judge_event_detected_true_returns_valid(monkeypatch):
         "code": 0,
         "message": "success",
         "data": {
-            "result": {"detected": True, "confidence": 0.98, "reason": "检测到人员跌倒", "evidence": []},
+            "elapsed_seconds": 1.23,
+            "result": {"detected": True, "confidence": 0.98, "reason": "检测到人员跌倒", "evidence": ["人员倒地"]},
             "raw_text": "raw",
         },
     }
     monkeypatch.setattr(requests, "post", _post_capture(captured, payload))
 
-    verdict, reason = second_review_client.judge_event(
+    judge_result = second_review_client.judge_event(
         endpoint=ENDPOINT,
         event_type="人员跌倒",
         prompt="请判断画面中是否有人跌倒",
@@ -50,8 +51,11 @@ def test_judge_event_detected_true_returns_valid(monkeypatch):
         event_id="task-1",
     )
 
-    assert verdict == "有效"
-    assert reason == "检测到人员跌倒"
+    assert judge_result.verdict == "有效"
+    assert judge_result.reason == "检测到人员跌倒"
+    assert judge_result.elapsed_seconds == 1.23
+    assert judge_result.confidence == 0.98
+    assert judge_result.evidence == '["人员倒地"]'
     # multipart 表单字段与 URL 拼接
     assert captured["url"] == f"{ENDPOINT}/api/v1/second-review/upload"
     assert captured["data"]["event_type"] == "人员跌倒"
@@ -71,7 +75,7 @@ def test_judge_event_detected_false_returns_invalid(monkeypatch):
     }
     monkeypatch.setattr(requests, "post", _post_capture(captured, payload))
 
-    verdict, reason = second_review_client.judge_event(
+    judge_result = second_review_client.judge_event(
         endpoint=ENDPOINT,
         event_type="人员跌倒",
         prompt="提示词",
@@ -79,9 +83,32 @@ def test_judge_event_detected_false_returns_invalid(monkeypatch):
         video_bytes=FAKE_VIDEO,
     )
 
-    assert verdict == "无效"
-    assert reason == "未见目标事件"
+    assert judge_result.verdict == "无效"
+    assert judge_result.reason == "未见目标事件"
+    assert judge_result.elapsed_seconds is None
+    assert judge_result.confidence is None
+    assert judge_result.evidence == ""
     assert captured["files"]["video"] == ("review-video.mp4", FAKE_VIDEO)
+    assert "bbox" not in captured["data"]  # 未传坐标时不上送
+    assert "roi" not in captured["data"]
+
+
+def test_judge_event_sends_bbox_and_roi_form_fields(monkeypatch):
+    captured = {}
+    payload = {"code": 0, "data": {"result": {"detected": True, "reason": "命中"}, "raw_text": ""}}
+    monkeypatch.setattr(requests, "post", _post_capture(captured, payload))
+
+    second_review_client.judge_event(
+        endpoint=ENDPOINT,
+        event_type="人员跌倒",
+        prompt="提示词",
+        image_bytes=FAKE_IMAGE,
+        bbox=[[10.0, 20.0, 30.0, 40.0]],
+        roi="[[0,0],[100,0],[100,100],[0,100]]",
+    )
+
+    assert captured["data"]["bbox"] == "[[10.0, 20.0, 30.0, 40.0]]"
+    assert captured["data"]["roi"] == "[[0,0],[100,0],[100,100],[0,100]]"
 
 
 def test_judge_event_result_null_falls_back_to_raw_text(monkeypatch):
@@ -89,24 +116,24 @@ def test_judge_event_result_null_falls_back_to_raw_text(monkeypatch):
     payload = {"code": 0, "data": {"result": None, "raw_text": long_raw}}
     monkeypatch.setattr(requests, "post", _post_capture({}, payload))
 
-    verdict, reason = second_review_client.judge_event(
+    judge_result = second_review_client.judge_event(
         endpoint=ENDPOINT, event_type="人员跌倒", prompt="提示词", image_bytes=FAKE_IMAGE
     )
 
-    assert verdict == ""
-    assert reason == long_raw[: second_review_client.MAX_REASON_CHARS]
+    assert judge_result.verdict == ""
+    assert judge_result.reason == long_raw[: second_review_client.MAX_REASON_CHARS]
 
 
 def test_judge_event_empty_reason_falls_back_to_raw_text(monkeypatch):
     payload = {"code": 0, "data": {"result": {"detected": True, "reason": ""}, "raw_text": "原始输出"}}
     monkeypatch.setattr(requests, "post", _post_capture({}, payload))
 
-    verdict, reason = second_review_client.judge_event(
+    judge_result = second_review_client.judge_event(
         endpoint=ENDPOINT, event_type="人员跌倒", prompt="提示词", image_bytes=FAKE_IMAGE
     )
 
-    assert verdict == "有效"
-    assert reason == "原始输出"
+    assert judge_result.verdict == "有效"
+    assert judge_result.reason == "原始输出"
 
 
 def test_judge_event_http_error_carries_detail(monkeypatch):
