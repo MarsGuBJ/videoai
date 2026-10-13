@@ -11852,6 +11852,31 @@
       opacity: .55;
     }
 
+    /* 视频问答报错消息末尾的「i」按钮：内联在气泡文字后面 */
+    .exact-chat-error-info {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      margin-left: 6px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: #d92d20;
+      color: #fff;
+      font-size: 11px;
+      font-style: italic;
+      font-weight: 600;
+      line-height: 1;
+      vertical-align: middle;
+      cursor: pointer;
+    }
+
+    .exact-chat-error-info:hover {
+      background: #b42318;
+    }
+
     .exact-analysis-tabs {
       width: 100%;
     }

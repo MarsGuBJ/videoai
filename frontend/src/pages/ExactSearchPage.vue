@@ -41,7 +41,7 @@
           <div class="exact-chat-messages">
             <div v-for="(message, index) in questionMessages" :key="index" class="exact-chat-item" :class="message.role">
               <div v-if="message.role === 'assistant' && message.thinkingSeconds != null" class="exact-thinking-row"><span class="exact-thinking-tag done">已思考</span><span class="exact-thinking-timer">{{ formatThinkingSeconds(message.thinkingSeconds) }}</span><span v-if="message.downloadSeconds != null" class="exact-thinking-timer">视频下载 {{ formatThinkingSeconds(message.downloadSeconds) }}</span><span v-if="message.analyzeSeconds != null" class="exact-thinking-timer">调用接口 {{ formatThinkingSeconds(message.analyzeSeconds) }}</span></div>
-              <div class="exact-chat-message" :class="message.role">{{ message.text }}</div>
+              <div class="exact-chat-message" :class="message.role">{{ message.text }}<button v-if="message.errorDetail" class="exact-chat-error-info" type="button" title="查看报错信息" aria-label="查看报错信息" @click="openChatErrorDialog(message)">i</button></div>
               <div v-if="message.role === 'assistant' && message.analysisId" class="exact-message-actions">
                 <button class="exact-message-analysis-btn" :class="{ active: activeAnalysisId === message.analysisId }" type="button" title="分析概要" aria-label="分析概要" @click="loadAnalysisSnapshot(message.analysisId)">&#xf080;</button>
                 <button class="exact-message-reanalysis-btn" type="button" :disabled="questionBusy || analyzing" title="重新分析" aria-label="重新分析" @click="rerunMessageAnalysis(message)">&#xf021;</button>
@@ -287,6 +287,16 @@
         <p v-if="searchErrorDialog.detail" class="exact-search-error-detail">错误详情：{{ searchErrorDialog.detail }}</p>
         <p class="exact-search-error-hint">{{ searchErrorDialog.hint }}</p>
         <div class="exact-search-error-actions"><button class="btn primary" @click="closeSearchErrorDialog">我知道了</button></div>
+      </div>
+    </section>
+  </div>
+  <div v-if="chatErrorDialog" class="exact-result-modal-mask" @click.self="closeChatErrorDialog">
+    <section class="exact-result-modal exact-search-error-modal" role="alertdialog" aria-modal="true" aria-label="视频分析接口报错">
+      <div class="drawer-head"><h3>{{ chatErrorDialog.title }}</h3><button class="close" aria-label="关闭" @click="closeChatErrorDialog">×</button></div>
+      <div class="drawer-body exact-search-error-body">
+        <p class="exact-search-error-message">{{ chatErrorDialog.message }}</p>
+        <p v-if="chatErrorDialog.detail" class="exact-search-error-detail">错误详情：{{ chatErrorDialog.detail }}</p>
+        <div class="exact-search-error-actions"><button class="btn primary" @click="closeChatErrorDialog">我知道了</button></div>
       </div>
     </section>
   </div>
@@ -862,6 +872,7 @@ export default defineComponent({
       activeAnalysisId: null as string | null,
       analysisSnapshotCounter: 0,
       messageDetailSnapshot: null as any,
+      chatErrorDialog: null as any,
       searchErrorDialog: null as any,
       resultTabs: [] as any[],
       activeResultTab: "summary",
@@ -1660,7 +1671,7 @@ export default defineComponent({
         if (upstreamError) {
           console.error("视频理解接口返回错误：", upstreamError);
           const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（${upstreamError}）`;
-          this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+          this.pushAssistantMessage({ role: "assistant", text: tip, errorDetail: upstreamError, thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(tip);
           return;
         }
@@ -1669,7 +1680,7 @@ export default defineComponent({
         if (isUpstreamAnalysisFailure(overview)) {
           console.error("视频理解上游未产出内容：", response);
           const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（上游未能获取视频内容）`;
-          this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+          this.pushAssistantMessage({ role: "assistant", text: tip, errorDetail: overview || "上游未能获取视频内容", thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(tip);
           return;
         }
@@ -1705,7 +1716,8 @@ export default defineComponent({
         console.error("视频理解接口调用失败：", error);
         const detail = error instanceof Error && error.message ? `（${error.message}）` : "";
         const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}${detail}`;
-        this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+        const errorDetail = error instanceof Error && error.message ? error.message : String(error || "未知错误");
+        this.pushAssistantMessage({ role: "assistant", text: tip, errorDetail, thinkingSeconds: this.stopThinkingTimer() });
         this.showToast(tip);
       } finally {
         this.analyzing = false;
@@ -1910,7 +1922,7 @@ export default defineComponent({
         if (upstreamError) {
           console.error("视频理解接口返回错误：", upstreamError);
           const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（${upstreamError}）`;
-          this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+          this.pushAssistantMessage({ role: "assistant", text: tip, errorDetail: upstreamError, thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(tip);
           return;
         }
@@ -1918,7 +1930,7 @@ export default defineComponent({
         if (isUpstreamAnalysisFailure(answer)) {
           console.error("视频理解上游未产出内容：", response);
           const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}（上游未能获取视频内容）`;
-          this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+          this.pushAssistantMessage({ role: "assistant", text: tip, errorDetail: answer || "上游未能获取视频内容", thinkingSeconds: this.stopThinkingTimer() });
           this.showToast(tip);
           return;
         }
@@ -1951,7 +1963,8 @@ export default defineComponent({
         console.error("视频理解接口调用失败：", error);
         const detail = error instanceof Error && error.message ? `（${error.message}）` : "";
         const tip = `${VIDEO_UNDERSTANDING_ERROR_TIP}${detail}`;
-        this.pushAssistantMessage({ role: "assistant", text: tip, thinkingSeconds: this.stopThinkingTimer() });
+        const errorDetail = error instanceof Error && error.message ? error.message : String(error || "未知错误");
+        this.pushAssistantMessage({ role: "assistant", text: tip, errorDetail, thinkingSeconds: this.stopThinkingTimer() });
         this.showToast(tip);
       } finally {
         this.questionBusy = false;
@@ -2532,6 +2545,18 @@ export default defineComponent({
     },
     closeSearchErrorDialog() {
       this.searchErrorDialog = null;
+    },
+    // 视频问答报错消息末尾的「i」按钮：弹出该消息的完整报错信息
+    openChatErrorDialog(message) {
+      if (!message || !message.errorDetail) return;
+      this.chatErrorDialog = {
+        title: "视频分析接口报错",
+        message: VIDEO_UNDERSTANDING_ERROR_TIP,
+        detail: String(message.errorDetail).trim()
+      };
+    },
+    closeChatErrorDialog() {
+      this.chatErrorDialog = null;
     },
     exportFromMenu(type, event) {
       const menu = (event.currentTarget as HTMLElement).closest("details") as HTMLDetailsElement;
