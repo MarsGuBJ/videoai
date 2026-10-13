@@ -14,7 +14,7 @@
             <tr v-if="expandedId === row.id">
               <td class="gpu-detail-cell" colspan="5">
                 <div class="gpu-grid">
-                  <article class="gpu-card">
+                  <article class="gpu-card gpu-card-system">
                     <div class="gpu-head"><h4>系统资源</h4><span class="status-pill" :class="statusClass(row.status)">{{ row.status }}</span></div>
                     <div class="gpu-metrics" v-if="hasSystem(row)">
                       <div class="gpu-metric"><span>CPU</span><span class="progress-track"><span class="progress-fill" :style="{ width: clampPct(row.system.cpuPercent) + '%' }"></span></span><b>{{ row.system.cpuPercent.toFixed(1) }}%</b></div>
