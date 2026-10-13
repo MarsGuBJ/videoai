@@ -387,17 +387,56 @@ function extractErrorMessage(text: string, response: Response): string {
   return text;
 }
 
+// 基础平台访问令牌：city-base 门户登录后写入同源自定义存储（IOT_OS_TOKEN），
+// 本平台各应用（city-iot/iot-os 等）同源读取后经统一网关鉴权；直连后端部署时为空，不影响
+function platformAccessToken(): string {
+  try {
+    return localStorage.getItem('IOT_OS_TOKEN') ?? '';
+  } catch {
+    return '';
+  }
+}
+
+// 独立端口部署（如 5183）与平台门户不同源，读不到门户写入的 IOT_OS_TOKEN；
+// 支持经地址栏显式传入平台令牌启动：?token=xxx，摄入后转入本源自定义存储并清理地址栏
+(function ingestPlatformTokenFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('token') ?? params.get('access_token') ?? '';
+    if (!raw) return;
+    const token = raw.startsWith('Bearer ') ? raw.slice('Bearer '.length) : raw;
+    localStorage.setItem('IOT_OS_TOKEN', token);
+    params.delete('token');
+    params.delete('access_token');
+    const query = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
+  } catch {
+    // storage 被禁用等异常场景：放弃摄入，请求将不带令牌
+  }
+})();
+
+function applyPlatformAuth(headers: Record<string, string>) {
+  const token = platformAccessToken();
+  if (token) headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  applyPlatformAuth(headers);
   const response = await fetch(`${baseUrlForPath(path)}${path}`, {
     ...options,
-    headers: {
-      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...options.headers,
-    },
+    headers,
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(extractErrorMessage(text, response));
+    let message = extractErrorMessage(text, response);
+    if (response.status === 401 && !headers.Authorization) {
+      message += '（未获取到平台登录令牌：请从基础平台门户进入本应用，或在地址栏附带 ?token=平台令牌）';
+    }
+    throw new Error(message);
   }
   if (response.status === 204) {
     return undefined as T;

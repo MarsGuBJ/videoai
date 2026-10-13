@@ -2,7 +2,12 @@
 import { defineComponent } from "vue";
 
 export default defineComponent({
-  props: ["route", "names"]
+  props: ["route", "names"],
+  computed: {
+    portraitUrl(): string {
+      return `${import.meta.env.BASE_URL}prototype/portrait.jpg`;
+    }
+  }
 });
 </script>
 
@@ -13,7 +18,7 @@ export default defineComponent({
     </div>
     <div class="top-user">
       <span class="notice">铃</span>
-      <img class="avatar" alt="管理员头像" src="/prototype/portrait.jpg" />
+      <img class="avatar" alt="管理员头像" :src="portraitUrl" />
       <span>管理员⌄</span>
     </div>
   </header>

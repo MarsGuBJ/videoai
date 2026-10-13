@@ -1,15 +1,17 @@
 import { reactive } from "vue";
 import { appModules } from "../modules/index.ts";
 
+// 原型占位图等 public 资源：构建 base 可能是子路径（如 /vision/），按 BASE_URL 拼接
+const base = import.meta.env.BASE_URL;
 const img = {
-  target: "/prototype/target.jpg",
-  mountain: "/prototype/mountain.jpg",
-  map: "/prototype/map.jpg",
-  portrait: "/prototype/portrait.jpg",
-  analyst: "/prototype/analyst.jpg",
-  targetBoard: "/prototype/targetBoard.jpg",
-  car: "/prototype/car.jpg",
-  ai: "/prototype/ai.jpg"
+  target: `${base}prototype/target.jpg`,
+  mountain: `${base}prototype/mountain.jpg`,
+  map: `${base}prototype/map.jpg`,
+  portrait: `${base}prototype/portrait.jpg`,
+  analyst: `${base}prototype/analyst.jpg`,
+  targetBoard: `${base}prototype/targetBoard.jpg`,
+  car: `${base}prototype/car.jpg`,
+  ai: `${base}prototype/ai.jpg`
 };
 
 export const store = reactive({

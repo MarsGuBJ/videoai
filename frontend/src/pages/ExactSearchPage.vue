@@ -521,7 +521,7 @@ function loadPdfMake(): Promise<any> {
       const pdfMake = mod.default || mod;
       if (!pdfMake.__videoaiFontsLoaded) {
         const fetchFont = async (name: string) => {
-          const resp = await fetch(`/fonts/${name}`);
+          const resp = await fetch(`${import.meta.env.BASE_URL}fonts/${name}`);
           if (!resp.ok) throw new Error(`PDF 字体加载失败：${name}（HTTP ${resp.status}）`);
           return arrayBufferToBase64(await resp.arrayBuffer());
         };
