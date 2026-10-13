@@ -125,6 +125,8 @@ async def search_recordings(
     device is used. The link (GET /recording-live)
     starts the HCNetSDK playback stream on demand when requested; when the NVR session limit
     is reached, the oldest stream is closed to make room for new ones.
+    Each data item returns id, recordingId, downloadUrl, startTime, endTime and cameraName,
+    where downloadUrl is the on-demand playback link (empty when autoProxy is false).
     Returns JSON and XML output."""
     start = parse_datetime(startTime)
     end = parse_datetime(endTime)
@@ -155,10 +157,8 @@ async def search_recordings(
         recording.cameraId = camera.id
         recording.cameraName = camera.name
     recording_cache.put_many([recording])
-    items = [recording_item(recording)]
-    if autoProxy:
-        items[0]["url"] = dynamic_recording_url(start, end)
-        items[0]["format"] = "flv"
+    download_url = dynamic_recording_url(start, end) if autoProxy else ""
+    items = [search_recording_item(recording, download_url)]
     return {
         "input": input_echo,
         "data": items,
@@ -235,10 +235,8 @@ async def search_camera_recordings(
         recording.cameraId = camera.id
         recording.cameraName = camera.name
         recording_cache.put_many([recording])
-        item = recording_item(recording)
-        if auto_proxy:
-            item["url"] = camera_recording_url(camera_id, start, end)
-            item["format"] = "flv"
+        download_url = camera_recording_url(camera_id, start, end) if auto_proxy else ""
+        item = search_recording_item(recording, download_url)
         return {
             "data": [item],
             "xml": build_video_list_xml([item]),
@@ -249,11 +247,13 @@ async def search_camera_recordings(
         camera, start, end, limit, timeout=settings.request_timeout_seconds, credentials=credentials
     )
     recording_cache.put_many(recordings)
-    items = [recording_item(recording) for recording in recordings]
-    if auto_proxy:
-        for recording, item in zip(recordings, items, strict=True):
-            item["url"] = camera_recording_url(camera_id, recording.startTime, recording.endTime)
-            item["format"] = "flv"
+    items = [
+        search_recording_item(
+            recording,
+            camera_recording_url(camera_id, recording.startTime, recording.endTime) if auto_proxy else "",
+        )
+        for recording in recordings
+    ]
     return {
         "data": items,
         "xml": build_video_list_xml(items),
@@ -528,6 +528,21 @@ def normalize_playback_format(value: str) -> str:
     if normalized not in {"flv", "hls"}:
         raise ValueError("format must be flv or hls")
     return normalized
+
+
+def search_recording_item(recording: RecordingSegment, download_url: str = "") -> dict:
+    """search_recordings 的对外字段：仅 id、recordingId、downloadUrl、startTime、endTime、cameraName。
+
+    downloadUrl 为按需建流的动态回放链接（autoProxy=False 时为空字符串）。
+    """
+    return {
+        "id": recording.cameraId,
+        "recordingId": recording.recordingId,
+        "downloadUrl": download_url,
+        "startTime": recording.startTime.isoformat(),
+        "endTime": recording.endTime.isoformat(),
+        "cameraName": recording.cameraName,
+    }
 
 
 def recording_item(recording: RecordingSegment) -> dict:

@@ -108,14 +108,12 @@ def test_search_recordings_with_camera_id_returns_segment_links(monkeypatch):
             "http://mcp.test:8097/recording-live?cameraId=cam-1"
             f"&startTime={quote(segment.startTime.isoformat())}&endTime={quote(segment.endTime.isoformat())}"
         )
-        assert item["url"] == expected_url
-        assert item["format"] == "flv"
+        assert item["downloadUrl"] == expected_url
         assert item["id"] == "cam-1"
-        assert item["cameraId"] == "cam-1"
+        assert item["recordingId"] == segment.recordingId
         assert item["cameraName"] == "园区东门"
-        assert item["source"] == "hikvision_hcnetsdk_playback"
-        assert "username" not in item["metadata"]
-        assert item["metadata"]["deviceHost"] == "10.10.8.10"
+        # 对外字段固定为 id/recordingId/downloadUrl/startTime/endTime/cameraName
+        assert set(item) == {"id", "recordingId", "downloadUrl", "startTime", "endTime", "cameraName"}
         # 段已入缓存，供录像资源查询使用
         assert server.recording_cache.get(segment.recordingId) is not None
     assert "cameraId=cam-1" in result["xml"]
@@ -155,7 +153,6 @@ def test_search_recordings_without_camera_id_resolves_camera_uuid(monkeypatch):
 
     item = result["data"][0]
     assert item["id"] == "cam-1"
-    assert item["cameraId"] == "cam-1"
     assert item["cameraName"] == "园区东门"
     assert 'id="cam-1"' in result["xml"]
 
@@ -182,7 +179,6 @@ def test_search_recordings_without_camera_id_keeps_synthetic_id_when_no_camera_m
 
     item = result["data"][0]
     assert item["id"] == "10.10.8.10-channel-1"
-    assert item["cameraId"] == "10.10.8.10-channel-1"
 
 
 def test_search_recordings_with_camera_id_returns_empty_when_device_has_no_recordings(monkeypatch):
@@ -248,17 +244,15 @@ def test_search_recordings_with_stream_id_camera_synthesizes_segment(monkeypatch
 
     assert len(result["data"]) == 1
     item = result["data"][0]
-    assert item["cameraId"] == "cam-cvr"
+    assert item["id"] == "cam-cvr"
     assert item["cameraName"] == "消控室半球"
-    assert item["trackId"] == STREAM_ID
     assert "2026-09-01T09:00:00" in item["startTime"]
     assert "2026-09-01T09:05:00" in item["endTime"]
-    assert item["metadata"]["streamId"] == STREAM_ID
-    assert item["url"] == (
+    assert item["downloadUrl"] == (
         "http://mcp.test:8097/recording-live?cameraId=cam-cvr"
         f"&startTime={quote(start.isoformat())}&endTime={quote(end.isoformat())}"
     )
-    assert item["format"] == "flv"
+    assert set(item) == {"id", "recordingId", "downloadUrl", "startTime", "endTime", "cameraName"}
     assert result["searchedTrackIds"] == [STREAM_ID]
     assert result["failedTrackIds"] == {}
     assert server.recording_cache.get(item["recordingId"]) is not None

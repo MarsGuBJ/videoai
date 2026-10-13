@@ -112,7 +112,7 @@ def test_search_recordings_http_uses_beijing_time_and_boolean_conversion(monkeyp
     payload = response.json()
     assert payload["data"][0]["startTime"] == "2026-07-08T00:00:00+08:00"
     assert payload["data"][0]["id"] == "cam-hcn"
-    assert payload["data"][0].get("url") is None
+    assert payload["data"][0]["downloadUrl"] == ""
     assert "streamUrl" not in payload["data"][0]
     assert calls[0][0].utcoffset().total_seconds() == 8 * 60 * 60
     assert calls[0][0].hour == 0

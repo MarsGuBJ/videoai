@@ -127,9 +127,6 @@ def test_search_recordings_returns_dynamic_link_without_starting_stream(monkeypa
 
     assert result["searchedTrackIds"] == ["1"]
     assert len(result["data"]) == 1
-    assert result["data"][0]["trackId"] == "1"
-    assert result["data"][0]["format"] == "flv"
-    assert result["data"][0]["source"] == "hikvision_hcnetsdk_playback"
     assert result["failedTrackIds"] == {}
     link_start = parse_datetime(start.isoformat())
     link_end = parse_datetime(start.replace(minute=10).isoformat())
@@ -137,7 +134,7 @@ def test_search_recordings_returns_dynamic_link_without_starting_stream(monkeypa
         "http://mcp.test:8097/recording-live"
         f"?startTime={quote(link_start.isoformat())}&endTime={quote(link_end.isoformat())}"
     )
-    assert result["data"][0]["url"] == expected_url
+    assert result["data"][0]["downloadUrl"] == expected_url
     assert "streamUrl" not in result["data"][0]
     assert "/recording-live?startTime=" in result["xml"]
     assert "&amp;endTime=" in result["xml"]

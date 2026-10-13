@@ -276,7 +276,7 @@ GET  /stream-id-mappings        # {"data": [{"cameraHost", "streamId", "cvrHost"
 
 ### 6.3 `search_recordings`
 
-通过 HCNetSDK 私有协议（`NET_DVR_PlayBackByTime_V40`）从录像设备按时间区间回放录像。**搜索时不建立回放流**：返回值中的 `url` 是一个动态链接（`GET /recording-live?startTime=...&endTime=...`），播放器请求该链接时才临时建立 SDK 回放会话，并由 MCP 302 重定向到 ZLMediaKit 上的真实 FLV 地址。NVR 回放并发数受限时，逐出最早建立的会话以容纳新会话。
+通过 HCNetSDK 私有协议（`NET_DVR_PlayBackByTime_V40`）从录像设备按时间区间回放录像。**搜索时不建立回放流**：返回值中的 `downloadUrl` 是一个动态链接（`GET /recording-live?startTime=...&endTime=...`），播放器请求该链接时才临时建立 SDK 回放会话，并由 MCP 302 重定向到 ZLMediaKit 上的真实 FLV 地址。NVR 回放并发数受限时，逐出最早建立的会话以容纳新会话。
 
 设备选择分两条路径：
 
@@ -329,22 +329,12 @@ GET  /stream-id-mappings        # {"data": [{"cameraHost", "streamId", "cvrHost"
 {
   "data": [
     {
+      "id": "192.168.11.198-channel-1",
       "recordingId": "b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22",
-      "cameraId": "192.168.11.198-channel-1",
-      "cameraName": "IPC-192.168.11.198-1",
-      "trackId": "1",
+      "downloadUrl": "http://192.168.11.194:8097/recording-live?startTime=2026-06-22T09%3A00%3A00%2B08%3A00&endTime=2026-06-22T10%3A00%3A00%2B08%3A00",
       "startTime": "2026-06-22T09:00:00+08:00",
       "endTime": "2026-06-22T10:00:00+08:00",
-      "source": "hikvision_hcnetsdk_playback",
-      "url": "http://192.168.11.194:8097/recording-live?startTime=2026-06-22T09%3A00%3A00%2B08%3A00&endTime=2026-06-22T10%3A00%3A00%2B08%3A00",
-      "format": "flv",
-      "metadata": {
-        "deviceHost": "192.168.11.198",
-        "devicePort": 8000,
-        "channel": 1,
-        "protocol": "HCNetSDK",
-        "sdkApi": "NET_DVR_PlayBackByTime_V40"
-      }
+      "cameraName": "IPC-192.168.11.198-1"
     }
   ],
   "xml": "<sxin-video-list count=\"1\">...</sxin-video-list>",
@@ -352,6 +342,16 @@ GET  /stream-id-mappings        # {"data": [{"cameraHost", "streamId", "cvrHost"
   "failedTrackIds": {}
 }
 ```
+
+`data` 中每条录像固定返回以下字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `string` | 摄像头 ID（反查不到平台摄像头时为合成的设备通道标识）。 |
+| `recordingId` | `string` | 录像段 ID，由设备/通道/时间区间确定性生成，可用于录像资源（`videoai://recordings/{recordingId}`）查询。 |
+| `downloadUrl` | `string` | 按需建流的动态回放链接（`GET /recording-live`）；`autoProxy=false` 时为空字符串。 |
+| `startTime` / `endTime` | `string` | 录像段起止时间，ISO 8601（东八区）。 |
+| `cameraName` | `string` | 摄像头名称。 |
 
 #### 安全说明
 
@@ -366,7 +366,7 @@ GET  /stream-id-mappings        # {"data": [{"cameraHost", "streamId", "cvrHost"
 
 ### 6.3.1 `GET /recording-live`
 
-录像回放的动态播放链接入口，由 `search_recordings` 返回的 `url` 指向该接口。请求到达时才按参数建立 HCNetSDK 回放会话，随后 `302` 重定向到 ZLMediaKit 的真实 FLV 地址；同一时段重复请求复用已存在的会话。
+录像回放的动态播放链接入口，由 `search_recordings` 返回的 `downloadUrl` 指向该接口。请求到达时才按参数建立 HCNetSDK 回放会话，随后 `302` 重定向到 ZLMediaKit 的真实 FLV 地址；同一时段重复请求复用已存在的会话。
 
 带 `cameraId` 时按该摄像头绑定的 NVR 建流（凭据取自摄像头 `sourceUrl`，per-device 代理按设备主机缓存复用），并通过 `/ISAPI/System/time` 测量设备时钟偏差后补偿到 SDK 回放时间；不带 `cameraId` 时使用 `HCNETSDK_*` 配置的单例设备。
 
@@ -761,7 +761,7 @@ videoai://recordings/b7d7f2e07d1e4c8d8d8c8b1c1a9a0f22
 ### 历史录像
 
 1. 调用 `search_recordings`，传入需要回放的时间范围；传 `cameraId` 时按该摄像头绑定的 NVR 检索回放（多 NVR），不传时回放设备/通道由服务端 `HCNETSDK_*` 配置决定。
-2. 从返回的 `data` 中取 `url`（`/recording-live` 动态链接）直接交给播放器；链接在首次请求时才建立回放流，NVR 会话数受限时会逐出最老会话。需要倍速时在链接后追加 `&speed=`（如 `&speed=8`）。
+2. 从返回的 `data` 中取 `downloadUrl`（`/recording-live` 动态链接）直接交给播放器；链接在首次请求时才建立回放流，NVR 会话数受限时会逐出最老会话。需要倍速时在链接后追加 `&speed=`（如 `&speed=8`）。
 3. 客户端跟随 302 后播放 `.flv` 视频。
 
 ### 文搜视频（录像内容分析）

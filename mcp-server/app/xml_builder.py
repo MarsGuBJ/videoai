@@ -70,7 +70,7 @@ def build_video_list_xml(recordings: list[dict]) -> str:
             end = end.isoformat()
         r.set("endTime", _attr(end))
         r.set("source", _attr(rec.get("source")))
-        r.set("url", _attr(rec.get("url")))
+        r.set("url", _attr(rec.get("downloadUrl") or rec.get("url")))
         meta = rec.get("metadata", {})
         r.set("nvrId", _attr(meta.get("nvrId")))
         r.text = "\n  "
