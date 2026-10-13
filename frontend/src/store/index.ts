@@ -1,8 +1,10 @@
 import { reactive } from "vue";
 import { appModules } from "../modules/index.ts";
+import { resolveAppBase } from "../utils/appBase.ts";
 
-// 原型占位图等 public 资源：构建 base 可能是子路径（如 /vision/），按 BASE_URL 拼接
-const base = import.meta.env.BASE_URL;
+// 原型占位图等 public 资源：统一相对构建（base './'），按运行时解析的部署基路径拼接，
+// 无论以 IP 根路径还是域名子路径访问均可加载
+const base = `${resolveAppBase()}/`;
 const img = {
   target: `${base}prototype/target.jpg`,
   mountain: `${base}prototype/mountain.jpg`,

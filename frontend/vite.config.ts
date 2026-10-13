@@ -4,7 +4,9 @@ import vue from '@vitejs/plugin-vue';
 // 多模式构建：默认（production）输出 dist 全量应用；
 // vite build --mode media|control|review 输出 dist-<mode> 子包。
 // dev server 不动：dev 默认全量，vite --mode media 可调试子包。
+// base './'：相对路径产物，同一构建可部署在任意 IP/域名根路径或任意反代子路径
 export default defineConfig(({ mode }) => ({
+  base: './',
   plugins: [vue()],
   server: {
     host: '0.0.0.0',

@@ -60,6 +60,13 @@
 - `VIDEOAI_MCP_RECORDING_FALLBACK_FILE_HOST=/home/public/videoai/demo-recording-601.ps`
 - NVR、数据库等账号密码类配置
 
+### 前端相对路径部署（2026-10-13 起）
+
+- 前端统一以 `base: './'` 相对路径构建：同一套产物可直接以根路径部署在任意 IP/域名（`http://<ip>:5173/`），也可经反代挂载在任意子路径（如 `/vision/`）。部署基路径由 `src/utils/appBase.ts` 按当前模块加载地址运行时解析（路由 base、public 资源拼接均依赖它），**不要再按部署点注入 vite base 或 `VITE_API_BASE_URL`/`VITE_MEDIA_API_BASE_URL` 重新构建**。
+- API 请求保持同源相对 `/api/...`：frontend 容器 nginx 按前缀分流到 backend-media/backend-lite；经 city-base 域名（`demo.cloudfutrue.com`）访问时由 cisdi-nginx2 的 `location ^~ /api/` 转发到平台网关 `/auth-gateway/vision/api/`。
+- cisdi-nginx2（`city-base.conf`，备份 `city-base.conf.bak-20261013-relvision`）已把 `/vision/` 反代到 `192.168.11.194:5173/`；内网验证地址 `http://192.168.11.194:8456/vision/`（端口随 frp 映射可能变化）。
+- **域名访问受公网入口限制（2026-10-13 实测）**：`demo.cloudfutrue.com`（47.109.86.84）入口 nginx 用本地兜底静态目录直接响应 `/vision/`、`/api/` 等路径（返回的是入口侧 10-10 旧副本/门户页），不透传给 frp 隧道。需运维将入口 `/vision/` 改为转发 frp 隧道（目标 cisdi-nginx2:8456）或把新构建同步到入口静态目录后，域名访问才能拿到新构建；仅 `/auth-gateway/...` 由入口正常转发到平台网关。
+
 ## 已知部署风险
 
 - 服务器上其它项目容器已占用 `0.0.0.0:8082`（openclaw-middleware-zlmediakit）、`8000-8002`（zlmmediakit-main、openclaw 网关）等端口。本项目 backend-media 固定绑定 `192.168.11.194:8083`（远程 `.env` 的 `MEDIA_BACKEND_BIND` / `MEDIA_BACKEND_PUBLIC_URL`），禁止使用 8082。
