@@ -63,9 +63,11 @@
 ### 前端相对路径部署（2026-10-13 起）
 
 - 前端统一以 `base: './'` 相对路径构建：同一套产物可直接以根路径部署在任意 IP/域名（`http://<ip>:5173/`），也可经反代挂载在任意子路径（如 `/vision/`）。部署基路径由 `src/utils/appBase.ts` 按当前模块加载地址运行时解析（路由 base、public 资源拼接均依赖它），**不要再按部署点注入 vite base 或 `VITE_API_BASE_URL`/`VITE_MEDIA_API_BASE_URL` 重新构建**。
-- API 请求保持同源相对 `/api/...`：frontend 容器 nginx 按前缀分流到 backend-media/backend-lite；经 city-base 域名（`demo.cloudfutrue.com`）访问时由 cisdi-nginx2 的 `location ^~ /api/` 转发到平台网关 `/auth-gateway/vision/api/`。
-- cisdi-nginx2（`city-base.conf`，备份 `city-base.conf.bak-20261013-relvision`）已把 `/vision/` 反代到 `192.168.11.194:5173/`；内网验证地址 `http://192.168.11.194:8456/vision/`（端口随 frp 映射可能变化）。
-- **域名访问受公网入口限制（2026-10-13 实测）**：`demo.cloudfutrue.com`（47.109.86.84）入口 nginx 用本地兜底静态目录直接响应 `/vision/`、`/api/` 等路径（返回的是入口侧 10-10 旧副本/门户页），不透传给 frp 隧道。需运维将入口 `/vision/` 改为转发 frp 隧道（目标 cisdi-nginx2:8456）或把新构建同步到入口静态目录后，域名访问才能拿到新构建；仅 `/auth-gateway/...` 由入口正常转发到平台网关。
+- API 请求保持同源相对 `/api/...`：frontend 容器 nginx 按前缀分流到 backend-media/backend-lite；经 city-base 域名（`demo.cloudfutrue.com`）访问时由 196 平台 nginx（cisdi-nginx，`/data/application/middleware/nginx/conf.d/city-base.conf`）的 `location ^~ /api/` 转发到平台网关 `/vision/api/`（经 `qtouch_api_gateway_cluster`）。
+- **演示环境（196）集成已于 2026-10-13 完成并对外可用**：系统整体部署在 196（`/home/taishi/videoai`），平台侧三件套——①Nacos 注册服务 `city-vision-server`（实例 `192.168.11.196:5173`，**持久实例** ephem­eral=false，用 nacos-client Java 程序注册，jar 与源码在 196 `/tmp/nacos-reg`，该 Nacos 3.2.4 的 v1 HTTP 注册 API 已移除、console PUT 不落地，必须用客户端 gRPC 注册）；②认证网关路由 `city-vision-server`（Nacos `city_base` 组 `city-base-gateway-routes-config.yml`）：`Path=/vision/**` + `StripPrefix=1` + `uri: lb://city-vision-server`；③`city-base.conf`（备份 `city-base.conf.bak-20261013-vision`）新增 `location = /vision`、`location ^~ /vision/`（反代 196:5173）与 `location ^~ /api/`。RocketMQ 接口注册（Topic `system-interface-register-topic`，applicationName `vision`）已推送 175 条全部成功，URI 前缀与网关路由一致（`/vision/api/*`）。
+- 外网验证：`https://demo.cloudfutrue.com/vision/` 返回新构建 SPA（入口 frp 隧道 `city-base-196` 透传到 196:8456，由 196 侧 city-base.conf 响应，**入口无需改动**）；`https://demo.cloudfutrue.com/auth-gateway/vision/api/*` 到平台网关（无平台令牌返回 `04001 权限认证失败`，属平台鉴权预期行为）。从基础平台门户跳转 `/vision/?token=<IOT_OS_TOKEN>` 即可带令牌访问。
+- ~~域名访问受公网入口限制~~（2026-10-13 初判"入口本地兜底静态"有误，实为 196 侧 `location /` 兜底返回门户页；196 侧配置后外网即刻可用）。
+- 194 侧 cisdi-nginx2（`city-base.conf.bak-20261013-relvision`，反代 194:5173）与 194:5184 统一入口为旧方案遗留，已不再承载演示流量，可择机清理。
 
 ## 已知部署风险
 
