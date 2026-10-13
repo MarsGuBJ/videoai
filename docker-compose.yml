@@ -256,6 +256,8 @@ services:
       VIDEOAI_MCP_RECORDING_FALLBACK_FILE: ${VIDEOAI_MCP_RECORDING_FALLBACK_FILE:-}
       # 录像存储设备关联关系持久化文件（容器内 /data/mcp 挂载宿主机目录，重建容器不丢）
       STORAGE_BINDINGS_FILE: ${STORAGE_BINDINGS_FILE:-/data/mcp/storage_bindings.json}
+      # 摄像头 IP→非ISAPI CVR 流ID映射持久化文件（同 /data/mcp 挂载，重建容器不丢）
+      STREAM_ID_MAPPINGS_FILE: ${STREAM_ID_MAPPINGS_FILE:-/data/mcp/stream_id_mappings.json}
       HIKVISION_NVR_BASE_URL: ${HIKVISION_NVR_BASE_URL:-}
       HIKVISION_NVR_USERNAME: ${HIKVISION_NVR_USERNAME:-}
       HIKVISION_NVR_PASSWORD: ${HIKVISION_NVR_PASSWORD:-}
