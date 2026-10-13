@@ -220,6 +220,36 @@ export type TextSearchItem = {
   source?: string;
   score?: number | null;
   payload?: TextSearchItemPayload;
+  // fuzzy 模式精简字段（exact/balanced 走 payload）
+  es_id?: string;
+  image_url?: string;
+  create_time?: string | null;
+  camera_locate?: string | null;
+  // balanced 保证提供，fuzzy 可能为 null
+  similarity?: number | null;
+};
+
+// process 供前端渲染查询理解与检索链路（三种模式都会返回）
+export type TextSearchProcessStep = {
+  key?: string;
+  title?: string;
+  message?: string;
+  duration_ms?: number;
+};
+
+export type TextSearchProcess = {
+  understanding?: {
+    title?: string;
+    messages?: string[];
+  };
+  steps?: TextSearchProcessStep[];
+};
+
+export type TextSearchPagination = {
+  offset?: number;
+  limit?: number;
+  returned?: number;
+  has_more?: boolean;
 };
 
 export type TextSearchQueryResponse = {
@@ -229,8 +259,21 @@ export type TextSearchQueryResponse = {
     session_id?: string;
     trace_id?: string | null;
     index?: string | null;
+    indices?: string[];
     total?: number;
     items?: TextSearchItem[];
+    artifacts?: string[];
+    // 均衡模式的最终交集分页状态；精确/模糊为 null
+    pagination?: TextSearchPagination | null;
+    // 均衡模式的语义候选扫描状态；精确/模糊为 null
+    candidate?: {
+      limit?: number;
+      returned?: number;
+      duration_ms?: number;
+      complete?: boolean;
+      truncated?: boolean;
+    } | null;
+    process?: TextSearchProcess | null;
   };
 };
 
@@ -590,6 +633,12 @@ export const api = {
     location?: string;
     page?: number;
     pageSize?: number;
+    // exact 精确 / fuzzy 模糊语义 / balanced 均衡；不传由服务端默认 exact
+    searchMode?: 'exact' | 'fuzzy' | 'balanced';
+    // 模糊/均衡模式相似度阈值 0~1
+    confidence?: number;
+    // 时间排序，主要作用于精确检索
+    sortOrder?: 'asc' | 'desc';
   }) =>
     request<TextSearchQueryResponse>('/api/text-search/query', {
       method: 'POST',

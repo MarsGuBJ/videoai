@@ -34,3 +34,9 @@ class TextSearchQueryRequest(BaseModel):
     location: str | None = None
     page: int = 1
     pageSize: int = 10
+    # 检索模式（Retrieve API 2026-10 新增）：exact 精确 / fuzzy 模糊语义 / balanced 均衡；不传由上游默认 exact
+    searchMode: str | None = None
+    # 模糊/均衡模式相似度阈值 0~1；不传由上游默认 0.5
+    confidence: float | None = None
+    # 时间排序 asc/desc，主要作用于精确检索；不传由上游默认 desc
+    sortOrder: str | None = None

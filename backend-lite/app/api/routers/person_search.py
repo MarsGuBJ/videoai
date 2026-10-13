@@ -163,4 +163,10 @@ def text_search_query_proxy(request: TextSearchQueryRequest) -> dict:
         "page": max(1, int(request.page or TEXT_SEARCH_DEFAULT_PAGE)),
         "page_size": max(1, min(int(request.pageSize or TEXT_SEARCH_DEFAULT_PAGE_SIZE), TEXT_SEARCH_MAX_PAGE_SIZE)),
     }
+    if request.searchMode:
+        payload["search_mode"] = request.searchMode
+    if request.confidence is not None:
+        payload["confidence"] = request.confidence
+    if request.sortOrder:
+        payload["sort_order"] = request.sortOrder
     return retrieve_api_post("/v1/retrieve/query", payload)
