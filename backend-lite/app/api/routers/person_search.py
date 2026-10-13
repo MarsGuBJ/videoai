@@ -13,11 +13,13 @@ from app.schemas.person_search import (
     PersonSearchImageResponse,
     TextSearchQueryRequest,
 )
+from app.services.minio_files import rewrite_minio_media_fields
 from app.services.person_search import (
     absolutize_image_url,
     es_document_api_post,
     person_api_get,
     person_api_post,
+    person_search_submit,
     required_text,
     retrieve_api_post,
 )
@@ -77,8 +79,10 @@ def detect_persons_proxy(request: PersonSearchDetectRequest) -> dict:
 def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest) -> dict:
     """代理：按 bbox 以图搜人；imageUrl 处理同 detect-persons。
 
-    2026-09 上游重构：`searchPersonByBbox` 下线，改调详版 `searchPersonFull`
-    （上游直接返回 ES 全量文档组成的 similar_persons，无需再依赖 ES 文档查询接口）。
+    2026-09 上游重构：优先调详版 `searchPersonFull`
+    （上游直接返回 ES 全量文档组成的 similar_persons，无需再依赖 ES 文档查询接口）；
+    旧版上游镜像（无 searchPersonFull 路由）由 person_search_submit 自动回退
+    `searchPersonByBbox`，简版 es_ids 结果由 resolve_similar_persons 兜底补齐。
     """
     payload = {
         "image_url": absolutize_image_url(required_text(request.imageUrl, "imageUrl")),
@@ -99,7 +103,7 @@ def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest) -> dict:
         payload["age"] = request.age
     if request.topColor:
         payload["top_color"] = request.topColor
-    return person_api_post("/vlm-application/search/searchPersonFull", payload)
+    return person_search_submit(payload)
 
 
 @router.get("/api/person-search/results/{task_id}")
@@ -116,20 +120,46 @@ def resolve_similar_persons(response: dict) -> dict:
     详版 `searchPersonFull` 已在 `data.data.result.similar_persons` 直接返回 ES 全量文档，
     此时原样透传；仅当上游按简版 `searchPersonBrief` 只回 es_ids + index_name 时，
     才调用检索配套服务的 es-documents/by-ids 补齐文档字段。解析失败时透传原始响应，
-    不影响任务状态轮询。
+    不影响任务状态轮询。两种来源的文档都会把 MinIO 媒体地址（image_url/video_url 等）
+    改写为同源代理路径，避免浏览器直连 MinIO 被现场链路限速（见 services.minio_files）；
+    上游偶发返回不带图片地址的文档（前端会渲染成裂图卡片），这类条目对展示无意义，直接丢弃。
     """
     result = ((response.get("data") or {}).get("data") or {}).get("result")
-    if not isinstance(result, dict) or result.get("similar_persons"):
+    if not isinstance(result, dict):
         return response
+    similar_persons = result.get("similar_persons")
+    if similar_persons:
+        result["similar_persons"] = _normalize_person_entries(similar_persons)
+        return response
+    resolved = _similar_persons_from_es_ids(result)
+    if resolved:
+        result["similar_persons"] = _normalize_person_entries(resolved)
+    return response
+
+
+def _normalize_person_entries(persons: list) -> list[dict]:
+    """改写条目里的 MinIO 媒体地址，并丢弃无图片地址的条目（上游偶发的残缺文档）。"""
+    normalized = []
+    for entry in persons:
+        if not isinstance(entry, dict):
+            continue
+        rewrite_minio_media_fields(entry)
+        if str(entry.get("image_url") or "").strip():
+            normalized.append(entry)
+    return normalized
+
+
+def _similar_persons_from_es_ids(result: dict) -> list[dict]:
+    """简版结果（es_ids + index_name）经 es-documents/by-ids 补齐为完整人员文档。"""
     result_data = result.get("data")
     es_ids = result_data.get("es_ids") if isinstance(result_data, dict) else None
     if not es_ids:
-        return response
+        return []
     try:
         documents = es_document_api_post("/api/v1/queries/es-documents/by-ids", {"esids": es_ids})
     except HTTPException:
         logger.warning("es-documents/by-ids 解析失败，透传 es_ids 原始结果", exc_info=True)
-        return response
+        return []
     items = documents.get("items") or []
     similar_persons = []
     for item in items:
@@ -146,13 +176,16 @@ def resolve_similar_persons(response: dict) -> dict:
     # by-ids 不保证按入参顺序返回，按 es_ids 顺序重排（相似度由高到低）
     order = {doc_id: index for index, doc_id in enumerate(es_ids)}
     similar_persons.sort(key=lambda entry: order.get(entry.get("es_doc_id"), len(order)))
-    result["similar_persons"] = similar_persons
-    return response
+    return similar_persons
 
 
 @router.post("/api/text-search/query")
 def text_search_query_proxy(request: TextSearchQueryRequest) -> dict:
-    """代理：自然语言视频检索（文搜图）；记录关键词用于统计。"""
+    """代理：自然语言视频检索（文搜图）；记录关键词用于统计。
+
+    结果条目里的 MinIO 媒体地址（image_url/video_url 等）改写为同源代理路径，
+    避免浏览器直连 MinIO 被现场链路限速（与以图搜人结果同一处理）。
+    """
     message = required_text(request.message, "message")
     record_search_keyword(message, SEARCH_TYPE_TEXT_IMAGE)
     payload = {
@@ -169,4 +202,27 @@ def text_search_query_proxy(request: TextSearchQueryRequest) -> dict:
         payload["confidence"] = request.confidence
     if request.sortOrder:
         payload["sort_order"] = request.sortOrder
-    return retrieve_api_post("/v1/retrieve/query", payload)
+    response = retrieve_api_post("/v1/retrieve/query", payload)
+    data = response.get("data")
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list) or not items:
+        return response
+    kept_items = []
+    for item in items:
+        if not isinstance(item, dict):
+            kept_items.append(item)
+            continue
+        item_payload = item.get("payload")
+        if isinstance(item_payload, dict):
+            # exact/balanced：媒体地址在 payload 里
+            rewrite_minio_media_fields(item_payload)
+            # 与以图搜人一致：无图片地址的条目前端只能渲染成裂图卡片，丢弃
+            if str(item_payload.get("image_url") or "").strip():
+                kept_items.append(item)
+            continue
+        # fuzzy：精简字段在条目顶层（es_id/image_url/...）
+        rewrite_minio_media_fields(item)
+        if str(item.get("image_url") or "").strip():
+            kept_items.append(item)
+    data["items"] = kept_items
+    return response
