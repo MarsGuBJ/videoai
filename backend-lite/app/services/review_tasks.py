@@ -175,8 +175,14 @@ def run_review_task_judgment(task_id: str, image_bytes: bytes, video_bytes: byte
         review_endpoint = str(review_type.get("review_endpoint") or "")
         if not review_endpoint:
             raise ValueError("复核类型未配置复核接口")
-        # 注入事件坐标：电子围栏模式上送复核类型配置的 ROI；手工上传无事件 bbox 可注入
+        # 注入事件坐标：识别对象模式上送复核类型配置的 bbox，电子围栏模式上送配置的 ROI
         inject_event = str(review_type.get("inject_event") or "")
+        bbox = None
+        if inject_event == "bbox":
+            configured_bbox = second_review_client.parse_bbox_text(str(review_type.get("bbox") or ""))
+            if configured_bbox is None and str(review_type.get("bbox") or "").strip():
+                logger.warning("review type %s bbox config invalid, skip bbox injection", review_type.get("id"))
+            bbox = configured_bbox
         roi = str(review_type.get("roi") or "") if inject_event == "roi" else None
         judge_result = second_review_client.judge_event(
             endpoint=review_endpoint,
@@ -185,6 +191,7 @@ def run_review_task_judgment(task_id: str, image_bytes: bytes, video_bytes: byte
             image_bytes=image_bytes,
             video_bytes=video_bytes,
             event_id=task_id,
+            bbox=bbox,
             roi=roi or None,
         )
         record["status"] = "已完成"

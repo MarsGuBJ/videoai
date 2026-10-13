@@ -22,6 +22,8 @@ class ReviewTypeORM(Base):
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     # 注入事件坐标模式：空串（不注入）/ bbox（识别对象）/ roi（电子围栏）
     inject_event: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    # 识别对象 bbox 坐标（用户录入，inject_event 为 bbox 时使用）
+    bbox: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # 电子围栏 ROI 区域坐标（用户录入，inject_event 为 roi 时使用）
     roi: Mapped[str] = mapped_column(Text, nullable=False, default="")
     remark: Mapped[str] = mapped_column(String(500), nullable=False, default="")

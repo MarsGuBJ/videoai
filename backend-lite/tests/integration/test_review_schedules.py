@@ -280,6 +280,28 @@ def test_run_injects_bbox_when_inject_event_is_bbox(client: TestClient, monkeypa
     assert captured["roi"] is None
 
 
+def test_run_prefers_configured_bbox_when_inject_event_is_bbox(client: TestClient, monkeypatch):
+    created = _create_review_schedule(client, monkeypatch)
+    state.review_types_store[REVIEW_TYPE_ID]["inject_event"] = "bbox"
+    state.review_types_store[REVIEW_TYPE_ID]["bbox"] = "[[10,20,30,40]]"
+    objects = [{"x1": 1, "y1": 2, "x2": 3, "y2": 4}]
+    updated: list = []
+    captured: dict = {}
+    _mock_execution_env(monkeypatch, [(str(uuid4()), SNAPSHOT_URL, objects)], updated)
+
+    def _fake_judge(**kwargs):
+        captured.update(kwargs)
+        return JudgeResult(verdict="有效", reason="检测到目标")
+
+    monkeypatch.setattr(review_schedules_service.second_review_client, "judge_event", _fake_judge)
+
+    review_schedules_service.execute_review_schedule(created["id"])
+
+    # 配置了 bbox 坐标时优先上送配置值，不再提取事件对象坐标
+    assert captured["bbox"] == [[10.0, 20.0, 30.0, 40.0]]
+    assert captured["roi"] is None
+
+
 def test_run_skips_missing_snapshot_and_counts_it(client: TestClient, monkeypatch):
     created = _create_review_schedule(client, monkeypatch)
     updated: list = []

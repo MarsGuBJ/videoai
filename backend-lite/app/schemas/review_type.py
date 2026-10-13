@@ -10,6 +10,7 @@ class ReviewTypeCreate(BaseModel):
     code: str = Field(min_length=1, max_length=100)
     prompt: str = Field(min_length=1)
     injectEvent: str = ""
+    bbox: str = ""
     roi: str = ""
     remark: str = ""
     reviewEndpoint: str = Field(min_length=1, max_length=500)
@@ -22,6 +23,7 @@ class ReviewTypeUpdate(BaseModel):
     code: str | None = Field(default=None, min_length=1, max_length=100)
     prompt: str | None = Field(default=None, min_length=1)
     injectEvent: str | None = None
+    bbox: str | None = None
     roi: str | None = None
     remark: str | None = None
     reviewEndpoint: str | None = None
@@ -35,6 +37,7 @@ class ReviewTypeOut(BaseModel):
     code: str
     prompt: str
     injectEvent: str
+    bbox: str
     roi: str
     remark: str
     reviewEndpoint: str | None

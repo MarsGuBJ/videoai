@@ -71,6 +71,32 @@ def _to_float(value: Any) -> float | None:
     return None
 
 
+def parse_bbox_text(value: str) -> list[list[float]] | None:
+    """把用户录入的 bbox 坐标文本解析为 [[x1,y1,x2,y2], ...]。
+
+    Args:
+        value: 复核类型配置的 bbox 坐标文本（JSON 数组格式）。
+
+    Returns:
+        解析后的坐标列表；文本非法或为空列表时返回 None（调用方回退处理）。
+    """
+    try:
+        parsed: Any = json.loads(value)
+    except ValueError:
+        return None
+    if not isinstance(parsed, list) or not parsed:
+        return None
+    bbox: list[list[float]] = []
+    for item in parsed:
+        if not isinstance(item, (list, tuple)) or len(item) != 4:
+            return None
+        try:
+            bbox.append([float(coord) for coord in item])
+        except (TypeError, ValueError):
+            return None
+    return bbox
+
+
 def _serialize_evidence(value: Any) -> str:
     """evidence 字段归一化为文本：list/dict 转 JSON 字符串，其余转 str。"""
     if value is None:

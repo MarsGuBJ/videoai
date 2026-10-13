@@ -135,6 +135,25 @@ def test_judgment_success_marks_task_completed(client: TestClient, monkeypatch):
     assert fetched["updatedAt"] >= created["updatedAt"]
 
 
+def test_judgment_injects_configured_bbox_when_inject_event_is_bbox(client: TestClient, monkeypatch):
+    created = _create_review_task(client, monkeypatch)
+    state.review_types_store[REVIEW_TYPE_ID]["inject_event"] = "bbox"
+    state.review_types_store[REVIEW_TYPE_ID]["bbox"] = "[[10,20,30,40]]"
+    captured: dict = {}
+
+    def _fake_judge(**kwargs):
+        captured.update(kwargs)
+        return JudgeResult(verdict="有效", reason="检测到目标")
+
+    monkeypatch.setattr(review_tasks_service.second_review_client, "judge_event", _fake_judge)
+    monkeypatch.setattr(review_tasks_service, "persist_review_task", lambda record: None)
+
+    review_tasks_service.run_review_task_judgment(created["id"], FAKE_IMAGE_BYTES)
+
+    assert captured["bbox"] == [[10.0, 20.0, 30.0, 40.0]]
+    assert captured["roi"] is None
+
+
 def test_judgment_failure_marks_task_failed(client: TestClient, monkeypatch):
     created = _create_review_task(client, monkeypatch)
 

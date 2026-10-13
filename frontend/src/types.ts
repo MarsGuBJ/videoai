@@ -140,6 +140,7 @@ export type ReviewType = {
   code: string;
   prompt: string;
   injectEvent: string;
+  bbox: string;
   roi: string;
   remark: string;
   reviewEndpoint?: string | null;

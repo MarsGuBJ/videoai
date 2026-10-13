@@ -173,3 +173,29 @@ def test_judge_event_missing_data_raises_value_error(monkeypatch):
 def test_judge_event_requires_image_bytes():
     with pytest.raises(ValueError, match="image_bytes"):
         second_review_client.judge_event(endpoint=ENDPOINT, event_type="人员跌倒", prompt="提示词")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("[[1,2,3,4]]", [[1.0, 2.0, 3.0, 4.0]]),
+        ("[[1, 2, 3, 4], [5.5, 6, 7, 8]]", [[1.0, 2.0, 3.0, 4.0], [5.5, 6.0, 7.0, 8.0]]),
+    ],
+)
+def test_parse_bbox_text_valid_returns_float_list(text, expected):
+    assert second_review_client.parse_bbox_text(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "not-json",
+        "[[1,2,3]]",  # 每框必须 4 个坐标
+        "[[1,2,3,'x']]",  # 坐标必须可转数值
+        "[]",  # 空列表视为未配置
+        '{"x1":1}',  # 非数组
+    ],
+)
+def test_parse_bbox_text_invalid_returns_none(text):
+    assert second_review_client.parse_bbox_text(text) is None

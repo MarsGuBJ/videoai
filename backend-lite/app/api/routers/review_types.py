@@ -38,6 +38,7 @@ def create_review_type(request: ReviewTypeCreate) -> ReviewTypeOut:
         "code": request.code,
         "prompt": request.prompt,
         "inject_event": request.injectEvent or "",
+        "bbox": request.bbox or "",
         "roi": request.roi or "",
         "remark": request.remark or "",
         "review_endpoint": request.reviewEndpoint,
@@ -65,6 +66,8 @@ def update_review_type(type_id: str, request: ReviewTypeUpdate) -> ReviewTypeOut
         record["prompt"] = request.prompt
     if request.injectEvent is not None:
         record["inject_event"] = request.injectEvent
+    if request.bbox is not None:
+        record["bbox"] = request.bbox
     if request.roi is not None:
         record["roi"] = request.roi
     if request.remark is not None:

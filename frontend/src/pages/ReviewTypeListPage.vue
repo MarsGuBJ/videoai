@@ -25,7 +25,8 @@
           <div class="event-config-field"><span>算法编码</span><input class="input" :value="form.code" disabled placeholder="选择事件名称后自动填充" /></div>
           <label class="event-config-field wide"><span><span class="required">*</span>复核接口地址</span><input v-model="form.reviewEndpoint" class="input" placeholder="http://服务器IP:18090" /></label>
           <label class="event-config-field wide"><span><span class="required">*</span>提示词</span><textarea v-model="form.prompt" class="textarea" style="height:220px;" placeholder="你是园区安防监控事件复检助手，请根据图片或视频片段判断是否存在目标事件，并输出结构化判断结果。"></textarea></label>
-          <label class="event-config-field wide"><span>注入事件</span><select v-model="form.injectEvent" class="select"><option value="">不注入</option><option value="bbox">识别对象</option><option value="roi">电子围栏</option></select><span class="hint-text">识别对象：复核请求传入 bbox 坐标；电子围栏：传入下方 ROI 区域坐标</span></label>
+          <label class="event-config-field wide"><span>注入事件</span><select v-model="form.injectEvent" class="select"><option value="">不注入</option><option value="bbox">识别对象</option><option value="roi">电子围栏</option></select><span class="hint-text">识别对象：传入下方 bbox 坐标；电子围栏：传入下方 ROI 区域坐标</span></label>
+          <label v-if="form.injectEvent === 'bbox'" class="event-config-field wide"><span><span class="required">*</span>识别对象坐标</span><textarea v-model="form.bbox" class="textarea" style="height:64px;" placeholder="请输入识别对象坐标，如 [[x1,y1,x2,y2]]，多个框用逗号分隔"></textarea></label>
           <label v-if="form.injectEvent === 'roi'" class="event-config-field wide"><span><span class="required">*</span>ROI区域坐标</span><textarea v-model="form.roi" class="textarea" style="height:64px;" placeholder="请输入 ROI 区域坐标，如 [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]"></textarea></label>
           <label class="event-config-field wide"><span>备注</span><textarea v-model="form.remark" class="textarea" style="height:64px;" placeholder="请输入备注"></textarea></label>
         </div>
@@ -56,7 +57,7 @@ export default defineComponent({
       editing: null as ReviewType | null,
       activePage: 1,
       pageSize: 20,
-      form: { code: "", prompt: "", injectEvent: "", roi: "", remark: "", reviewEndpoint: "" }
+      form: { code: "", prompt: "", injectEvent: "", bbox: "", roi: "", remark: "", reviewEndpoint: "" }
     };
   },
   computed: {
@@ -118,14 +119,14 @@ export default defineComponent({
     },
     openCreate() {
       this.editing = null;
-      this.form = { code: "", prompt: "", injectEvent: "", roi: "", remark: "", reviewEndpoint: "" };
+      this.form = { code: "", prompt: "", injectEvent: "", bbox: "", roi: "", remark: "", reviewEndpoint: "" };
       this.modalOpen = true;
     },
     openEdit(row: ReviewType) {
       this.editing = row;
       // 历史数据的自由文本不在下拉项内，回显为不注入
       const injectEvent = ["bbox", "roi"].includes(row.injectEvent) ? row.injectEvent : "";
-      this.form = { code: row.code, prompt: row.prompt, injectEvent, roi: row.roi || "", remark: row.remark, reviewEndpoint: row.reviewEndpoint || "" };
+      this.form = { code: row.code, prompt: row.prompt, injectEvent, bbox: row.bbox || "", roi: row.roi || "", remark: row.remark, reviewEndpoint: row.reviewEndpoint || "" };
       this.modalOpen = true;
     },
     closeForm() { this.modalOpen = false; },
@@ -134,6 +135,7 @@ export default defineComponent({
       if (!selected) { this.showToast("请选择事件名称"); return; }
       if (!this.form.prompt.trim()) { this.showToast("请填写提示词"); return; }
       if (!this.form.reviewEndpoint.trim()) { this.showToast("请填写复核接口地址"); return; }
+      if (this.form.injectEvent === "bbox" && !this.form.bbox.trim()) { this.showToast("请填写识别对象坐标"); return; }
       if (this.form.injectEvent === "roi" && !this.form.roi.trim()) { this.showToast("请填写ROI区域坐标"); return; }
       if (this.saving) return;
       this.saving = true;
@@ -143,6 +145,7 @@ export default defineComponent({
           code: selected.code,
           prompt: this.form.prompt.trim(),
           injectEvent: this.form.injectEvent,
+          bbox: this.form.injectEvent === "bbox" ? this.form.bbox.trim() : "",
           roi: this.form.injectEvent === "roi" ? this.form.roi.trim() : "",
           remark: this.form.remark.trim(),
           reviewEndpoint: this.form.reviewEndpoint.trim()

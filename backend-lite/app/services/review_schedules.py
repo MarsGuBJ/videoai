@@ -405,9 +405,16 @@ def _review_single_event(
         failures.append(f"事件 {event_id} / 复核任务 {task_id}：复核类型未配置复核接口")
         return "failed"
     try:
-        # 注入事件坐标：识别对象模式上送事件 bbox，电子围栏模式上送复核类型配置的 ROI
+        # 注入事件坐标：识别对象模式上送复核类型配置的 bbox（未配置/格式非法时回退提取事件对象坐标），电子围栏模式上送配置的 ROI
         inject_event = str(review_type.get("inject_event") or "")
-        bbox = _extract_bbox(objects) if inject_event == "bbox" else None
+        bbox = None
+        if inject_event == "bbox":
+            configured_bbox = second_review_client.parse_bbox_text(str(review_type.get("bbox") or ""))
+            if configured_bbox is None:
+                if str(review_type.get("bbox") or "").strip():
+                    logger.warning("review type %s bbox config invalid, fallback to event objects", review_type.get("id"))
+                configured_bbox = _extract_bbox(objects)
+            bbox = configured_bbox
         roi = str(review_type.get("roi") or "") if inject_event == "roi" else None
         judge_result = second_review_client.judge_event(
             endpoint=review_endpoint,
