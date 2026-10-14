@@ -40,6 +40,7 @@ from uuid import uuid4
 import httpx
 
 from .models import RecordingSegment
+from .mp4_compat import ensure_browser_compatible_mp4, h264_compatible_video_args, probe_video_codec
 
 logger = logging.getLogger(__name__)
 
@@ -790,10 +791,11 @@ class HcNetSdkPlaybackProxy:
             shutil.rmtree(work_dir, ignore_errors=True)
 
     def _download_mp4_via_playback(self, recording: RecordingSegment) -> Path:
-        """流ID模式设备（现场 DS-A CVR）的 MP4 下载：SDK 按时间回放抓流经 ffmpeg remux。
+        """流ID模式设备（现场 DS-A CVR）的 MP4 下载：SDK 按时间回放抓流经 ffmpeg 落盘。
 
         与推流播放共用 PlaybackSession（byID 起播、PS 回调、队列背压流控），
-        ffmpeg 输出本地 MP4（-c:v copy），不限速读取，下载速度取决于设备供流。
+        ffmpeg 先以 -c:v copy 原码落盘 MP4（不限速读取，下载速度取决于设备供流），
+        完成后 HEVC 源再转码 H.264，保证浏览器可播。
         """
         work_dir = Path(tempfile.mkdtemp(prefix="hcnetsdk-download-"))
         mp4_file = work_dir / f"{recording.recordingId}.mp4"
@@ -824,6 +826,7 @@ class HcNetSdkPlaybackProxy:
             session.stop()
         if not mp4_file.is_file() or mp4_file.stat().st_size == 0:
             raise HcNetSdkError(f"流ID模式下载未产出 MP4: {session.failed or 'empty ffmpeg output'}")
+        ensure_browser_compatible_mp4(mp4_file)
         final_file = Path(tempfile.gettempdir()) / f"{recording.recordingId}.mp4"
         shutil.move(str(mp4_file), final_file)
         return final_file
@@ -896,6 +899,9 @@ class HcNetSdkPlaybackProxy:
         raise TimeoutError("HCNetSDK download timed out")
 
     def _remux_to_mp4(self, source_file: Path, mp4_file: Path) -> None:
+        # 现场 NVR 录像多为 smart265/HEVC：直通 remux 出的 MP4 浏览器无法解码，
+        # HEVC 源转码 H.264，其它编码（H.264）原码直通
+        codec = probe_video_codec(source_file)
         # ffmpeg 可执行文件由部署环境 PATH 提供，参数均为内部构造
         result = subprocess.run(  # noqa: S603
             [  # noqa: S607
@@ -907,8 +913,9 @@ class HcNetSdkPlaybackProxy:
                 "-i",
                 str(source_file),
                 "-an",
-                "-c:v",
-                "copy",
+            ]
+            + h264_compatible_video_args(codec)
+            + [
                 "-movflags",
                 "+faststart",
                 str(mp4_file),
@@ -1154,8 +1161,8 @@ class PlaybackSession:
     def _ffmpeg_args(self) -> list[str]:
         # ffmpeg 可执行文件由部署环境 PATH 提供，参数均为内部构造
         if self.mp4_output:
-            # 下载模式（流ID模式设备回放抓流）：PS 直通 remux 成本地 MP4，视频原码流
-            # copy（H.265/H.264 均可，与 SDK 按时间下载的 remux 语义一致），丢弃音频；
+            # 下载模式（流ID模式设备回放抓流）：PS 直通落盘本地 MP4，视频原码流
+            # copy（H.265/H.264 均可），丢弃音频；下载完成后由调用方按需转码 H.264；
             # 不限速读取（不下发 -re/-readrate），设备供流约 15MB/s，下载耗时远短于时段长度
             return [
                 "ffmpeg",
