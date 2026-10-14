@@ -36,7 +36,7 @@ def test_analyze_proxy_maps_payload_and_forwards_response(client: TestClient, mo
 
     assert response.status_code == 200
     assert response.json() == {"code": 0, "data": {"summary": "有人出现"}}
-    assert captured["url"] == "http://10.10.3.100:8780/api/v1/video-understanding/structure"
+    assert captured["url"] == "http://10.10.3.100:8780/api/v1/video-understanding/structure/inline"
     assert captured["json"] == {
         "video_url": "http://192.168.11.194:9000/public/a.mp4",
         "question": "是否有人出现",
@@ -74,7 +74,7 @@ def test_analyze_proxy_uses_explicit_question(client: TestClient, monkeypatch: p
 
 
 def test_analyze_proxy_clamps_numeric_fields(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """数值字段小于 1 时按 1 处理。"""
+    """数值字段小于下限时按下限处理；max_segments 下限为 0（新接口 0 表示全部分析）。"""
     captured = {}
 
     def fake_post(url, json, timeout):
@@ -98,7 +98,7 @@ def test_analyze_proxy_clamps_numeric_fields(client: TestClient, monkeypatch: py
     assert response.status_code == 200
     assert captured["json"]["fps"] == 1
     assert captured["json"]["segment_seconds"] == 1
-    assert captured["json"]["max_segments"] == 1
+    assert captured["json"]["max_segments"] == 0
     assert captured["json"]["height"] == 1
 
 

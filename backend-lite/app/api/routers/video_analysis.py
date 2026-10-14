@@ -21,7 +21,7 @@ VIDEO_STREAM_PASSTHROUGH_HEADERS = ("content-length", "content-range", "accept-r
 
 @router.post("/api/video-analysis/analyze")
 def video_analysis_analyze_proxy(request: VideoAnalysisRequest) -> dict[str, Any]:
-    """代理：视频理解结构化接口（文搜视频，见《视频理解接口0910》）；记录关键词用于统计。"""
+    """代理：视频理解结构化接口（文搜视频，见《video_understand_results.md》）；记录关键词用于统计。"""
     prompt = required_text(request.prompt, "prompt")
     record_search_keyword(prompt, SEARCH_TYPE_TEXT_VIDEO)
     payload = {
@@ -30,11 +30,13 @@ def video_analysis_analyze_proxy(request: VideoAnalysisRequest) -> dict[str, Any
         "question": (request.question or "").strip() or prompt,
         "fps": max(1, int(request.fps)),
         "segment_seconds": max(1, int(request.segmentSeconds)),
-        "max_segments": max(1, int(request.maxSegments)),
+        # 新接口 0 表示全部分析，不再强制下限 1
+        "max_segments": max(0, int(request.maxSegments)),
         "height": max(1, int(request.height)),
         "prompt": prompt,
     }
-    return video_analysis_api_post("/api/v1/video-understanding/structure", payload)
+    # /structure 只回 ES 索引引用（index_name/es_ids），结构化结果由 /structure/inline 返回
+    return video_analysis_api_post("/api/v1/video-understanding/structure/inline", payload)
 
 
 @router.post("/api/video-analysis/upload-video")
