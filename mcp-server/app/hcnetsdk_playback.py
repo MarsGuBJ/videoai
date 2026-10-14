@@ -778,7 +778,7 @@ class HcNetSdkPlaybackProxy:
                         "NET_DVR_SETSPEED %dMbps failed on %s: %s; continue at device default speed",
                         speedx, self.host, sdk.last_error(),
                     )
-            self._wait_until_downloaded(sdk, download_handle, recording)
+            self._wait_until_downloaded(sdk, download_handle, recording, ps_file)
             self._remux_to_mp4(ps_file, mp4_file)
             final_file = Path(tempfile.gettempdir()) / f"{recording.recordingId}.mp4"
             shutil.move(str(mp4_file), final_file)
@@ -860,7 +860,14 @@ class HcNetSdkPlaybackProxy:
                     )
                     pos_supported = False
                 else:
-                    if pos == last_pos:
+                    # DS-A CVR 回放进度常恒为 0：数据仍在到达视为有进度；
+                    # 收到过数据且设备停止供流说明整段窗口已推完（与下方 data-idle 兜底同语义）
+                    data_flowing = bool(session.last_data_at) and time.monotonic() - session.last_data_at < 10
+                    if data_flowing:
+                        idle_ticks = 0
+                    elif session.last_data_at:
+                        return
+                    elif pos == last_pos:
                         idle_ticks += 1
                     else:
                         idle_ticks = 0
@@ -877,10 +884,13 @@ class HcNetSdkPlaybackProxy:
             time.sleep(1)
         raise TimeoutError("HCNetSDK playback download timed out")
 
-    def _wait_until_downloaded(self, sdk: HcNetSdkLibrary, download_handle: int, recording: RecordingSegment) -> None:
+    def _wait_until_downloaded(
+        self, sdk: HcNetSdkLibrary, download_handle: int, recording: RecordingSegment, ps_file: Path
+    ) -> None:
         duration_seconds = max((recording.endTime - recording.startTime).total_seconds(), 1)
         deadline = time.monotonic() + max(self.timeout, min(duration_seconds * 3 + 60, 3600))
         last_pos = -1
+        last_size = 0
         idle_ticks = 0
         while time.monotonic() < deadline:
             pos = int(sdk.sdk.NET_DVR_GetDownloadPos(download_handle))
@@ -888,11 +898,16 @@ class HcNetSdkPlaybackProxy:
                 return
             if pos < 0:
                 raise HcNetSdkError(f"NET_DVR_GetDownloadPos failed: {sdk.last_error()}")
-            if pos == last_pos:
-                idle_ticks += 1
-            else:
+            # 部分 CVR（现场 DS-A）下载期间 pos 恒为 0、结束才跳 100：文件持续增长才是真正的进度
+            size = ps_file.stat().st_size if ps_file.is_file() else 0
+            if size > last_size:
+                idle_ticks = 0
+                last_size = size
+            elif pos != last_pos:
                 idle_ticks = 0
                 last_pos = pos
+            else:
+                idle_ticks += 1
             if idle_ticks >= 60:
                 raise TimeoutError(f"HCNetSDK download stalled at {pos}%")
             time.sleep(1)
