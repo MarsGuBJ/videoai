@@ -55,7 +55,8 @@ def recordings_search(request: RecordingSearchRequest) -> RecordingSearchRespons
             "streamFormat": STREAM_FORMAT,
         }
     )
-    return RecordingSearchResponse(data=[RecordingSegment(**item) for item in data])
+    # MCP search_recordings 对外字段为 id（见 mcp-server-interface.md），这里归一为 cameraId
+    return RecordingSearchResponse(data=[RecordingSegment(**{**item, "cameraId": item.get("cameraId") or item.get("id", "")}) for item in data])
 
 
 @router.post("/api/recordings/stream")
@@ -81,7 +82,8 @@ def recordings_stream(request: RecordingSearchRequest) -> RecordingStreamRespons
     )
     if not data:
         raise HTTPException(status_code=404, detail="该时段无录像")
-    url = required_text(str(data[0].get("url") or ""), "url")
+    # MCP search_recordings 对外字段为 downloadUrl（b35b324 起 url 更名），兼容旧字段
+    url = required_text(str(data[0].get("downloadUrl") or data[0].get("url") or ""), "url")
     return RecordingStreamResponse(url=f"{url}&speed={speed}", format=STREAM_FORMAT, expiresAt=None)
 
 
