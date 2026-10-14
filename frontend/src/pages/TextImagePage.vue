@@ -16,13 +16,6 @@
           <span class="text-image-option-label">相似度阈值</span>
           <div class="track-threshold-control"><input type="range" min="0" max="100" v-model.number="confidence" aria-label="相似度阈值" /><strong>{{ confidence }}%</strong></div>
         </div>
-        <div v-if="searchMode === 'exact'" class="text-image-option-field">
-          <span class="text-image-option-label">时间排序</span>
-          <select class="select" v-model="sortOrder" aria-label="时间排序">
-            <option value="desc">时间倒序</option>
-            <option value="asc">时间正序</option>
-          </select>
-        </div>
       </div>
     </div>
 
@@ -175,7 +168,6 @@ export default defineComponent({
       ],
       // 模糊/均衡模式相似度阈值（%），提交时换算为 0~1 的 confidence
       confidence: 50,
-      sortOrder: "desc" as "asc" | "desc",
       searched: false,
       page: 1,
       pageSize: 12,
@@ -266,7 +258,6 @@ export default defineComponent({
           location: filters.area || undefined,
           searchMode: this.searchMode,
           confidence: this.searchMode === "exact" ? undefined : this.confidence / 100,
-          sortOrder: this.searchMode === "exact" ? this.sortOrder : undefined,
           page: this.page,
           pageSize: this.pageSize
         });

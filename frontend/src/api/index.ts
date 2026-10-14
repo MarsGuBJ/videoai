@@ -684,8 +684,6 @@ export const api = {
     searchMode?: 'exact' | 'fuzzy' | 'balanced';
     // 模糊/均衡模式相似度阈值 0~1
     confidence?: number;
-    // 时间排序，主要作用于精确检索
-    sortOrder?: 'asc' | 'desc';
   }) =>
     request<TextSearchQueryResponse>('/api/text-search/query', {
       method: 'POST',
