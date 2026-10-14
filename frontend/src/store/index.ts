@@ -1,19 +1,18 @@
 import { reactive } from "vue";
 import { appModules } from "../modules/index.ts";
-import { resolveAppBase } from "../utils/appBase.ts";
+import { withAppBase } from "../utils/appBase.ts";
 
 // 原型占位图等 public 资源：统一相对构建（base './'），按运行时解析的部署基路径拼接，
 // 无论以 IP 根路径还是域名子路径访问均可加载
-const base = `${resolveAppBase()}/`;
 const img = {
-  target: `${base}prototype/target.jpg`,
-  mountain: `${base}prototype/mountain.jpg`,
-  map: `${base}prototype/map.jpg`,
-  portrait: `${base}prototype/portrait.jpg`,
-  analyst: `${base}prototype/analyst.jpg`,
-  targetBoard: `${base}prototype/targetBoard.jpg`,
-  car: `${base}prototype/car.jpg`,
-  ai: `${base}prototype/ai.jpg`
+  target: withAppBase("prototype/target.jpg"),
+  mountain: withAppBase("prototype/mountain.jpg"),
+  map: withAppBase("prototype/map.jpg"),
+  portrait: withAppBase("prototype/portrait.jpg"),
+  analyst: withAppBase("prototype/analyst.jpg"),
+  targetBoard: withAppBase("prototype/targetBoard.jpg"),
+  car: withAppBase("prototype/car.jpg"),
+  ai: withAppBase("prototype/ai.jpg")
 };
 
 export const store = reactive({

@@ -1,12 +1,12 @@
 <script lang="ts">
 import { defineComponent } from "vue";
-import { resolveAppBase } from "../utils/appBase.ts";
+import { withAppBase } from "../utils/appBase.ts";
 
 export default defineComponent({
   props: ["route", "names"],
   computed: {
     portraitUrl(): string {
-      return `${resolveAppBase()}/prototype/portrait.jpg`;
+      return withAppBase("prototype/portrait.jpg");
     }
   }
 });

@@ -320,7 +320,7 @@ import { api, assetUrl, videoAnalysisFrameUrl, videoAnalysisStreamUrl } from "..
 import type { PersonSearchBboxPoint, SimilarPersonResult } from "../api";
 import type { DeploymentTaskCreate } from "../types";
 import { deviceStatusLabel } from "../utils/device-status";
-import { resolveAppBase } from "../utils/appBase";
+import { withAppBase } from "../utils/appBase";
 import { attributeText } from "../utils/attributes";
 import { cropImageToFile, cropToPixelBbox } from "../utils/person-search";
 import type { ImageCropSelection } from "../utils/person-search";
@@ -522,7 +522,7 @@ function loadPdfMake(): Promise<any> {
       const pdfMake = mod.default || mod;
       if (!pdfMake.__videoaiFontsLoaded) {
         const fetchFont = async (name: string) => {
-          const resp = await fetch(`${resolveAppBase()}/fonts/${name}`);
+          const resp = await fetch(withAppBase(`fonts/${name}`));
           if (!resp.ok) throw new Error(`PDF 字体加载失败：${name}（HTTP ${resp.status}）`);
           return arrayBufferToBase64(await resp.arrayBuffer());
         };

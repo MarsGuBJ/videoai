@@ -17,3 +17,9 @@ export function resolveAppBase(): string {
   }
   return "/";
 }
+
+/** 拼接应用基路径与资源相对路径；根路径部署时 resolveAppBase() 为 "/"，
+ * 直接模板拼接会产生 // 开头的协议相对 URL（浏览器把第一段当主机名），这里归一化。 */
+export function withAppBase(path: string): string {
+  return `${resolveAppBase()}/${path}`.replace(/^\/{2,}/, "/");
+}
