@@ -50,7 +50,7 @@
     </div>
 
     <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? totalCount : 0 }}</b> 条相似结果</div></div>
-    <image-results v-if="searched" :items="paginatedResults" :show-score="searchMode !== 'exact'" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @open-result="openImagePreview"></image-results>
+    <image-results v-if="searched" :items="paginatedResults" :show-score="searchMode !== 'exact'" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @open-result="openResultCrop"></image-results>
     <div v-if="searched" class="image-search-result-footer">
       <div class="exact-pagination">
         <span>显示 {{ pageStart }}-{{ pageEnd }} 条</span>
@@ -63,10 +63,8 @@
       </div>
     </div>
     <div v-else class="search-empty-state"><img :src="emptyBg" alt="" class="search-empty-illustration" /><strong>暂无搜索结果</strong><strong>设置筛选条件或输入目标描述后，点击「搜索图片」</strong></div>
-    <div v-if="previewImage" class="image-lightbox" @click.self="closeImagePreview">
-      <button class="image-lightbox-close" type="button" aria-label="关闭" @click="closeImagePreview">×</button>
-      <img class="image-lightbox-img" :src="previewImage" alt="结果大图" />
-    </div>
+    <!-- 点击结果图：与图搜图页一致的框选目标弹窗，默认框选范围取该图数据的 position 像素框 -->
+    <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" action="imageSearch" :item-index="cropTargetIndex" :initial-bbox="cropTarget?.position" confirm-label="以图搜图" @close="closeImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
     <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索，请稍候…</p></div></div>
   </section>
 </template>
@@ -74,6 +72,7 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import ImageResults from "../components/ImageResults.vue";
+import ImageCropDialog from "../components/ImageCropDialog.vue";
 import AreaCameraPicker from "../components/AreaCameraPicker.vue";
 import DateTimeRangePicker from "../components/DateTimeRangePicker.vue";
 import emptyBg from "../assets/empty_bg.png";
@@ -145,6 +144,8 @@ function mapTextSearchItem(item: TextSearchItem, index: number) {
     date: formatCreateTime(isFlatItem ? item.create_time : payload.create_time),
     score: similarityToPercent(item.similarity),
     desc: item.esid || item.document_id || item.es_id || "",
+    // 目标在原图中的像素框：框选弹窗的默认框选范围（fuzzy 精简模式可能不返回）
+    position: isFlatItem ? item.position : payload.position,
     // 卡片属性行；值由 ImageResults 统一去掉方括号与引号，为空时该字段（含字段名）不展示
     age: extra.age,
     accessory: extra.accessory,
@@ -156,7 +157,7 @@ function mapTextSearchItem(item: TextSearchItem, index: number) {
 export default defineComponent({
   name: "TextImagePage",
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
-  components: { ImageResults, AreaCameraPicker, DateTimeRangePicker },
+  components: { ImageResults, ImageCropDialog, AreaCameraPicker, DateTimeRangePicker },
   inject: {
     showToast: { from: "showToast", default: (m: string) => {} },
     setRoute: { from: "setRoute", default: (route: string, options?: any) => {} }
@@ -179,7 +180,10 @@ export default defineComponent({
       page: 1,
       pageSize: 12,
       pageSizeOptions: [12, 24, 36],
-      previewImage: "",
+      // 结果图框选弹窗（与图搜图页同一组件）：点击结果图打开，确认后携框选区域跳转图搜图
+      cropDialogOpen: false,
+      cropTarget: null as any,
+      cropTargetIndex: -1,
       personFilters: { area: "", start: "", end: "" },
       // Real text-search state (retrieve API wiring)
       searching: false,
@@ -303,11 +307,25 @@ export default defineComponent({
         this.runQuery();
       }
     },
-    openImagePreview(payload: any) {
-      this.previewImage = payload.item.image;
+    // 点击结果图：打开框选目标弹窗（默认框选范围取条目 position 像素框）
+    openResultCrop(payload: any) {
+      if (!payload || !payload.item || !payload.item.image) return;
+      this.cropTarget = payload.item;
+      this.cropTargetIndex = payload.index ?? -1;
+      this.cropDialogOpen = true;
     },
-    closeImagePreview() {
-      this.previewImage = "";
+    closeImageCrop() {
+      this.cropDialogOpen = false;
+      this.cropTarget = null;
+      this.cropTargetIndex = -1;
+    },
+    // 框选确认：携结果图与框选区域跳转图搜图页（参考图预填 + 裁剪框参与检索）
+    confirmImageCrop(payload: any) {
+      const item = this.cropTarget;
+      const crop = payload?.crop;
+      this.closeImageCrop();
+      if (!item || !item.image || !crop) return;
+      (this as any).setRoute("imageSearch", { prefill: item.image, imageCrop: crop });
     }
   }
 });

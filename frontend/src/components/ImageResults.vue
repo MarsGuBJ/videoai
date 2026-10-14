@@ -52,7 +52,7 @@ export default {
     onCardClick(index: number, item: any) {
       // disableOpen：卡片纯展示，点击不打开详情
       if (this.disableOpen) return;
-      // emitOpen：点击卡片由页面接管（图搜图页弹窗框选后再搜、文搜图/文搜视频页打开图片灯箱）
+      // emitOpen：点击卡片由页面接管（图搜图页弹窗框选后再搜、文搜图页弹窗框选后跳转图搜图、文搜视频页打开图片灯箱）
       if (this.emitOpen) {
         this.$emit("open-result", { item, index });
         return;

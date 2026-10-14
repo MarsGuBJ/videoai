@@ -1667,6 +1667,25 @@
       word-break: break-all;
     }
 
+    /* 图搜图目标参考图：宽度不超过所在栏目，高度封顶 800px，宽高比不变；
+       容器 shrink-wrap 图片，保证 transferred-crop-box 的百分比定位与图片对齐 */
+    .image-search-page .track-target-upload.upload-card {
+      width: fit-content;
+    }
+
+    .image-search-page .track-target-upload.upload-card img {
+      width: auto;
+      max-height: 800px;
+    }
+
+    /* 图搜图文件名超过栏目宽度时省略号截断（完整名见 title 悬浮提示） */
+    .image-search-page .track-query-block .hint-text {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .track-target-upload-wrap {
       position: relative;
     }

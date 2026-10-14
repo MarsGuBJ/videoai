@@ -16,7 +16,7 @@
             <button v-else class="i2i-upload-zone" title="点击或拖拽图片到此处" @click="handleUploadZoneClick" @dragover.prevent @drop.prevent="handleImageUpload">
               <span><span class="upload-mark">☁</span><strong>上传图片</strong><small>点击或拖拽图片到此处</small></span>
             </button>
-            <span v-if="imageFileName" class="hint-text">{{ imageFileName }}</span>
+            <span v-if="imageFileName" class="hint-text" :title="imageFileName">{{ imageFileName }}</span>
           </div>
           <div class="track-query-block">
             <div class="field-label">时间范围</div>
@@ -95,7 +95,7 @@
       </div>
     </div>
     <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索，请稍候…</p></div></div>
-    <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" @close="closeImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
+    <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :item-index="cropTargetIndex" :initial-bbox="cropAction === 'searchCrop' ? cropTarget?.position : null" @close="closeImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
   </section>
 </template>
 
@@ -222,6 +222,8 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
     date: formatCreateTime(result.create_time),
     score,
     desc: result.es_doc_id || "",
+    // 目标在原图中的像素框：框选弹窗的默认框选范围
+    position: result.position,
     // 属性行原样交给 ImageResults：统一去掉方括号与引号，为空时字段（含字段名）不展示
     age: result.age,
     accessory: result.accessory,

@@ -165,6 +165,8 @@ export type SimilarPersonResult = {
   camera_locate?: string;
   image_url?: string;
   video_url?: string;
+  // 目标在原图中的像素框（ES 文档四点多边形），框选弹窗用它做默认框选范围
+  position?: PersonSearchBboxPoint[];
   age?: string;
   accessory?: string;
   top_color?: string | string[];
@@ -204,6 +206,8 @@ export type PersonSearchResultResponse = {
 export type TextSearchItemPayload = {
   image_url?: string;
   video_url?: string;
+  // 目标在原图中的像素框（ES 文档四点多边形），框选弹窗用它做默认框选范围
+  position?: PersonSearchBboxPoint[];
   camera_locate?: string;
   camera_id?: string;
   create_time?: number | string;
@@ -225,6 +229,8 @@ export type TextSearchItem = {
   // fuzzy 模式精简字段（exact/balanced 走 payload）
   es_id?: string;
   image_url?: string;
+  // fuzzy 精简模式若返回 position 一并接收（同 payload.position）
+  position?: PersonSearchBboxPoint[];
   create_time?: string | null;
   camera_locate?: string | null;
   // balanced 保证提供，fuzzy 可能为 null

@@ -5,7 +5,7 @@ const WHEEL_STEP = 1.15;
 
 export default {
   name: "ImageCropDialog",
-  props: ["open", "item", "action", "itemIndex", "confirmLabel"],
+  props: ["open", "item", "action", "itemIndex", "confirmLabel", "initialBbox"],
   emits: ["close", "confirm"],
   data() {
     return {
@@ -18,7 +18,9 @@ export default {
       offsetY: 0,
       panStart: null as any,
       panning: false,
-      imgVersion: 0
+      imgVersion: 0,
+      // initialBbox 默认框是否已应用（用户开始拖拽后不再覆盖）
+      initialApplied: false
     };
   },
   watch: {
@@ -34,6 +36,12 @@ export default {
       this.panStart = null;
       this.panning = false;
       this.imgVersion = 0;
+      this.initialApplied = false;
+      // 图片命中缓存时不会再触发 @load，下一帧直接尝试应用默认框
+      this.$nextTick(() => this.tryApplyInitialBbox());
+    },
+    imgVersion() {
+      this.tryApplyInitialBbox();
     }
   },
   computed: {
@@ -88,6 +96,8 @@ export default {
       this.dragStart = point;
       this.selection = { x: point.x, y: point.y, width: 0, height: 0 };
       this.dragging = true;
+      // 用户一旦手动框选，initialBbox 默认框不再生效
+      this.initialApplied = true;
       if (pointerEvent.currentTarget && pointerEvent.currentTarget.setPointerCapture) {
         pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
       }
@@ -167,6 +177,55 @@ export default {
     onPointerUp(pointerEvent: any) {
       if (this.mode === "zoom") this.endPan();
       else this.finishSelection(pointerEvent);
+    },
+    // 把数据自带的像素 bbox（如 ES 文档 position 四点多边形）设为默认框选范围：
+    // 像素坐标 → 图片内容百分比 → stage 百分比（弹窗刚打开时 scale=1、offset=0）
+    tryApplyInitialBbox() {
+      if (!this.open || this.initialApplied) return;
+      const points = (this.initialBbox || []).filter(
+        (pt: any) => pt && Number.isFinite(Number(pt.x)) && Number.isFinite(Number(pt.y))
+      );
+      if (!points.length) return;
+      const stage: any = this.$refs.cropStage;
+      const img: any = this.$refs.cropImage;
+      // 图片未加载完成时 naturalWidth 可能是上一张图的尺寸，等 @load 触发后再应用
+      if (!stage || !img || !img.complete || !img.naturalWidth || !img.naturalHeight) return;
+      const xs = points.map((pt: any) => Number(pt.x));
+      const ys = points.map((pt: any) => Number(pt.y));
+      const bx1 = Math.min(...xs);
+      const bx2 = Math.max(...xs);
+      const by1 = Math.min(...ys);
+      const by2 = Math.max(...ys);
+      if (bx2 - bx1 <= 0 || by2 - by1 <= 0) return;
+      const rect = stage.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      if (w <= 0 || h <= 0) return;
+      const r = img.naturalWidth / img.naturalHeight;
+      let cw: number;
+      let ch: number;
+      if (w / h > r) {
+        ch = h;
+        cw = h * r;
+      } else {
+        cw = w;
+        ch = w / r;
+      }
+      const contentLeft = (w - cw) / 2;
+      const contentTop = (h - ch) / 2;
+      const clamp = (v: number) => Math.min(100, Math.max(0, v));
+      const x1 = clamp(((contentLeft + (bx1 / img.naturalWidth) * cw) / w) * 100);
+      const y1 = clamp(((contentTop + (by1 / img.naturalHeight) * ch) / h) * 100);
+      const x2 = clamp(((contentLeft + (bx2 / img.naturalWidth) * cw) / w) * 100);
+      const y2 = clamp(((contentTop + (by2 / img.naturalHeight) * ch) / h) * 100);
+      if (x2 - x1 < 1 || y2 - y1 < 1) return;
+      this.selection = {
+        x: Number(x1.toFixed(2)),
+        y: Number(y1.toFixed(2)),
+        width: Number((x2 - x1).toFixed(2)),
+        height: Number((y2 - y1).toFixed(2))
+      };
+      this.initialApplied = true;
     },
     // 选区（stage 百分比）映射回原始图片内容框（object-fit: contain 的实际内容区，含缩放/平移变换）
     resolvedCrop() {
