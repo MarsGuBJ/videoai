@@ -205,7 +205,7 @@ def test_download_happy_path(client: TestClient, monkeypatch: pytest.MonkeyPatch
     call = captured[0]
     assert call["url"].endswith("/download_recording-http")
     assert call["json"] == {"cameraId": "cam-1", "startTime": "2026-08-31 10:00", "endTime": "2026-08-31 10:02"}
-    assert call["timeout"] == 1800
+    assert call["timeout"] == 86400
 
 
 def test_download_empty_data_returns_502(client: TestClient, monkeypatch: pytest.MonkeyPatch):

@@ -9,8 +9,8 @@ from app.core.config import get_settings
 from app.services.person_search import parse_person_api_response
 
 MCP_SEARCH_TIMEOUT_SECONDS = 30
-# 下载耗时随时段增长（SDK 下载非实时），可能达数十秒~数分钟
-MCP_DOWNLOAD_TIMEOUT_SECONDS = 1800
+# 下载耗时随时段增长（SDK 下载非实时，最长 24h 录像约 1x 抓流），上限 24h
+MCP_DOWNLOAD_TIMEOUT_SECONDS = 86400
 
 # MCP error.type 中含这些关键词时视为参数类错误，透传为 400
 _CLIENT_ERROR_KEYWORDS = ("invalid", "param", "argument", "value", "not_found", "notfound")

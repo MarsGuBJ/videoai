@@ -838,7 +838,7 @@ class HcNetSdkPlaybackProxy:
         （收到过数据且持续无新数据视为下载完成）。
         """
         duration_seconds = max((recording.endTime - recording.startTime).total_seconds(), 1)
-        deadline = time.monotonic() + max(self.timeout * 2, min(duration_seconds * 3 + 60, 3600))
+        deadline = time.monotonic() + max(self.timeout * 2, min(duration_seconds * 3 + 60, 86400))
         no_data_timeout = max(self.timeout, 30)
         last_pos = -1
         idle_ticks = 0
@@ -888,7 +888,7 @@ class HcNetSdkPlaybackProxy:
         self, sdk: HcNetSdkLibrary, download_handle: int, recording: RecordingSegment, ps_file: Path
     ) -> None:
         duration_seconds = max((recording.endTime - recording.startTime).total_seconds(), 1)
-        deadline = time.monotonic() + max(self.timeout, min(duration_seconds * 3 + 60, 3600))
+        deadline = time.monotonic() + max(self.timeout, min(duration_seconds * 3 + 60, 86400))
         last_pos = -1
         last_size = 0
         idle_ticks = 0

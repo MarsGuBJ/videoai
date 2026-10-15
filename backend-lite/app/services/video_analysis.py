@@ -11,8 +11,8 @@ from app.services.person_search import parse_person_api_response
 
 # 视频分析接口超时：长视频（最长 24h 录像）分段分析耗时长，上限 1800s
 VIDEO_ANALYSIS_API_TIMEOUT_SECONDS = 1800
-# 录像导出墙钟时间 ≈ 录像时长（约 1x 抓流），上限 1200s，留足余量
-MCP_EXPORT_TIMEOUT_SECONDS = 1980
+# 录像导出墙钟时间 ≈ 录像时长（约 1x 抓流，最长 24h 录像），上限 24h
+MCP_EXPORT_TIMEOUT_SECONDS = 86400
 # 单帧截图：含远程视频寻址，给足网络与解码余量
 VIDEO_FRAME_TIMEOUT_SECONDS = 60
 # 代理播放：上游连接与读块超时（读块指两次收到数据之间的间隔，不是总时长）
