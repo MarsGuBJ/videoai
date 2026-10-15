@@ -31,8 +31,8 @@ from .context import hcnetsdk_downloaders, recording_mp4_storage, settings
 from .mp4_compat import HEVC_CODECS, h264_compatible_video_args, probe_video_codec
 
 MAX_EXPORT_DURATION_SECONDS = 1200
-# SDK 下载不按 1x 实时抓流，可承载更长时段；总上限 2 小时
-MAX_SDK_EXPORT_DURATION_SECONDS = 7200
+# SDK 下载不按 1x 实时抓流，可承载更长时段；总上限 24 小时（与导出超时一致）
+MAX_SDK_EXPORT_DURATION_SECONDS = 86400
 MIN_VALID_MP4_BYTES = 100 * 1024
 FFMPEG_TIMEOUT_MARGIN_SECONDS = 45
 REMUX_TIMEOUT_SECONDS = 120

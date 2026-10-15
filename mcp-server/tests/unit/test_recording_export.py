@@ -455,14 +455,14 @@ def test_export_recording_with_camera_id_uses_camera_device(monkeypatch, tmp_pat
 
 
 def test_export_recording_rejects_range_beyond_sdk_limit():
-    """超过 SDK 下载 2 小时上限时报错。"""
+    """超过 SDK 下载 24 小时上限时报错。"""
     import app.tools.recordings as recordings_tools
 
-    with pytest.raises(ValueError, match="7200"):
+    with pytest.raises(ValueError, match="86400"):
         asyncio.run(
             recordings_tools.export_recording(
                 trackId="601",
                 startTime="2026-09-02T06:00:00",
-                endTime="2026-09-02T09:00:00",
+                endTime="2026-09-04T06:00:01",
             )
         )

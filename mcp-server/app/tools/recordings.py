@@ -65,7 +65,7 @@ async def export_recording(trackId: str = "", startTime: str = "", endTime: str 
     measured and compensated automatically. With cameraId the camera's NVR is located first —
     a sourceUrl pointing at a known NVR uses its embedded credentials, a direct-IPC sourceUrl is
     reverse-mapped to its NVR channel via the known NVRs' input channel lists — then downloaded
-    via HCNetSDK. Without cameraId, ranges up to 2 hours are downloaded via the whitelist NVR's
+    via HCNetSDK. Without cameraId, ranges up to 24 hours are downloaded via the whitelist NVR's
     HCNetSDK (non-realtime, fast); if SDK download is unavailable or fails, short ranges (up to
     20 minutes) fall back to RTSP playback capture (~1x wall time)."""
     start = parse_datetime(startTime)
