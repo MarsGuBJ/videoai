@@ -28,7 +28,6 @@ from xml.etree import ElementTree
 import httpx
 
 from .context import hcnetsdk_downloaders, recording_mp4_storage, settings
-from .mp4_compat import HEVC_CODECS, h264_compatible_video_args, probe_video_codec
 
 MAX_EXPORT_DURATION_SECONDS = 1200
 # SDK 下载不按 1x 实时抓流，可承载更长时段；总上限 24 小时（与导出超时一致）
@@ -219,8 +218,7 @@ async def fetch_nvr_clock_skew() -> float:
 def capture_playback_to_mp4(playback_url: str, duration_seconds: float) -> Path:
     """Capture the RTSP playback stream for the given duration into an MP4 file.
 
-    两段式：先抓流为 MPEG-TS（可安全强杀），再转封装为 faststart MP4
-    （HEVC 源转码 H.264，保证浏览器可播）。
+    两段式：先抓流为 MPEG-TS（可安全强杀），再 remux 为 faststart MP4。
     NVR 在录像边界停发数据后 ffmpeg 不会自行退出，因此抓流阶段设墙钟上限，
     超时时杀掉进程并继续使用已抓到的部分。
     """
@@ -263,14 +261,6 @@ def capture_playback_to_mp4(playback_url: str, duration_seconds: float) -> Path:
     try:
         if not ts_file.is_file() or ts_file.stat().st_size < MIN_VALID_MP4_BYTES:
             raise ValueError("该时段无可用录像")
-        # 现场 NVR 多为 smart265/HEVC：直通 remux 出的 MP4 浏览器无法解码，
-        # HEVC 源转码 H.264（转码耗时随录像时长增长，放宽超时），其它编码原码直通
-        codec = probe_video_codec(ts_file)
-        remux_timeout = (
-            int(duration_seconds * 2 + REMUX_TIMEOUT_SECONDS)
-            if codec in HEVC_CODECS
-            else REMUX_TIMEOUT_SECONDS
-        )
         remux = subprocess.run(  # noqa: S603
             [  # noqa: S607
                 "ffmpeg",
@@ -280,9 +270,8 @@ def capture_playback_to_mp4(playback_url: str, duration_seconds: float) -> Path:
                 "-i",
                 str(ts_file),
                 "-an",
-            ]
-            + h264_compatible_video_args(codec)
-            + [
+                "-c:v",
+                "copy",
                 "-movflags",
                 "+faststart",
                 "-y",
@@ -290,7 +279,7 @@ def capture_playback_to_mp4(playback_url: str, duration_seconds: float) -> Path:
             ],
             text=True,
             capture_output=True,
-            timeout=remux_timeout,
+            timeout=REMUX_TIMEOUT_SECONDS,
         )
         if remux.returncode != 0:
             detail = remux.stderr.strip() or f"ffmpeg exited with code {remux.returncode}"
