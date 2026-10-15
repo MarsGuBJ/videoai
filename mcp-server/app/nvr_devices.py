@@ -286,16 +286,20 @@ async def resolve_device_credentials(
       流ID（``streamId``）时按流ID直接回放（ISAPI 不可用的流ID模式设备）；否则通道用
       绑定凭据反查该设备 ISAPI 输入代理通道列表（按 sourceUrl 的 IP 匹配），
       反查未命中/失败时回退平台 nvrChannel/nvrTrackId（主机/凭据仍用绑定的）；
+    - 流ID映射（``stream_id_mappings``，按摄像头 IP 匹配非ISAPI CVR 设备）命中时按流ID
+      直接从 CVR 回放。映射是逐摄像头显式配置，优先于 sourceUrl 自动解析/反查（这类设备
+      ISAPI 关闭，且批量导入的 sourceUrl 常带内嵌凭据与脏 nvrTrackId，不能据此走 ISAPI）；
     - ``sourceUrl`` 指向已知 NVR/CVR：沿用内嵌凭据与 nvrTrackId/nvrChannel 换算的通道；
       平台未填 trackId 时从 sourceUrl 路径兜底（如 /Streaming/Channels/12801 → track 12801）；
     - ``sourceUrl`` 直连 IPC：反查已知 NVR/CVR 的输入通道映射，命中时用该设备的凭据与
       实际通道号（直连 IPC 的平台 nvrTrackId 可能是批量导入的脏数据，不作准）；
-    - 反查未命中且原解析失败（未绑定 NVR）：回退流ID映射（``stream_id_mappings``，
-      按摄像头 IP 匹配非ISAPI CVR 设备，按流ID直接回放）；
-    - 映射也未命中：报 ``ValueError``（消息注明反查未命中）。
+    - 反查未命中且原解析失败（未绑定 NVR）：报 ``ValueError``（消息注明反查未命中）。
     """
     if binding:
         return await _credentials_from_binding(camera, binding)
+    mapped = credentials_from_stream_id_mapping(camera, stream_id_mappings)
+    if mapped is not None:
+        return mapped
     host = urlparse((camera.sourceUrl or "").strip()).hostname or ""
     if not host or host in known_nvr_hosts or channel_lookup is None:
         # sourceUrl 指向录像设备本体时，trackId 可从 URL 通道路径兜底
@@ -306,11 +310,6 @@ async def resolve_device_credentials(
         try:
             return parse_device_credentials(camera)
         except ValueError as exc:
-            # 流ID映射兜底：非ISAPI CVR 设备（现场 DS-A）无法反查也无平台通道字段，
-            # 按摄像头 IP 命中映射后直接用流ID从 CVR 回放
-            mapped = credentials_from_stream_id_mapping(camera, stream_id_mappings)
-            if mapped is not None:
-                return mapped
             raise ValueError(
                 f"{exc}; IPC {host} reverse lookup missed:"
                 " not found in any known NVR/CVR input channel list"

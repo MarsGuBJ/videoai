@@ -1,4 +1,4 @@
-"""流ID映射测试：StreamIdMappings 持久化/导入校验、HTTP 路由与 resolve_device_credentials 映射兜底解析。"""
+"""流ID映射测试：StreamIdMappings 持久化/导入校验、HTTP 路由与 resolve_device_credentials 映射优先解析。"""
 
 import asyncio
 import json
@@ -165,7 +165,7 @@ def test_all_excludes_password(tmp_path):
     assert CVR["password"] not in json.dumps(listed)
 
 
-# --- resolve_device_credentials 流ID映射兜底 ---
+# --- resolve_device_credentials 流ID映射优先解析 ---
 
 
 class MissLookup:
@@ -175,8 +175,18 @@ class MissLookup:
         return None
 
 
+class HitLookup:
+    """反查恒命中（10.30.0.10 通道 3）的 channel_lookup。"""
+
+    async def lookup(self, host):
+        return (host, 3)
+
+    def credentials_for(self, host):
+        return ("admin", "nvr-secret")
+
+
 def test_resolve_falls_back_to_stream_id_mapping(tmp_path):
-    """反查未命中且平台无通道字段：按摄像头 ip 命中流ID映射，返回流ID凭据（通道 0）。"""
+    """平台无通道字段：按摄像头 ip 命中流ID映射，返回流ID凭据（通道 0）。"""
     mappings = make_mappings(tmp_path)
 
     credentials = run(
@@ -214,8 +224,8 @@ def test_resolve_mapping_miss_keeps_original_error(tmp_path):
     assert CVR["password"] not in str(exc_info.value)
 
 
-def test_resolve_mapping_not_used_when_camera_bound_to_nvr(tmp_path):
-    """摄像头自身有 nvrTrackId（NVR 凭据可解析）：映射不生效，走原解析逻辑。"""
+def test_resolve_mapping_wins_over_parseable_source_url(tmp_path):
+    """sourceUrl 可解析出凭据（内嵌 user/pass + 平台 nvrTrackId）时映射仍优先生效：走 SDK 流ID模式。"""
     mappings = make_mappings(tmp_path)
     camera = make_camera(
         sourceUrl="rtsp://admin:p%40ss@10.20.0.99:554/Streaming/Channels/101", nvrTrackId="101"
@@ -225,9 +235,43 @@ def test_resolve_mapping_not_used_when_camera_bound_to_nvr(tmp_path):
         resolve_device_credentials(camera, MissLookup(), frozenset(), stream_id_mappings=mappings)
     )
 
-    assert credentials.host == "10.20.0.99"
-    assert credentials.stream_id == ""
-    assert credentials.channel == 1
+    assert credentials.host == CVR["host"]
+    assert credentials.stream_id == STREAM_ID
+    assert credentials.channel == 0
+
+
+def test_resolve_mapping_wins_over_reverse_lookup_hit(tmp_path):
+    """反查可命中其他 NVR 时映射仍优先生效：按流ID从映射的 CVR 回放。"""
+    mappings = make_mappings(tmp_path)
+
+    credentials = run(
+        resolve_device_credentials(make_camera(), HitLookup(), frozenset(), stream_id_mappings=mappings)
+    )
+
+    assert credentials.host == CVR["host"]
+    assert credentials.stream_id == STREAM_ID
+    assert credentials.channel == 0
+
+
+def test_resolve_binding_wins_over_stream_id_mapping(tmp_path):
+    """同时配置了存储绑定与流ID映射：显式绑定优先（绑定带 streamId 时按绑定的流ID回放）。"""
+    mappings = make_mappings(tmp_path)
+    binding = {
+        "host": "172.19.200.30",
+        "username": "admin",
+        "password": "bind-secret",
+        "streamId": "bind-stream-id",
+    }
+
+    credentials = run(
+        resolve_device_credentials(
+            make_camera(), MissLookup(), frozenset(), binding=binding, stream_id_mappings=mappings
+        )
+    )
+
+    assert credentials.host == "172.19.200.30"
+    assert credentials.stream_id == "bind-stream-id"
+    assert credentials.channel == 0
 
 
 # --- HTTP 路由 ---
