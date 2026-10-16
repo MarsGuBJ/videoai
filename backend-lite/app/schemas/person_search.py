@@ -27,6 +27,14 @@ class PersonSearchByBboxRequest(BaseModel):
     topColor: str | None = None
 
 
+class PersonSearchReviewRequest(BaseModel):
+    """大模型二次研判（searchPersonReview）：基准切片 + 勾选的命中记录 es_doc_id。"""
+
+    imageUrl: str
+    bbox: list[dict]
+    esIds: list[str]
+
+
 class TextSearchQueryRequest(BaseModel):
     message: str
     startTime: str | None = None

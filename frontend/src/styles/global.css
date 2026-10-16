@@ -879,7 +879,6 @@
       box-shadow: 0 2px 7px rgba(16, 24, 40, .18);
     }
 
-    .text-image-page .result-select,
     .image-search-page .result-select {
       right: auto;
       left: 8px;
@@ -1008,11 +1007,6 @@
       line-height: normal;
     }
 
-    .text-image-page .page-title {
-      font-size: 15px;
-      line-height: normal;
-    }
-
     .track-page .page-title {
       font-size: 15px;
       line-height: normal;
@@ -1101,194 +1095,410 @@
       font-size: 14px;
     }
 
-    .text-image-filter-select:invalid {
-      color: #98a2b3;
-    }
-
-    .text-image-filter-select option {
-      color: #344054;
-    }
-
-    .text-image-date-field {
-      position: relative;
-    }
-
-    .text-image-date-field::after {
-      content: attr(data-placeholder);
-      position: absolute;
-      top: 50%;
-      left: 12px;
-      color: #98a2b3;
-      pointer-events: none;
-      transform: translateY(-50%);
-    }
-
-    .text-image-date-field.has-value::after,
-    .text-image-date-field:focus-within::after {
-      display: none;
-    }
-
-    .text-image-date-field:not(.has-value):not(:focus-within) input::-webkit-datetime-edit {
-      color: transparent;
-    }
-
-    /* 文搜图筛选行：区域 160px、时间段 320px、描述输入自适应（对齐原型） */
-    .text-image-filter-row {
+    /*
+     * 文搜图（TextImagePage）对话式万物搜工作台：左侧会话面板 + 中间聊天区 + 右侧结果面板。
+     * 布局与配色对齐墨刀原型「sxin-文搜图」（主色 #1678FF、浅蓝结果卡、黄色匹配度条）。
+     */
+    .sxin-workspace {
       display: flex;
-      align-items: center;
       gap: 12px;
+      height: calc(100vh - 43px - 40px);
+      min-height: 480px;
     }
 
-    .text-image-area-field {
-      flex: 0 0 160px;
-    }
-
-    .text-image-range-field {
-      flex: 0 0 320px;
-    }
-
-    .text-image-query-input {
-      flex: 1 1 auto;
-    }
-
-    /* 文搜图检索选项行：相似度阈值（模糊/均衡）、时间排序（精确） */
-    .text-image-option-row {
+    /* 左侧会话面板 */
+    .sxin-session-panel {
       display: flex;
-      align-items: center;
-      gap: 24px;
-      margin-top: 12px;
+      flex: 0 0 216px;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+      padding: 14px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      overflow-y: auto;
     }
 
-    .text-image-option-row:empty {
-      margin-top: 0;
+    .sxin-panel-title {
+      margin: 0 0 4px;
+      color: #111827;
+      font-size: 15px;
+      font-weight: 700;
     }
 
-    .text-image-option-field {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    .sxin-new-session {
+      height: 34px;
+      border: none;
+      border-radius: 6px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
     }
 
-    .text-image-option-label {
-      color: #667085;
+    .sxin-new-session:hover {
+      background: #3b8bff;
+    }
+
+    .sxin-history-search {
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f8fafc;
+      color: var(--text);
       font-size: 12px;
+      outline: none;
+    }
+
+    .sxin-history-search:focus {
+      border-color: var(--blue);
+    }
+
+    .sxin-panel-label {
+      margin: 8px 0 0;
+      color: #98a2b3;
+      font-size: 12px;
+    }
+
+    .sxin-add-group {
+      padding: 0;
+      border: none;
+      background: none;
+      color: #111827;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: left;
+    }
+
+    .sxin-group-item,
+    .sxin-history-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+      padding: 2px 0;
+      border: none;
+      background: none;
+      color: #344054;
+      font-size: 12px;
+      text-align: left;
+      text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .text-image-option-field .track-threshold-control {
-      width: 240px;
+    .sxin-group-item:hover,
+    .sxin-history-item:hover {
+      color: var(--blue);
     }
 
-    /* 文搜图分析过程面板（对齐原型 process-block，数据来自 process 字段） */
-    .text-image-process-panel {
+    .sxin-folder-icon {
+      flex: 0 0 auto;
+    }
+
+    /* 中间聊天区 + 底部输入 */
+    .sxin-main {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .sxin-chat {
+      flex: 1 1 auto;
+      min-height: 0;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      overflow-y: auto;
+    }
+
+    .sxin-msg {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .sxin-msg.user {
+      justify-content: flex-end;
+    }
+
+    .sxin-avatar,
+    .sxin-user-avatar {
+      display: grid;
+      place-items: center;
+      flex: 0 0 34px;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #111827;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .sxin-user-avatar {
+      background: var(--blue);
+    }
+
+    .sxin-user-side {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+      max-width: 70%;
+    }
+
+    .sxin-bubble {
+      max-width: 70%;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: #f4f7fc;
+      color: #344054;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .sxin-bubble-user {
+      max-width: 100%;
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .sxin-greeting-example {
+      color: var(--blue);
+    }
+
+    .sxin-msg-time {
+      color: #98a2b3;
+      font-size: 11px;
+    }
+
+    .sxin-assistant-body {
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: calc(100% - 44px);
+    }
+
+    /* 思考过程卡（数据来自 textSearchQuery 响应 process 字段） */
+    .sxin-think-card {
       margin-bottom: 12px;
-      padding: 12px 14px;
+      padding: 10px 14px;
+      border: 1px solid #e6edf7;
+      border-radius: 10px;
+      background: #fbfcfe;
     }
 
-    .text-image-process-toggle {
+    .sxin-think-toggle {
       display: flex;
       align-items: center;
-      gap: 10px;
+      justify-content: space-between;
       width: 100%;
+      padding: 0;
       border: none;
       background: none;
       color: #111827;
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      padding: 0;
-      text-align: left;
     }
 
-    .text-image-process-summary {
-      flex: 1 1 auto;
-      overflow: hidden;
+    .sxin-think-caret {
+      color: #98a2b3;
+      font-weight: 400;
+    }
+
+    .sxin-think-body {
+      margin-top: 10px;
+    }
+
+    .sxin-think-progress {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       color: #667085;
       font-size: 12px;
-      font-weight: 400;
-      text-overflow: ellipsis;
-      white-space: nowrap;
     }
 
-    .text-image-process-caret {
+    .sxin-think-progress-value {
       color: #98a2b3;
-      font-size: 12px;
-      font-weight: 400;
-      white-space: nowrap;
     }
 
-    .text-image-process-body {
-      margin-top: 12px;
-      border-top: 1px solid #eef2f7;
-      padding-top: 12px;
+    .sxin-think-bar {
+      height: 4px;
+      margin: 6px 0 12px;
+      border-radius: 2px;
+      background: #edf1f7;
+      overflow: hidden;
     }
 
-    .text-image-understanding {
-      margin-bottom: 12px;
-      padding: 10px 12px;
-      border: 1px solid #e6edf7;
-      border-radius: 6px;
-      background: #f8fbff;
-    }
-
-    .text-image-understanding strong {
+    .sxin-think-bar i {
       display: block;
-      margin-bottom: 6px;
+      height: 100%;
+      border-radius: 2px;
+      background: var(--blue);
+      transition: width .3s ease;
+    }
+
+    .sxin-think-subtitle {
+      margin: 0 0 8px;
       color: #111827;
       font-size: 13px;
+      font-weight: 600;
     }
 
-    .text-image-understanding ul {
-      margin: 0;
+    .sxin-think-step {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 3px 0;
+      font-size: 12px;
+    }
+
+    .sxin-think-step-name {
+      color: #344054;
+    }
+
+    .sxin-think-step-pct {
+      color: var(--green);
+      font-style: normal;
+      font-weight: 600;
+    }
+
+    .sxin-think-understanding {
+      margin: 8px 0 0;
       padding-left: 18px;
       color: #344054;
       font-size: 12px;
       line-height: 1.8;
     }
 
-    .text-image-step-list {
+    .sxin-think-loading {
       display: flex;
-      flex-direction: column;
+      align-items: center;
       gap: 8px;
+      color: #667085;
+      font-size: 12px;
     }
 
-    .text-image-step {
+    /* 视觉分析结果卡（浅蓝底） */
+    .sxin-analysis-head {
+      margin: 0 0 8px;
+      color: #111827;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .sxin-done-badge {
+      margin-left: 6px;
+      padding: 1px 8px;
+      border-radius: 4px;
+      background: #e8f7ee;
+      color: var(--green);
+      font-size: 11px;
+      font-style: normal;
+      font-weight: 600;
+    }
+
+    .sxin-result-card {
+      max-width: 560px;
+      margin-bottom: 12px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: #e8f1fd;
+    }
+
+    .sxin-result-divider {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 8px 12px;
-      border: 1px solid #e5eaf2;
-      border-radius: 6px;
-      background: #fff;
+      margin-bottom: 10px;
+      color: #344054;
+      font-size: 12px;
+      font-weight: 600;
     }
 
-    .text-image-step > b {
-      display: grid;
-      place-items: center;
-      flex: 0 0 20px;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: var(--blue);
-      color: #fff;
-      font-size: 11px;
-    }
-
-    .text-image-step-info {
-      display: flex;
-      align-items: baseline;
-      gap: 10px;
+    .sxin-result-divider::before,
+    .sxin-result-divider::after {
       flex: 1 1 auto;
-      min-width: 0;
+      height: 1px;
+      background: #c3d7f2;
+      content: "";
     }
 
-    .text-image-step-info strong {
+    .sxin-result-summary {
+      margin: 0 0 10px;
       color: #111827;
       font-size: 13px;
+      font-weight: 600;
+    }
+
+    .sxin-result-thumbs {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .sxin-result-thumbs img {
+      width: 108px;
+      height: 96px;
+      border-radius: 6px;
+      background: #fff;
+      object-fit: cover;
+    }
+
+    .sxin-result-ellipsis {
+      color: #667085;
+      font-size: 18px;
+      letter-spacing: 3px;
+    }
+
+    .sxin-result-total {
+      color: #344054;
+      font-size: 12px;
       white-space: nowrap;
     }
 
-    .text-image-step-info span {
+    .sxin-result-tip {
+      margin: 0;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    /* 操作卡：以图搜图 / 轨迹还原 / 更多 */
+    .sxin-action-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      max-width: 560px;
+      margin-bottom: 10px;
+    }
+
+    .sxin-action-info {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .sxin-action-info strong {
+      color: #111827;
+      font-size: 13px;
+    }
+
+    .sxin-action-info span {
       overflow: hidden;
       color: #667085;
       font-size: 12px;
@@ -1296,23 +1506,394 @@
       white-space: nowrap;
     }
 
-    .text-image-step em {
+    .sxin-action-info time {
       color: #98a2b3;
-      font-size: 12px;
-      font-style: normal;
-      white-space: nowrap;
+      font-size: 11px;
     }
 
-    .text-image-candidate-tip {
-      margin: 10px 0 0;
-      color: #b54708;
+    .sxin-action-btn {
+      flex: 0 0 auto;
+      height: 32px;
+      padding: 0 16px;
+      border: none;
+      border-radius: 6px;
+      background: var(--blue);
+      color: #fff;
       font-size: 12px;
+      font-weight: 600;
     }
 
-    .text-image-page-indicator {
+    .sxin-action-btn:hover {
+      background: #3b8bff;
+    }
+
+    .sxin-action-btn:disabled {
+      background: #a8c8f8;
+      cursor: not-allowed;
+    }
+
+    .sxin-action-more {
+      flex: 0 0 auto;
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: #344054;
+      font-size: 14px;
+      letter-spacing: 1px;
+    }
+
+    .sxin-drag-tip {
+      margin: 0 0 8px;
       color: #667085;
       font-size: 12px;
+    }
+
+    .sxin-feedback {
+      display: flex;
+      gap: 14px;
+    }
+
+    .sxin-feedback button {
+      padding: 0;
+      border: none;
+      background: none;
+      color: #667085;
+      font-size: 12px;
+    }
+
+    .sxin-feedback button:hover {
+      color: var(--blue);
+    }
+
+    .sxin-feedback button:disabled {
+      color: #c0c6cf;
+      cursor: not-allowed;
+    }
+
+    .sxin-error {
+      margin: 0;
+      color: var(--red);
+      font-size: 12px;
+    }
+
+    /* 底部输入区 */
+    .sxin-input-bar {
+      flex: 0 0 auto;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+
+    .sxin-input-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sxin-input-icon {
+      flex: 0 0 auto;
+      padding: 2px;
+      border: none;
+      background: none;
+      font-size: 15px;
+    }
+
+    .sxin-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 34px;
+      border: none;
+      background: none;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .sxin-input::placeholder {
+      color: #98a2b3;
+    }
+
+    .sxin-input-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 6px;
+    }
+
+    .sxin-mode-chips {
+      display: flex;
+      gap: 8px;
+    }
+
+    .sxin-mode-chips button {
+      height: 26px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: #fff;
+      color: #667085;
+      font-size: 12px;
+    }
+
+    .sxin-mode-chips button:hover {
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+
+    .sxin-mode-chips button.active {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .sxin-input-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sxin-send {
+      height: 32px;
+      padding: 0 18px;
+      border: none;
+      border-radius: 6px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .sxin-send:hover {
+      background: #3b8bff;
+    }
+
+    .sxin-send:disabled {
+      background: #a8c8f8;
+      cursor: not-allowed;
+    }
+
+    /* 右侧分析结果面板 */
+    .sxin-result-panel {
+      display: flex;
+      flex: 0 0 372px;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+      padding: 14px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+
+    .sxin-result-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sxin-result-head h3 {
+      margin: 0;
+      color: #111827;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .sxin-count-badge {
+      padding: 2px 10px;
+      border-radius: 10px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .sxin-card-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      flex: 1 1 auto;
+      align-content: start;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    .sxin-card {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .sxin-card.selected {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px rgba(22, 119, 255, .12);
+    }
+
+    .sxin-card-check {
+      position: absolute;
+      z-index: 2;
+      top: 6px;
+      left: 6px;
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, .94);
+      box-shadow: 0 1px 4px rgba(16, 24, 40, .18);
+      cursor: pointer;
+    }
+
+    .sxin-card-check input {
+      width: 12px;
+      height: 12px;
+      margin: 0;
+      accent-color: var(--blue);
+      cursor: pointer;
+    }
+
+    .sxin-card-tools {
+      position: absolute;
+      z-index: 2;
+      top: 6px;
+      right: 6px;
+      display: none;
+      gap: 4px;
+    }
+
+    .sxin-card:hover .sxin-card-tools {
+      display: flex;
+    }
+
+    .sxin-card-tools button {
+      display: grid;
+      place-items: center;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, .94);
+      box-shadow: 0 1px 4px rgba(16, 24, 40, .18);
+      font-size: 11px;
+    }
+
+    .sxin-card-img {
+      display: block;
+      width: 100%;
+      height: 96px;
+      background: #f2f4f7;
+      object-fit: cover;
+      cursor: pointer;
+    }
+
+    .sxin-card-match {
+      display: block;
+      margin: -18px 6px 0;
+      position: relative;
+      z-index: 1;
+      border-radius: 3px;
+      background: #fff7c2;
+      color: #5b6b73;
+      font-size: 10px;
+      font-weight: 600;
+      text-align: center;
+      line-height: 16px;
+    }
+
+    .sxin-card-loc,
+    .sxin-card-time {
+      overflow: hidden;
+      margin: 4px 6px 0;
+      color: #344054;
+      font-size: 10px;
+      text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .sxin-card-time {
+      margin-bottom: 6px;
+      color: #98a2b3;
+    }
+
+    .sxin-result-empty {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #98a2b3;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .sxin-result-empty strong {
+      color: #667085;
+      font-size: 13px;
+    }
+
+    .sxin-track-btn {
+      flex: 0 0 auto;
+      height: 34px;
+      border: none;
+      border-radius: 6px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .sxin-track-btn:hover {
+      background: #3b8bff;
+    }
+
+    .sxin-track-btn:disabled {
+      background: #a8c8f8;
+      cursor: not-allowed;
+    }
+
+    /* 监控回放弹层 */
+    .sxin-video-mask {
+      position: fixed;
+      z-index: 60;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(15, 23, 42, .55);
+    }
+
+    .sxin-video-box {
+      position: relative;
+      width: min(860px, 86vw);
+      border-radius: 10px;
+      background: #000;
+      overflow: hidden;
+    }
+
+    .sxin-video-box video {
+      display: block;
+      width: 100%;
+      max-height: 76vh;
+    }
+
+    .sxin-video-close {
+      position: absolute;
+      z-index: 2;
+      top: 8px;
+      right: 8px;
+      width: 26px;
+      height: 26px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, .9);
+      color: #111827;
+      font-size: 13px;
     }
 
     /* 文搜图卡片：图/视频视图切换按钮（左上角） */
@@ -1595,6 +2176,59 @@
 
     .image-search-page .i2i-search-stats b {
       color: var(--blue);
+    }
+
+    /* 研判结论条：同一人 / 不同人数量 + 大模型结论文本（超长省略，悬浮看全文） */
+    .image-search-page .i2i-review-summary {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 18px;
+      margin: 0 0 12px;
+      padding: 8px 12px;
+      background: #f0f7ff;
+      border: 1px solid #d3e5fd;
+      border-radius: 6px;
+      color: #344054;
+      font-size: 12px;
+    }
+
+    .image-search-page .i2i-review-summary b {
+      color: var(--blue);
+    }
+
+    .image-search-page .i2i-review-conclusion {
+      flex: 1 1 100%;
+      color: #667085;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* 结果卡片研判角标：同一人 / 不同人 / 未判定 */
+    .review-verdict {
+      padding: 1px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .review-verdict.same {
+      color: #067647;
+      background: #ecfdf3;
+      border: 1px solid #abefc6;
+    }
+
+    .review-verdict.different {
+      color: #b42318;
+      background: #fef3f2;
+      border: 1px solid #fecdca;
+    }
+
+    .review-verdict.unknown {
+      color: #344054;
+      background: #f2f4f7;
+      border: 1px solid #e4e7ec;
     }
 
     /* 结果二次筛选行：6 个属性输入 + 筛选 / 二次研判 / 步态过滤 */
@@ -5747,10 +6381,6 @@
 
     .exact-mode-switch .btn {
       min-width: 86px;
-    }
-
-    .text-image-mode-switch {
-      margin-bottom: 18px;
     }
 
     .exact-upload-drop {

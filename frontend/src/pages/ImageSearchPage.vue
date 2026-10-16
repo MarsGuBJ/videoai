@@ -27,6 +27,13 @@
             <area-camera-picker v-model="place" aria-label="检索区域" />
           </div>
           <div class="track-query-block">
+            <div class="field-label">搜索方法</div>
+            <select class="select" v-model="searchMethod" aria-label="搜索方法">
+              <option value="reid">小模型(reid)</option>
+              <option value="vlm">大模型(vlm)</option>
+            </select>
+          </div>
+          <div class="track-query-block">
             <div class="field-label">人员属性</div>
             <div class="i2i-attr-grid">
               <select class="select" v-model="gender" aria-label="性别"><option>全部性别</option><option>男</option><option>女</option></select>
@@ -36,11 +43,15 @@
             </div>
           </div>
           <div class="track-query-block">
+            <div class="field-label">最大返回条数</div>
+            <input class="input" type="number" min="1" max="100" v-model.number="topK" aria-label="最大返回条数（topk）" />
+          </div>
+          <div class="track-query-block">
             <div class="field-label">相似度阈值</div>
             <div class="track-threshold-control"><input type="range" min="0" max="100" v-model.number="similarity" /><strong>{{ similarity }}%</strong></div>
             <div class="i2i-threshold-presets">
               <button type="button" :class="{ active: similarity === 50 }" @click="similarity = 50">50%</button>
-              <button type="button" :class="{ active: similarity === 70 }" @click="similarity = 70">70%</button>
+              <button type="button" :class="{ active: similarity === 75 }" @click="similarity = 75">75%</button>
               <button type="button" :class="{ active: similarity === 85 }" @click="similarity = 85">85%</button>
             </div>
           </div>
@@ -74,8 +85,15 @@
             <input class="input" v-model="resultFilters.bottomColor" list="i2i-bottom-color-options" placeholder="下装颜色" aria-label="下装颜色" />
             <datalist id="i2i-bottom-color-options"><option v-for="opt in filterOptions('bottomColor')" :key="opt" :value="opt"></option></datalist>
             <button class="btn primary" @click="applyResultFilters">筛选</button>
-            <button class="btn" title="功能暂未开放" @click="todoFeature">二次研判</button>
+            <button class="btn" :disabled="reviewing" :title="reviewing ? '大模型研判中，请稍候' : '对全部命中记录做大模型二次研判（最多 19 条）'" @click="startReview">{{ reviewing ? '研判中…' : '二次研判' }}</button>
             <button class="btn" title="功能暂未开放" @click="todoFeature">步态过滤</button>
+          </div>
+          <div v-if="reviewSummary" class="i2i-review-summary">
+            <span>研判结论：</span>
+            <span>同一人 <b>{{ reviewSummary.sameCount }}</b></span>
+            <span>不同/不确定 <b>{{ reviewSummary.differentCount }}</b></span>
+            <span>耗时 <b>{{ reviewSummary.elapsedSeconds }}</b> s</span>
+            <span class="i2i-review-conclusion" :title="reviewSummary.conclusion">{{ reviewSummary.conclusion }}</span>
           </div>
           <image-results v-if="searched" :items="paginatedResults" :show-score="true" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @open-result="openResultSearch"></image-results>
           <div v-if="searched" class="image-search-result-footer">
@@ -114,6 +132,8 @@ import { attributeText } from "../utils/attributes";
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_MAX_ATTEMPTS = 60;
+// 二次研判为独立异步任务（大模型推理慢，官方样例 6 人约 48s），轮询上限放宽到约 3 分钟
+const REVIEW_POLL_MAX_ATTEMPTS = 120;
 
 // 结果二次筛选的 6 个属性字段（对齐原型 resultFilters）
 type ResultFilterKey = "shoeType" | "hairType" | "hairColor" | "action" | "bottomType" | "bottomColor";
@@ -222,6 +242,11 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
     date: formatCreateTime(result.create_time),
     score,
     desc: result.es_doc_id || "",
+    // 二次研判候选标识：勾选记录时提交给 searchPersonReview 的 es_doc_id
+    esDocId: result.es_doc_id || "",
+    // 二次研判结论回填（vlm_same_person）：同一人 / 不同人；未研判为空
+    reviewVerdict: "",
+    reviewVerdictClass: "",
     // 目标在原图中的像素框：框选弹窗的默认框选范围
     position: result.position,
     // 属性行原样交给 ImageResults：统一去掉方括号与引号，为空时字段（含字段名）不展示
@@ -253,7 +278,10 @@ export default defineComponent({
       start: "",
       end: "",
       place: "",
-      similarity: 50,
+      similarity: 75,
+      // 搜索方法：小模型(reid) / 大模型(vlm)；最大返回条数默认 10
+      searchMethod: "reid",
+      topK: 10,
       // 人员属性查询条件（对齐原型）：性别/年龄段/上衣颜色随检索请求走服务端筛选，
       // 同时在前端再过滤一次兜底（旧版上游会忽略未知字段）；下衣颜色上游不支持，仅前端过滤
       gender: "全部性别",
@@ -265,7 +293,7 @@ export default defineComponent({
       appliedResultFilters: emptyResultFilters(),
       // 检索统计条：最近一次搜索的耗时与提交时的相似度阈值
       searchElapsedMs: 0,
-      lastThreshold: 50,
+      lastThreshold: 75,
       imageFileName: "",
       imagePreview: this.state.prefill || "",
       imageCrop: this.state.imageCrop,
@@ -282,7 +310,13 @@ export default defineComponent({
       cropDialogOpen: false,
       cropAction: "" as "" | "replaceUpload" | "searchCrop",
       cropTarget: null as any,
-      cropTargetIndex: -1
+      cropTargetIndex: -1,
+      // 二次研判：最近一次搜索的基准切片（image_url + bbox），
+      // 点「二次研判」把全部命中记录（最多 19 条）提交 searchPersonReview，结论回填到卡片角标与研判结论条
+      lastSearchImageUrl: "",
+      lastSearchBbox: null as PersonSearchBboxPoint[] | null,
+      reviewing: false,
+      reviewSummary: null as any
     };
   },
   computed: {
@@ -441,6 +475,82 @@ export default defineComponent({
     todoFeature() {
       this.showToast("功能暂未开放，敬请期待");
     },
+    // 二次研判：全部命中记录（接口上限 19 条，超出取前 19）提交 searchPersonReview，结论回填卡片角标
+    async startReview() {
+      if (this.reviewing) return;
+      if (!this.searched || !this.allResults.length) {
+        this.showToast("请先搜索并获得结果");
+        return;
+      }
+      if (!this.lastSearchImageUrl || !this.lastSearchBbox) {
+        this.showToast("缺少本次搜索的基准切片，请重新搜索后再研判");
+        return;
+      }
+      const esIds = this.filteredResults.map(item => item.esDocId).filter((id): id is string => !!id).slice(0, 19);
+      if (!esIds.length) {
+        this.showToast("当前结果缺少 es_doc_id，无法提交研判");
+        return;
+      }
+      const runId = this.pollRunId;
+      this.reviewing = true;
+      try {
+        const submitResponse = await api.searchPersonReview({
+          imageUrl: this.lastSearchImageUrl,
+          bbox: this.lastSearchBbox,
+          esIds
+        });
+        if (runId !== this.pollRunId) return;
+        const taskId = submitResponse.data?.data?.task_id ?? submitResponse.data?.task_id;
+        if (!taskId) {
+          throw new Error(submitResponse.data?.message || "研判任务提交失败");
+        }
+        await this.pollReviewResult(taskId, runId);
+      } catch (error) {
+        if (runId !== this.pollRunId) return;
+        this.showToast(error instanceof Error ? error.message : "二次研判失败");
+      } finally {
+        if (runId === this.pollRunId) {
+          this.reviewing = false;
+        }
+      }
+    },
+    // 轮询研判任务，完成后按 es_doc_id 把 vlm_same_person 回填到结果卡片
+    async pollReviewResult(taskId: string, runId: number) {
+      for (let attempt = 0; attempt < REVIEW_POLL_MAX_ATTEMPTS; attempt += 1) {
+        if (runId !== this.pollRunId) return;
+        const response = await api.personSearchResult(taskId);
+        if (runId !== this.pollRunId) return;
+        const taskStatus = response.data?.status;
+        if (taskStatus === "success") {
+          // 复核任务结构：data.data = { status, conclusion, same_count, different_count, elapsed_seconds, results }
+          const payload = (response.data?.data ?? null) as any;
+          if (payload?.status === "failed") {
+            throw new Error(payload?.error || "研判服务不可用");
+          }
+          const results: any[] = payload?.results ?? [];
+          const verdictByEsId = new Map<string, any>(results.map(entry => [entry?.es_doc_id, entry?.vlm_same_person]));
+          this.realResults.forEach(item => {
+            if (!verdictByEsId.has(item.esDocId)) return;
+            const same = verdictByEsId.get(item.esDocId);
+            item.reviewVerdict = same === true ? "同一人" : same === false ? "不同人" : "未判定";
+            item.reviewVerdictClass = same === true ? "same" : same === false ? "different" : "unknown";
+          });
+          this.reviewSummary = {
+            conclusion: payload?.conclusion || "",
+            sameCount: payload?.same_count ?? 0,
+            differentCount: payload?.different_count ?? 0,
+            elapsedSeconds: payload?.elapsed_seconds ?? 0
+          };
+          this.showToast(`二次研判完成：同一人 ${this.reviewSummary.sameCount} 条，不同/不确定 ${this.reviewSummary.differentCount} 条`);
+          return;
+        }
+        if (taskStatus === "error") {
+          throw new Error(response.data?.message || "研判任务失败");
+        }
+        await delay(POLL_INTERVAL_MS);
+      }
+      throw new Error("研判任务超时，请稍后重试");
+    },
     // 重置（对齐原型）：清空全部检索条件、参考图与当前结果
     resetFilters() {
       if (this.imagePreview && this.imagePreview.startsWith("blob:")) URL.revokeObjectURL(this.imagePreview);
@@ -451,13 +561,19 @@ export default defineComponent({
       this.start = "";
       this.end = "";
       this.place = "";
-      this.similarity = 50;
+      this.similarity = 75;
+      this.searchMethod = "reid";
+      this.topK = 10;
       this.gender = "全部性别";
       this.ageGroup = "全部年龄段";
       this.topColor = "全部颜色";
       this.bottomColor = "全部颜色";
       this.resultFilters = emptyResultFilters();
       this.appliedResultFilters = emptyResultFilters();
+      this.lastSearchImageUrl = "";
+      this.lastSearchBbox = null;
+      this.reviewing = false;
+      this.reviewSummary = null;
       this.searched = false;
       this.realResults = [];
       this.page = 1;
@@ -504,17 +620,21 @@ export default defineComponent({
           }
           bbox = detected[0]?.bbox;
         }
+        // 记录本次搜索的基准切片与清空上一轮研判状态（二次研判提交必填 image_url + bbox）
+        this.lastSearchImageUrl = imageUrl;
+        this.lastSearchBbox = bbox;
+        this.reviewSummary = null;
         // 3. Submit the search task for the selected/detected target.
         //    性别/年龄段/上衣颜色走服务端属性筛选（上游 2026-10 新增 sex/age/top_color）；
         //    下衣颜色上游不支持，仅在前端对结果过滤。
         const submitResponse = await api.searchPersonByBbox({
           imageUrl,
           bbox,
-          searchMethod: "reid",
+          searchMethod: this.searchMethod,
           startTime: toPersonApiDateTime(this.start),
           endTime: toPersonApiDateTime(this.end),
           similarityThreshold: this.similarity / 100,
-          topK: 20,
+          topK: Math.max(1, Math.floor(Number(this.topK)) || 10),
           sex: attributeParam(this.gender),
           age: attributeParam(this.ageGroup),
           topColor: attributeParam(this.topColor)

@@ -11,6 +11,7 @@ from app.schemas.person_search import (
     PersonSearchByBboxRequest,
     PersonSearchDetectRequest,
     PersonSearchImageResponse,
+    PersonSearchReviewRequest,
     TextSearchQueryRequest,
 )
 from app.services.minio_files import rewrite_minio_media_fields
@@ -104,6 +105,31 @@ def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest) -> dict:
     if request.topColor:
         payload["top_color"] = request.topColor
     return person_search_submit(payload)
+
+
+@router.post("/api/person-search/review")
+def person_search_review_proxy(request: PersonSearchReviewRequest) -> dict:
+    """代理：大模型二次研判（searchPersonReview，2026-10 上游新增）。
+
+    基准人物固定为用户上传的切片（imageUrl + bbox），候选为页面勾选的命中记录
+    es_doc_id（上游限制 1~19 条且不可重复）。任务为异步，提交后前端复用
+    /api/person-search/results/{task_id} 轮询复核结论。
+    """
+    es_ids = [required_text(es_id, "esIds") for es_id in request.esIds]
+    if not 1 <= len(es_ids) <= 19:
+        raise HTTPException(status_code=400, detail="esIds 数量需在 1~19 条之间")
+    if len(set(es_ids)) != len(es_ids):
+        raise HTTPException(status_code=400, detail="esIds 不可重复")
+    if not request.bbox:
+        raise HTTPException(status_code=400, detail="bbox is required")
+    return person_api_post(
+        "/vlm-application/search/searchPersonReview",
+        {
+            "image_url": absolutize_image_url(required_text(request.imageUrl, "imageUrl")),
+            "bbox": request.bbox,
+            "es_ids": es_ids,
+        },
+    )
 
 
 @router.get("/api/person-search/results/{task_id}")

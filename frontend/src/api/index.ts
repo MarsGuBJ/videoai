@@ -672,6 +672,13 @@ export const api = {
     }),
   personSearchResult: (taskId: string) =>
     request<PersonSearchResultResponse>(`/api/person-search/results/${encodeURIComponent(taskId)}`),
+  // 大模型二次研判（searchPersonReview）：基准切片 + 勾选的命中记录 es_doc_id（1~19 条），
+  // 异步任务，提交后复用 personSearchResult 轮询复核结论
+  searchPersonReview: (payload: { imageUrl: string; bbox: PersonSearchBboxPoint[]; esIds: string[] }) =>
+    request<PersonSearchSubmitResponse>('/api/person-search/review', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   textSearchQuery: (payload: {
     message: string;

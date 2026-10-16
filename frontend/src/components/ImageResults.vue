@@ -80,7 +80,7 @@ export default {
         </div>
         <h4 v-if="!hideDescription">{{ item.title }}</h4>
         <p v-if="!hideDescription">{{ item.desc }}</p>
-        <div v-if="showScore || !hideJump" class="result-card-footer"><span v-if="showScore" class="result-similarity" :style="{ color: similarityColor(item.score) }">相似度 {{ item.score }}%</span><span v-else>目标特征匹配</span><button v-if="!hideJump" class="result-jump-btn" title="以图搜图" @click.stop="setRoute('imageSearch', { prefill: item.image })">⌕</button></div>
+        <div v-if="showScore || !hideJump" class="result-card-footer"><span v-if="showScore" class="result-similarity" :style="{ color: similarityColor(item.score) }">相似度 {{ item.score }}%</span><span v-else>目标特征匹配</span><span v-if="item.reviewVerdict" class="review-verdict" :class="item.reviewVerdictClass">{{ item.reviewVerdict }}</span><button v-if="!hideJump" class="result-jump-btn" title="以图搜图" @click.stop="setRoute('imageSearch', { prefill: item.image })">⌕</button></div>
         <div v-if="showActions" class="result-card-actions">
           <button class="btn" @click.stop="$emit('image-action', { action: 'imageSearch', item, index: globalIndex(index) })">以图搜图</button>
           <button class="btn primary" @click.stop="$emit('image-action', { action: 'quickDeploy', item, index: globalIndex(index) })">快速布防</button>
