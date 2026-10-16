@@ -1,85 +1,191 @@
 <template>
-  <section class="content wide search-experience-page text-image-page">
-    <div class="search-page-head"><div class="title-row"><div><h1 class="page-title">文搜图</h1><p class="page-subtitle">文字描述人员或车辆属性搜索图片</p></div></div></div>
-    <div class="panel search-panel prototype-search-panel">
-      <div class="exact-mode-tabs text-image-mode-switch" role="tablist">
-        <button v-for="opt in searchModeOptions" :key="opt.value" class="exact-mode-tab" :class="{ active: searchMode === opt.value }" role="tab" :aria-selected="searchMode === opt.value" :title="opt.tip" @click="setSearchMode(opt.value)">{{ opt.label }}</button>
-      </div>
-      <div class="text-image-filter-row">
-        <div class="deploy-field text-image-area-field"><area-camera-picker v-model="personFilters.area" aria-label="区域" /></div>
-        <div class="deploy-field text-image-range-field"><date-time-range-picker v-model:start="personFilters.start" v-model:end="personFilters.end" /></div>
-        <input class="input text-image-query-input" v-model="query" placeholder="描述你要查找的目标特征，如：戴眼镜、穿深色外套、出现在办公区附近的人员" @keyup.enter="searchImages" />
-        <button class="btn primary" :disabled="searching" @click="searchImages">⌕ 搜索图片</button>
-      </div>
-      <div class="text-image-option-row">
-        <div v-if="searchMode !== 'exact'" class="text-image-option-field">
-          <span class="text-image-option-label">相似度阈值</span>
-          <div class="track-threshold-control"><input type="range" min="0" max="100" v-model.number="confidence" aria-label="相似度阈值" /><strong>{{ confidence }}%</strong></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 分析过程：检索链路 + 查询理解（对应原型「分析过程」折叠块，数据来自 process 字段） -->
-    <div v-if="searched && process" class="panel text-image-process-panel">
-      <button class="text-image-process-toggle" type="button" :aria-expanded="!processCollapsed" @click="processCollapsed = !processCollapsed">
-        <span>分析过程</span>
-        <span class="text-image-process-summary">{{ resultMessage }}</span>
-        <span class="text-image-process-caret">{{ processCollapsed ? '展开 ⌄' : '收起 ⌃' }}</span>
+  <section class="content wide text-image-page sxin-workspace">
+    <!-- 左侧：万物搜会话面板（历史/分组暂无接口，占位） -->
+    <aside class="sxin-session-panel">
+      <h2 class="sxin-panel-title">万物搜</h2>
+      <button class="sxin-new-session" type="button" @click="resetSession">＋ 新建会话</button>
+      <input class="sxin-history-search" placeholder="搜索历史记录..." @keyup.enter="placeholderFeature" />
+      <p class="sxin-panel-label">对话分组</p>
+      <button class="sxin-add-group" type="button" @click="placeholderFeature">⊕ 新增分组</button>
+      <button v-for="group in sessionGroups" :key="group" class="sxin-group-item" type="button" @click="placeholderFeature">
+        <span class="sxin-folder-icon">📁</span>{{ group }}
       </button>
-      <div v-show="!processCollapsed" class="text-image-process-body">
-        <div v-if="understandingMessages.length" class="text-image-understanding">
-          <strong>{{ process.understanding?.title || '查询理解' }}</strong>
-          <ul><li v-for="(msg, i) in understandingMessages" :key="i">{{ msg }}</li></ul>
-        </div>
-        <div v-if="processSteps.length" class="text-image-step-list">
-          <div v-for="(step, i) in processSteps" :key="step.key || i" class="text-image-step">
-            <b>{{ i + 1 }}</b>
-            <div class="text-image-step-info"><strong>{{ step.title }}</strong><span>{{ step.message }}</span></div>
-            <em v-if="step.duration_ms">耗时 {{ step.duration_ms }} ms</em>
+      <p class="sxin-panel-label">最近对话</p>
+      <button v-for="item in recentChats" :key="item" class="sxin-history-item" type="button" :title="item" @click="placeholderFeature">{{ item }}</button>
+    </aside>
+
+    <!-- 中间：聊天区 + 底部输入 -->
+    <div class="sxin-main">
+      <div class="sxin-chat" ref="chatScroll">
+        <div class="sxin-msg assistant">
+          <div class="sxin-avatar">SXin</div>
+          <div class="sxin-bubble sxin-greeting">
+            👋 您好！我是视觉大模型助手，可以通过自然语言帮您查找视频、定位目标、分析内容。例如：<span class="sxin-greeting-example">"帮我查找今天下午14点到18点B2层停车场的监控"</span>
           </div>
         </div>
-        <p v-if="candidateTruncated" class="text-image-candidate-tip">⚠ 语义候选已达到最大扫描窗口，结果可能不完整，可尝试提高相似度阈值或补充时间、地点条件。</p>
+
+        <template v-for="(round, ri) in rounds" :key="ri">
+          <div class="sxin-msg user">
+            <div class="sxin-user-side">
+              <div class="sxin-bubble sxin-bubble-user">{{ round.query }}</div>
+              <span class="sxin-msg-time">{{ round.time }}</span>
+            </div>
+            <div class="sxin-user-avatar">User</div>
+          </div>
+
+          <div class="sxin-msg assistant">
+            <div class="sxin-avatar">SXin</div>
+            <div class="sxin-assistant-body">
+              <!-- 思考过程卡：数据来自 textSearchQuery 响应 process 字段 -->
+              <div class="sxin-think-card">
+                <button class="sxin-think-toggle" type="button" :aria-expanded="!round.thinkCollapsed" @click="round.thinkCollapsed = !round.thinkCollapsed">
+                  <span>这是思考过程</span>
+                  <span class="sxin-think-caret">{{ round.thinkCollapsed ? '⌄' : '⌃' }}</span>
+                </button>
+                <div v-show="!round.thinkCollapsed" class="sxin-think-body">
+                  <div class="sxin-think-progress">
+                    <span>{{ round.loading ? '深度特征提取中...' : '深度特征提取完成' }}</span>
+                    <span class="sxin-think-progress-value">{{ round.loading ? '' : '100' }}</span>
+                  </div>
+                  <div class="sxin-think-bar"><i :style="{ width: round.loading ? '60%' : '100%' }"></i></div>
+                  <p class="sxin-think-subtitle">⛶ 意图拆解</p>
+                  <div v-if="round.loading" class="sxin-think-loading"><span class="search-loading-spinner"></span>正在检索，请稍候…</div>
+                  <template v-else>
+                    <div v-for="(step, si) in roundSteps(round)" :key="step.key || si" class="sxin-think-step">
+                      <span class="sxin-think-step-name">{{ step.title }}</span>
+                      <em class="sxin-think-step-pct">100%</em>
+                    </div>
+                    <ul v-if="roundUnderstanding(round).length" class="sxin-think-understanding">
+                      <li v-for="(msg, mi) in roundUnderstanding(round)" :key="mi">{{ msg }}</li>
+                    </ul>
+                  </template>
+                </div>
+              </div>
+
+              <template v-if="round.done">
+                <p class="sxin-analysis-head">视觉分析结果 <em class="sxin-done-badge">完成</em></p>
+                <div class="sxin-result-card">
+                  <div class="sxin-result-divider"><span>分析完成</span></div>
+                  <p class="sxin-result-summary">✅ {{ round.resultMessage || `检测到${round.items.length}张目标图像` }}</p>
+                  <div v-if="round.items.length" class="sxin-result-thumbs">
+                    <img v-for="thumb in round.items.slice(0, 3)" :key="thumb.desc || thumb.image" :src="thumb.image" alt="" />
+                    <span v-if="round.items.length > 3" class="sxin-result-ellipsis">……</span>
+                    <span class="sxin-result-total">（共{{ round.items.length }}张）</span>
+                  </div>
+                  <p class="sxin-result-tip">💡 您可以点击分析结果查看详细画面，或将直接点击功能按钮进行下一步操作</p>
+                </div>
+                <div class="sxin-action-card">
+                  <div class="sxin-action-info">
+                    <strong>分析结果</strong>
+                    <span>发现 {{ round.items.length }} 张相似图像……</span>
+                    <time>{{ round.time }}</time>
+                  </div>
+                  <button class="sxin-action-btn" type="button" :disabled="!round.items.length" @click="jumpImageSearch(round)">以图搜图</button>
+                  <button class="sxin-action-btn" type="button" :disabled="!round.items.length" @click="jumpTrack(round)">轨迹还原</button>
+                  <button class="sxin-action-more" type="button" @click="placeholderFeature">···</button>
+                </div>
+                <p class="sxin-drag-tip">💡 您可以点击右侧关键帧查看详细画面，或将关键帧拖拽到输入框进行进一步操作</p>
+                <div class="sxin-feedback">
+                  <button type="button" @click="placeholderFeature">👍 有用</button>
+                  <button type="button" @click="placeholderFeature">👎 无用</button>
+                  <button type="button" :disabled="searching" @click="regenerate(round)">🔄 重新生成</button>
+                </div>
+              </template>
+              <p v-else-if="round.error" class="sxin-error">{{ round.error }}</p>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- 底部输入区：文搜视频/图搜图 chips 跳转对应页面，附件/语音占位 -->
+      <div class="sxin-input-bar">
+        <div class="sxin-input-top">
+          <button class="sxin-input-icon" type="button" title="附件（即将上线）" @click="placeholderFeature">📎</button>
+          <button class="sxin-input-icon" type="button" title="上传图片（即将上线）" @click="placeholderFeature">🖼</button>
+          <input v-model="query" class="sxin-input" placeholder="支持拖拽图片或视频上传 (Max 50MB)" @keyup.enter="send" />
+        </div>
+        <div class="sxin-input-bottom">
+          <div class="sxin-mode-chips">
+            <button type="button" @click="goTextVideo">🔍 文搜视频</button>
+            <button type="button" class="active">📊 文搜图</button>
+            <button type="button" @click="goImageSearch">📐 图搜图</button>
+          </div>
+          <div class="sxin-input-actions">
+            <button class="sxin-input-icon" type="button" title="语音输入（即将上线）" @click="placeholderFeature">🎤</button>
+            <button class="sxin-send" type="button" :disabled="searching" @click="send">发送指令 ➤</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="result-toolbar"><div class="result-count">{{ searched ? '共找到' : '等待检索' }} <b>{{ searched ? totalCount : 0 }}</b> 条相似结果</div></div>
-    <image-results v-if="searched" :items="paginatedResults" :show-score="searchMode !== 'exact'" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @open-result="openResultCrop"></image-results>
-    <div v-if="searched" class="image-search-result-footer">
-      <div class="exact-pagination">
-        <span>显示 {{ pageStart }}-{{ pageEnd }} 条</span>
-        <select class="select" v-model.number="pageSize" @change="handlePageSizeChange" aria-label="每页条数">
-          <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }} 条/页</option>
-        </select>
-        <button :disabled="page === 1 || searching" @click="goToPage(page - 1)">上一页</button>
-        <span class="text-image-page-indicator">第 {{ page }} 页</span>
-        <button :disabled="!hasMore || searching" @click="goToPage(page + 1)">下一页</button>
+    <!-- 右侧：分析结果面板（展示最近一轮检索结果） -->
+    <aside class="sxin-result-panel">
+      <div class="sxin-result-head">
+        <h3>分析结果</h3>
+        <span class="sxin-count-badge">{{ latestItems.length }} 个事件</span>
+      </div>
+      <div v-if="latestItems.length" class="sxin-card-grid">
+        <div v-for="(item, index) in latestItems" :key="item.desc || index" class="sxin-card" :class="{ selected: item.checked }">
+          <label class="sxin-card-check" @click.stop>
+            <input type="checkbox" v-model="item.checked" aria-label="选择该结果" />
+          </label>
+          <div class="sxin-card-tools">
+            <button type="button" title="图像布控" @click="openCrop(item, 'quickDeploy')">🛡</button>
+            <button type="button" title="监控回放" @click="playVideo(item)">🎥</button>
+            <button type="button" title="以图搜图" @click="openCrop(item, 'imageSearch')">🔍</button>
+          </div>
+          <img class="sxin-card-img" :src="item.image" :alt="item.title" @click="openCrop(item, 'imageSearch')" />
+          <span class="sxin-card-match">匹配度&nbsp;&nbsp;{{ item.score }}%</span>
+          <p class="sxin-card-loc">📍 {{ item.location }}</p>
+          <p class="sxin-card-time">🕐 {{ item.date }}</p>
+        </div>
+      </div>
+      <div v-else class="sxin-result-empty">
+        <strong>暂无分析结果</strong>
+        <span>在底部输入框描述目标特征，点击「发送指令」开始检索</span>
+      </div>
+      <button class="sxin-track-btn" type="button" :disabled="!checkedItems.length" @click="jumpTrackSelection">轨迹还原</button>
+    </aside>
+
+    <!-- 框选目标弹窗：以图搜图 / 图像布控 / 轨迹还原共用，确认后跳转对应页面 -->
+    <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" :action="cropAction" :initial-bbox="cropTarget?.position" :confirm-label="cropConfirmLabel" @close="closeCrop" @confirm="confirmCrop"></image-crop-dialog>
+
+    <!-- 监控回放弹层（条目带 video_url 时可用） -->
+    <div v-if="videoPreviewUrl" class="sxin-video-mask" @click.self="videoPreviewUrl = ''">
+      <div class="sxin-video-box">
+        <button class="sxin-video-close" type="button" @click="videoPreviewUrl = ''">✕</button>
+        <video :src="videoPreviewUrl" controls autoplay></video>
       </div>
     </div>
-    <div v-else class="search-empty-state"><img :src="emptyBg" alt="" class="search-empty-illustration" /><strong>暂无搜索结果</strong><strong>设置筛选条件或输入目标描述后，点击「搜索图片」</strong></div>
-    <!-- 点击结果图：与图搜图页一致的框选目标弹窗，默认框选范围取该图数据的 position 像素框 -->
-    <image-crop-dialog :open="cropDialogOpen" :item="cropTarget" action="imageSearch" :item-index="cropTargetIndex" :initial-bbox="cropTarget?.position" confirm-label="以图搜图" @close="closeImageCrop" @confirm="confirmImageCrop"></image-crop-dialog>
-    <div v-if="searching" class="search-loading-mask"><div class="search-loading-box"><span class="search-loading-spinner"></span><p>正在搜索，请稍候…</p></div></div>
   </section>
 </template>
 
 <script lang="ts">
 import { defineComponent } from "vue";
-import ImageResults from "../components/ImageResults.vue";
 import ImageCropDialog from "../components/ImageCropDialog.vue";
-import AreaCameraPicker from "../components/AreaCameraPicker.vue";
-import DateTimeRangePicker from "../components/DateTimeRangePicker.vue";
-import emptyBg from "../assets/empty_bg.png";
 import { api, assetUrl } from "../api";
 import type { TextSearchItem, TextSearchProcess, TextSearchProcessStep } from "../api";
 
-type SearchMode = "exact" | "fuzzy" | "balanced";
+// 卡片图标的下一步动作：以图搜图 / 图像布控 / 轨迹还原（均先打开框选弹窗）
+type CropAction = "imageSearch" | "quickDeploy" | "track";
+
+type ChatRound = {
+  query: string;
+  time: string;
+  loading: boolean;
+  done: boolean;
+  error: string;
+  process: TextSearchProcess | null;
+  resultMessage: string;
+  items: any[];
+  thinkCollapsed: boolean;
+};
 
 function pad2(n: number) {
   return n.toString().padStart(2, "0");
 }
 
 // create_time (epoch seconds/ms or string) -> "YYYY-MM-DD HH:mm:ss"
-// ImageResults renders item.date.slice(11, 19) as the time, so keep this shape.
 function formatCreateTime(value?: number | string | null): string {
   let d: Date | null = null;
   if (value !== undefined && value !== null && value !== "") {
@@ -99,17 +205,12 @@ function formatCreateTime(value?: number | string | null): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
-// "2026-07-12T08:30" -> "2026-07-12 08:30:00" (retrieve API format)
-function toRetrieveApiDateTime(value: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-  const [date, rawTime = "00:00"] = value.split("T");
-  const time = rawTime.length === 5 ? `${rawTime}:00` : rawTime;
-  return `${date} ${time}`;
+// 对话气泡时间 -> "YYYY/MM/DD HH:mm"
+function formatChatTime(d: Date): string {
+  return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-// 相似度 0~1 -> 百分比字符串（ImageResults 展示为 相似度 xx%）
+// 相似度 0~1 -> 百分比字符串
 function similarityToPercent(value?: number | null): string {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) {
     return "0";
@@ -117,7 +218,7 @@ function similarityToPercent(value?: number | null): string {
   return (Number(value) * 100).toFixed(2);
 }
 
-// Map a retrieve API item to the item shape ImageResults / DrawerHost expect.
+// Map a retrieve API item to the card shape used by the result panel / crop dialog.
 // exact/balanced 返回完整 ES 文档（payload），fuzzy 只返回 es_id/image_url/create_time/camera_locate/similarity 精简字段。
 function mapTextSearchItem(item: TextSearchItem, index: number) {
   const payload = item.payload ?? {};
@@ -127,11 +228,9 @@ function mapTextSearchItem(item: TextSearchItem, index: number) {
     payload.top_color?.[0] && payload.top_type ? `${payload.top_color[0]}${payload.top_type}` : payload.top_color?.[0],
     payload.bottom_color?.[0] && payload.bottom_type ? `${payload.bottom_color[0]}${payload.bottom_type}` : payload.bottom_color?.[0]
   ].filter(Boolean);
-  const extra = payload as Record<string, any>;
   return {
     title: titleParts.join("·") || `检索结果 ${index + 1}`,
     image: assetUrl(isFlatItem ? item.image_url : payload.image_url),
-    // 卡片左上角 ⇄ 切换按钮播放的视频（后端 video_url 字段，无则不显示切换按钮）
     video: assetUrl(payload.video_url),
     location: (isFlatItem ? item.camera_locate : payload.camera_locate || payload.camera_id) || "未知摄像头",
     date: formatCreateTime(isFlatItem ? item.create_time : payload.create_time),
@@ -139,184 +238,191 @@ function mapTextSearchItem(item: TextSearchItem, index: number) {
     desc: item.esid || item.document_id || item.es_id || "",
     // 目标在原图中的像素框：框选弹窗的默认框选范围（fuzzy 精简模式可能不返回）
     position: isFlatItem ? item.position : payload.position,
-    // 卡片属性行；值由 ImageResults 统一去掉方括号与引号，为空时该字段（含字段名）不展示
-    age: extra.age,
-    accessory: extra.accessory,
-    topColor: payload.top_color,
-    action: extra.action
+    // 结果面板左上角批量勾选
+    checked: false
   };
 }
 
 export default defineComponent({
   name: "TextImagePage",
   props: ["store", "state", "selectedVersion", "selectedDeployTask", "selectedEvent", "selectedAlgorithm"],
-  components: { ImageResults, ImageCropDialog, AreaCameraPicker, DateTimeRangePicker },
+  components: { ImageCropDialog },
   inject: {
     showToast: { from: "showToast", default: (m: string) => {} },
     setRoute: { from: "setRoute", default: (route: string, options?: any) => {} }
   },
   data() {
     return {
-      emptyBg,
       query: "",
-      // 检索模式：exact 精确 / balanced 均衡 / fuzzy 模糊语义（Retrieve API search_mode）
-      searchMode: "exact" as SearchMode,
-      searchModeOptions: [
-        { value: "exact" as SearchMode, label: "精确检索", tip: "解析属性、时间、地点等结构化条件，返回完整 ES 文档" },
-        { value: "balanced" as SearchMode, label: "均衡检索", tip: "语义相似度与精确条件取交集，返回完整文档与相似度" },
-        { value: "fuzzy" as SearchMode, label: "模糊语义", tip: "整句描述转向量做语义相似度检索，按相似度降序返回" }
-      ],
-      // 模糊/均衡模式相似度阈值（%），提交时换算为 0~1 的 confidence
-      confidence: 50,
-      searched: false,
-      page: 1,
-      pageSize: 12,
-      pageSizeOptions: [12, 24, 36],
-      // 结果图框选弹窗（与图搜图页同一组件）：点击结果图打开，确认后携框选区域跳转图搜图
+      searching: false,
+      rounds: [] as ChatRound[],
+      // 会话分组 / 最近对话：无接口，静态占位
+      sessionGroups: ["分组会话文件夹1", "分组会话文件夹2", "分组会话文件夹3"],
+      recentChats: ["关于视觉大模型的应用方法…", "帮我查询昨天下午四点的金…", "问题咨询", "万物搜应用于什么时候合…"],
+      // 框选弹窗
       cropDialogOpen: false,
       cropTarget: null as any,
-      cropTargetIndex: -1,
-      personFilters: { area: "", start: "", end: "" },
-      // Real text-search state (retrieve API wiring)
-      searching: false,
-      realResults: [] as any[],
-      // 分析过程展示数据（process 字段）与结果摘要
-      process: null as TextSearchProcess | null,
-      processCollapsed: false,
-      resultMessage: "",
-      // 服务端分页状态：balanced 取 pagination.has_more；exact 按“返回满页”推断；fuzzy 本地分页
-      serverHasMore: false,
-      serverReturned: 0,
-      candidateTruncated: false
+      cropAction: "imageSearch" as CropAction,
+      // 监控回放弹层
+      videoPreviewUrl: ""
     };
   },
   computed: {
-    allResults(): any[] {
-      // 只展示真实接口结果；未检索或检索失败时不回退到内置 mock 图库
-      return this.realResults;
-    },
-    processSteps(): TextSearchProcessStep[] {
-      return this.process?.steps ?? [];
-    },
-    understandingMessages(): string[] {
-      return this.process?.understanding?.messages ?? [];
-    },
-    // fuzzy 为本地分页，总数即返回条数；exact/balanced 为服务端分页，总数仅表示当前页条数
-    totalCount(): number {
-      return this.searchMode === "fuzzy" ? this.allResults.length : this.serverReturned;
-    },
-    hasMore(): boolean {
-      if (this.searchMode === "fuzzy") {
-        return this.page < this.pageCount;
+    // 右侧面板展示最近一轮已完成检索的结果
+    latestItems(): any[] {
+      for (let i = this.rounds.length - 1; i >= 0; i--) {
+        if (this.rounds[i].done && this.rounds[i].items.length) {
+          return this.rounds[i].items;
+        }
       }
-      return this.serverHasMore;
+      return [];
     },
-    pageCount(): number {
-      return Math.max(1, Math.ceil(this.allResults.length / this.pageSize));
+    checkedItems(): any[] {
+      return this.latestItems.filter((item) => item.checked);
     },
-    paginatedResults(): any[] {
-      if (this.searchMode === "fuzzy") {
-        const start = (this.page - 1) * this.pageSize;
-        return this.allResults.slice(start, start + this.pageSize);
-      }
-      // exact/balanced 已由服务端分页，当前页数据即 allResults
-      return this.allResults;
-    },
-    pageStart(): number {
-      return this.paginatedResults.length ? (this.page - 1) * this.pageSize + 1 : 0;
-    },
-    pageEnd(): number {
-      return (this.page - 1) * this.pageSize + this.paginatedResults.length;
+    cropConfirmLabel(): string {
+      const labels: Record<CropAction, string> = { imageSearch: "搜索图像", quickDeploy: "执行布控", track: "还原轨迹" };
+      return labels[this.cropAction];
     }
   },
   methods: {
-    setSearchMode(mode: SearchMode) {
-      if (this.searching || this.searchMode === mode) return;
-      this.searchMode = mode;
+    roundSteps(round: ChatRound): TextSearchProcessStep[] {
+      return round.process?.steps ?? [];
     },
-    async searchImages() {
+    roundUnderstanding(round: ChatRound): string[] {
+      return round.process?.understanding?.messages ?? [];
+    },
+    placeholderFeature() {
+      (this as any).showToast("该功能即将上线，敬请期待");
+    },
+    resetSession() {
+      if (this.searching) return;
+      this.rounds = [];
+      this.query = "";
+    },
+    goTextVideo() {
+      (this as any).setRoute("exact");
+    },
+    goImageSearch() {
+      (this as any).setRoute("imageSearch");
+    },
+    send() {
       const message = this.query.trim();
       if (!message) {
-        (this as any).showToast("请输入目标描述后再搜索");
+        (this as any).showToast("请输入目标描述后再发送");
         return;
       }
       if (this.searching) return;
-      this.page = 1;
-      await this.runQuery();
+      const round: ChatRound = {
+        query: message,
+        time: formatChatTime(new Date()),
+        loading: true,
+        done: false,
+        error: "",
+        process: null,
+        resultMessage: "",
+        items: [],
+        thinkCollapsed: false
+      };
+      this.rounds.push(round);
+      this.query = "";
+      this.scrollChatToBottom();
+      this.runQuery(this.rounds.length - 1);
     },
-    async runQuery() {
-      const message = this.query.trim();
-      if (!message || this.searching) return;
-      this.searched = true;
+    regenerate(round: ChatRound) {
+      const index = this.rounds.indexOf(round);
+      if (this.searching || index < 0 || this.rounds[index].loading) return;
+      this.runQuery(index);
+    },
+    // 注意：必须通过 this.rounds[index] 代理改写字段，直接改入参原始对象会绕过 Vue 响应式触发
+    async runQuery(index: number) {
+      const round = this.rounds[index];
+      if (!round) return;
       this.searching = true;
+      round.loading = true;
+      round.done = false;
+      round.error = "";
       try {
-        const filters = this.personFilters;
-        const response = await api.textSearchQuery({
-          message,
-          startTime: toRetrieveApiDateTime(filters.start),
-          endTime: toRetrieveApiDateTime(filters.end),
-          location: filters.area || undefined,
-          searchMode: this.searchMode,
-          confidence: this.searchMode === "exact" ? undefined : this.confidence / 100,
-          page: this.page,
-          pageSize: this.pageSize
-        });
+        const response = await api.textSearchQuery({ message: round.query, pageSize: 24 });
         const data = response.data ?? {};
         const items = data.items ?? [];
-        this.realResults = items.map(mapTextSearchItem);
-        this.process = data.process ?? null;
-        this.resultMessage = response.message || `检索完成，共找到 ${items.length} 条结果`;
-        this.candidateTruncated = !!data.candidate?.truncated;
-        // 分页口径：balanced 以 pagination.has_more 为准；exact 无全局命中数，按返回满页推断可能有下一页
-        this.serverReturned = items.length;
-        this.serverHasMore = this.searchMode === "balanced" ? !!data.pagination?.has_more : items.length >= this.pageSize;
-        (this as any).showToast(this.resultMessage);
+        round.items = items.map(mapTextSearchItem);
+        round.process = data.process ?? null;
+        round.resultMessage = response.message || `检测到${items.length}张目标图像`;
+        round.done = true;
       } catch (error) {
-        this.realResults = [];
-        this.process = null;
-        this.serverHasMore = false;
-        this.serverReturned = 0;
-        this.resultMessage = "";
-        (this as any).showToast(error instanceof Error ? error.message : "文搜图检索失败");
+        round.items = [];
+        round.process = null;
+        round.error = error instanceof Error ? error.message : "文搜图检索失败";
+        (this as any).showToast(round.error);
       } finally {
+        round.loading = false;
         this.searching = false;
+        this.scrollChatToBottom();
       }
     },
-    goToPage(page: number) {
-      const target = Math.max(1, page);
-      if (target === this.page || this.searching) return;
-      this.page = target;
-      if (this.searchMode === "fuzzy") {
-        // fuzzy 为本地分页，无需重新请求
-        return;
-      }
-      this.runQuery();
+    scrollChatToBottom() {
+      this.$nextTick(() => {
+        const el = this.$refs.chatScroll as HTMLElement | undefined;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
     },
-    handlePageSizeChange() {
-      this.page = 1;
-      if (this.searchMode !== "fuzzy" && this.searched) {
-        this.runQuery();
-      }
-    },
-    // 点击结果图：打开框选目标弹窗（默认框选范围取条目 position 像素框）
-    openResultCrop(payload: any) {
-      if (!payload || !payload.item || !payload.item.image) return;
-      this.cropTarget = payload.item;
-      this.cropTargetIndex = payload.index ?? -1;
+    // 打开框选弹窗（默认框选范围取条目 position 像素框）
+    openCrop(item: any, action: CropAction) {
+      if (!item || !item.image) return;
+      this.cropTarget = item;
+      this.cropAction = action;
       this.cropDialogOpen = true;
     },
-    closeImageCrop() {
+    closeCrop() {
       this.cropDialogOpen = false;
       this.cropTarget = null;
-      this.cropTargetIndex = -1;
     },
-    // 框选确认：携结果图与框选区域跳转图搜图页（参考图预填 + 裁剪框参与检索）
-    confirmImageCrop(payload: any) {
+    // 框选确认：携结果图与框选区域跳转对应页面
+    confirmCrop(payload: any) {
       const item = this.cropTarget;
       const crop = payload?.crop;
-      this.closeImageCrop();
+      const action = this.cropAction;
+      this.closeCrop();
       if (!item || !item.image || !crop) return;
-      (this as any).setRoute("imageSearch", { prefill: item.image, imageCrop: crop });
+      if (action === "quickDeploy") {
+        (this as any).setRoute("newDeployTask", { prefill: item.image, imageCrop: crop });
+      } else if (action === "track") {
+        (this as any).setRoute("track", { prefill: item.image, imageCrop: crop, trackView: "timeline" });
+      } else {
+        (this as any).setRoute("imageSearch", { prefill: item.image, imageCrop: crop });
+      }
+    },
+    jumpImageSearch(round: ChatRound) {
+      if (!round.items.length) {
+        (this as any).showToast("暂无可用的检索结果");
+        return;
+      }
+      this.openCrop(round.items[0], "imageSearch");
+    },
+    jumpTrack(round: ChatRound) {
+      if (!round.items.length) {
+        (this as any).showToast("暂无可用的检索结果");
+        return;
+      }
+      this.openCrop(round.items[0], "track");
+    },
+    // 面板级轨迹还原：取首张勾选的图像
+    jumpTrackSelection() {
+      if (!this.checkedItems.length) {
+        (this as any).showToast("请先勾选目标图像");
+        return;
+      }
+      this.openCrop(this.checkedItems[0], "track");
+    },
+    playVideo(item: any) {
+      if (item && item.video) {
+        this.videoPreviewUrl = item.video;
+      } else {
+        (this as any).showToast("该结果暂无监控视频");
+      }
     }
   }
 });
