@@ -38,8 +38,8 @@
             <div class="i2i-attr-grid">
               <select class="select" v-model="gender" aria-label="性别"><option>全部性别</option><option>男</option><option>女</option></select>
               <select class="select" v-model="ageGroup" aria-label="年龄段"><option>全部年龄段</option><option>儿童</option><option>青年</option><option>中年</option><option>老年</option></select>
-              <select class="select" v-model="topType" aria-label="上衣类型"><option>全部类型</option><option>短袖</option><option>T恤</option><option>衬衫</option><option>安全背心</option><option>夹克</option><option>羽绒服</option><option>保安制服</option><option>长袖</option><option>保洁服</option><option>连衣裙</option></select>
-              <select class="select" v-model="bottomColor" aria-label="下衣颜色"><option>全部颜色</option><option>黑色</option><option>白色</option><option>灰色</option><option>红色</option><option>橙色</option><option>黄色</option><option>绿色</option><option>蓝色</option><option>紫色</option><option>棕色</option></select>
+              <select class="select" v-model="topType" aria-label="上衣类型"><option>全部上衣类型</option><option>短袖</option><option>T恤</option><option>衬衫</option><option>安全背心</option><option>夹克</option><option>羽绒服</option><option>保安制服</option><option>长袖</option><option>保洁服</option><option>连衣裙</option></select>
+              <select class="select" v-model="bottomColor" aria-label="下衣颜色"><option>全部上衣颜色</option><option>黑色</option><option>白色</option><option>灰色</option><option>红色</option><option>橙色</option><option>黄色</option><option>绿色</option><option>蓝色</option><option>紫色</option><option>棕色</option></select>
             </div>
           </div>
           <div class="track-query-block">
@@ -284,8 +284,8 @@ export default defineComponent({
       // 同时在前端再过滤一次兜底（旧版上游会忽略未知字段）；下衣颜色上游不支持，仅前端过滤
       gender: "全部性别",
       ageGroup: "全部年龄段",
-      topType: "全部类型",
-      bottomColor: "全部颜色",
+      topType: "全部上衣类型",
+      bottomColor: "全部上衣颜色",
       // 结果二次筛选：输入中的条件（resultFilters）点「筛选」后才应用到 appliedResultFilters
       resultFilters: emptyResultFilters(),
       appliedResultFilters: emptyResultFilters(),
@@ -596,8 +596,8 @@ export default defineComponent({
       this.topK = 10;
       this.gender = "全部性别";
       this.ageGroup = "全部年龄段";
-      this.topType = "全部类型";
-      this.bottomColor = "全部颜色";
+      this.topType = "全部上衣类型";
+      this.bottomColor = "全部上衣颜色";
       this.resultFilters = emptyResultFilters();
       this.appliedResultFilters = emptyResultFilters();
       this.lastSearchImageUrl = "";
