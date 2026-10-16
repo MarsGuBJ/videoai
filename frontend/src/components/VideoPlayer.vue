@@ -599,6 +599,20 @@ export default defineComponent({
       this.hevcUnsupported = false;
       this.message = '已停止';
     },
+    // 暂停但保持画面：抓取当前帧作为静态图展示（复用 fallback 图片通道，video 元素隐藏），
+    // 随后释放底层流；恢复播放由调用方重新起流（url 变更触发 setupStream 清掉静态帧）。
+    // 返回 false 表示暂无可抓取的帧（流尚未出画面），调用方退化为完全停止
+    pauseKeepFrame(): boolean {
+      const frame = this.snapshot();
+      if (!frame) {
+        return false;
+      }
+      this.teardown();
+      this.fallbackUrl = frame;
+      this.hevcUnsupported = false;
+      this.message = '';
+      return true;
+    },
     restart() {
       this.reloadToken += 1;
     },

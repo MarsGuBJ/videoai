@@ -510,8 +510,13 @@ export default defineComponent({
         return;
       }
       if (this.playbackPlaying) {
-        // 暂停即停流，进度停留在当前位置
-        this.stopStreamOnly();
+        // 暂停：抓取当前帧保持画面（静态图），底层流释放；进度停留，再点播放从当前位置重新起流
+        const shell = (this.$refs as any).playbackPlayerShell;
+        const player = shell?.videoInstance?.();
+        if (!player?.pauseKeepFrame?.()) {
+          // 流尚未出画面，无帧可抓时退化为停止
+          this.stopStreamOnly();
+        }
         this.playbackPlaying = false;
         this.stopProgressTimer();
         return;

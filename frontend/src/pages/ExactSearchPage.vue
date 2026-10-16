@@ -1904,9 +1904,9 @@ export default defineComponent({
       }
       const selectedSource = this.selectedSource as any;
       if (selectedSource && selectedSource.streamUrl) {
-        // 流模式：暂停即停流（进度停留）；连续推送流无法续播，从当前位置重新起流
+        // 流模式：暂停保持当前画面（抓帧静态展示），进度停留；连续推送流无法续播，从当前位置重新起流
         if (this.playerPlaying) {
-          this.stopSimulation();
+          this.pauseStreamKeepFrame();
           return;
         }
         if (this.currentTime >= this.playerDuration) this.currentTime = 0;
@@ -1917,6 +1917,19 @@ export default defineComponent({
       else {
         this.playerPlaying = true;
         this.startPlayTimer();
+      }
+    },
+    // 流模式暂停：与 stopSimulation 一样停进度、使在途起流结果失效，但底层流改为
+    // 抓帧保持画面（VideoPlayer.pauseKeepFrame）；抓不到帧（流尚未出画面）时退化为完全停止
+    pauseStreamKeepFrame() {
+      if (this.playTimer) window.clearInterval(this.playTimer);
+      this.playTimer = null;
+      this.playerPlaying = false;
+      this.pendingStreamOffset = null;
+      this.streamGeneration += 1;
+      const streamPlayer = this.$refs.exactStreamPlayer as any;
+      if (!streamPlayer || typeof streamPlayer.pauseKeepFrame !== "function" || !streamPlayer.pauseKeepFrame()) {
+        if (streamPlayer && streamPlayer.stop) streamPlayer.stop();
       }
     },
     stopSimulation() {
