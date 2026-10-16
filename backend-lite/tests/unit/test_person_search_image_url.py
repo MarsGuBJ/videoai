@@ -119,7 +119,7 @@ def test_search_by_bbox_forwards_absolute_image_url(client: TestClient, monkeypa
 
 
 def test_search_by_bbox_forwards_attribute_filters(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    """search-by-bbox：人员属性筛选（性别/年龄段/上衣颜色）映射为上游 sex/age/top_color。"""
+    """search-by-bbox：人员属性筛选映射为上游 sex/age/top_color/top_type。"""
     captured = {}
 
     def fake_post(url, json, timeout):
@@ -138,6 +138,7 @@ def test_search_by_bbox_forwards_attribute_filters(client: TestClient, monkeypat
             "sex": "男",
             "age": "青年",
             "topColor": "白色",
+            "topType": "衬衫",
         },
     )
 
@@ -145,6 +146,7 @@ def test_search_by_bbox_forwards_attribute_filters(client: TestClient, monkeypat
     assert captured["json"]["sex"] == "男"
     assert captured["json"]["age"] == "青年"
     assert captured["json"]["top_color"] == "白色"
+    assert captured["json"]["top_type"] == "衬衫"
 
 
 def test_search_by_bbox_omits_empty_attribute_filters(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -160,13 +162,20 @@ def test_search_by_bbox_omits_empty_attribute_filters(client: TestClient, monkey
 
     response = client.post(
         "/api/person-search/search-by-bbox",
-        json={"imageUrl": "http://minio/a.jpg", "searchMethod": "reid", "sex": "", "topColor": None},
+        json={
+            "imageUrl": "http://minio/a.jpg",
+            "searchMethod": "reid",
+            "sex": "",
+            "topColor": None,
+            "topType": None,
+        },
     )
 
     assert response.status_code == 200
     assert "sex" not in captured["json"]
     assert "age" not in captured["json"]
     assert "top_color" not in captured["json"]
+    assert "top_type" not in captured["json"]
 
 
 @pytest.mark.parametrize("missing_status", [404, 500])

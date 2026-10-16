@@ -29,8 +29,8 @@
           <div class="track-query-block">
             <div class="field-label">搜索方法</div>
             <select class="select" v-model="searchMethod" aria-label="搜索方法">
-              <option value="reid">小模型(reid)</option>
-              <option value="vlm">大模型(vlm)</option>
+              <option value="reid">小模型</option>
+              <option value="vlm">大模型</option>
             </select>
           </div>
           <div class="track-query-block">
@@ -38,7 +38,7 @@
             <div class="i2i-attr-grid">
               <select class="select" v-model="gender" aria-label="性别"><option>全部性别</option><option>男</option><option>女</option></select>
               <select class="select" v-model="ageGroup" aria-label="年龄段"><option>全部年龄段</option><option>儿童</option><option>青年</option><option>中年</option><option>老年</option></select>
-              <select class="select" v-model="topColor" aria-label="上衣颜色"><option>全部颜色</option><option>黑色</option><option>白色</option><option>灰色</option><option>红色</option><option>橙色</option><option>黄色</option><option>绿色</option><option>蓝色</option><option>紫色</option><option>棕色</option></select>
+              <select class="select" v-model="topType" aria-label="上衣类型"><option>全部类型</option><option>短袖</option><option>T恤</option><option>衬衫</option><option>安全背心</option><option>夹克</option><option>羽绒服</option><option>保安制服</option><option>长袖</option><option>保洁服</option><option>连衣裙</option></select>
               <select class="select" v-model="bottomColor" aria-label="下衣颜色"><option>全部颜色</option><option>黑色</option><option>白色</option><option>灰色</option><option>红色</option><option>橙色</option><option>黄色</option><option>绿色</option><option>蓝色</option><option>紫色</option><option>棕色</option></select>
             </div>
           </div>
@@ -54,6 +54,7 @@
               <button type="button" :class="{ active: similarity === 75 }" @click="similarity = 75">75%</button>
               <button type="button" :class="{ active: similarity === 85 }" @click="similarity = 85">85%</button>
             </div>
+            <label class="video-device-include"><input type="checkbox" v-model="autoReview" />二次研判</label>
           </div>
         </div>
         <div class="track-query-actions">
@@ -72,20 +73,14 @@
             <span>阈值 <b>{{ lastThreshold }}%</b></span>
           </div>
           <div v-if="searched" class="i2i-result-filters">
-            <input class="input" v-model="resultFilters.shoeType" list="i2i-shoe-type-options" placeholder="鞋子类型" aria-label="鞋子类型" />
-            <datalist id="i2i-shoe-type-options"><option v-for="opt in filterOptions('shoeType')" :key="opt" :value="opt"></option></datalist>
-            <input class="input" v-model="resultFilters.hairType" list="i2i-hair-type-options" placeholder="头发类型" aria-label="头发类型" />
-            <datalist id="i2i-hair-type-options"><option v-for="opt in filterOptions('hairType')" :key="opt" :value="opt"></option></datalist>
-            <input class="input" v-model="resultFilters.hairColor" list="i2i-hair-color-options" placeholder="头发颜色" aria-label="头发颜色" />
-            <datalist id="i2i-hair-color-options"><option v-for="opt in filterOptions('hairColor')" :key="opt" :value="opt"></option></datalist>
-            <input class="input" v-model="resultFilters.action" list="i2i-action-options" placeholder="动作" aria-label="动作" />
-            <datalist id="i2i-action-options"><option v-for="opt in filterOptions('action')" :key="opt" :value="opt"></option></datalist>
-            <input class="input" v-model="resultFilters.bottomType" list="i2i-bottom-type-options" placeholder="下装类型" aria-label="下装类型" />
-            <datalist id="i2i-bottom-type-options"><option v-for="opt in filterOptions('bottomType')" :key="opt" :value="opt"></option></datalist>
-            <input class="input" v-model="resultFilters.bottomColor" list="i2i-bottom-color-options" placeholder="下装颜色" aria-label="下装颜色" />
-            <datalist id="i2i-bottom-color-options"><option v-for="opt in filterOptions('bottomColor')" :key="opt" :value="opt"></option></datalist>
+            <select class="select" v-model="resultFilters.shoeType" aria-label="鞋子类型"><option value="">鞋子类型</option><option>运动鞋</option><option>休闲鞋</option><option>皮鞋</option><option>拖鞋</option><option>布鞋</option><option>凉鞋</option><option>洞洞鞋</option><option>靴子</option></select>
+            <select class="select" v-model="resultFilters.hairType" aria-label="头发类型"><option value="">头发类型</option><option>短发</option><option>盘发</option><option>马尾</option><option>长发</option><option>光头</option><option>寸头</option></select>
+            <select class="select" v-model="resultFilters.hairColor" aria-label="头发颜色"><option value="">头发颜色</option><option>黑色</option><option>灰白</option><option>棕色</option><option>白色</option><option>红色</option><option>黄色</option></select>
+            <select class="select" v-model="resultFilters.action" aria-label="动作"><option value="">动作</option><option>站立</option><option>行走</option><option>吸烟</option><option>玩手机</option><option>坐着</option><option>打电话</option><option>做清洁</option></select>
+            <select class="select" v-model="resultFilters.bottomType" aria-label="下装类型"><option value="">下装类型</option><option>长裤</option><option>短裤</option><option>牛仔裤</option><option>裙子</option><option>七分裤</option><option>工作裤</option><option>工装裤</option><option>运动裤</option></select>
+            <select class="select" v-model="resultFilters.bottomColor" aria-label="下装颜色"><option value="">下装颜色</option><option>黑色</option><option>深灰色</option><option>深蓝色</option><option>米色</option><option>白色</option><option>卡其色</option></select>
             <button class="btn primary" @click="applyResultFilters">筛选</button>
-            <button class="btn" :disabled="reviewing" :title="reviewing ? '大模型研判中，请稍候' : '对全部命中记录做大模型二次研判（最多 19 条）'" @click="startReview">{{ reviewing ? '研判中…' : '二次研判' }}</button>
+            <button class="btn" :disabled="reviewing" :title="reviewing ? '二次研判中，请稍候' : '对勾选的命中记录做大模型二次研判（1~19 条）'" @click="startReview()">{{ reviewing ? '二次研判中...' : '二次研判' }}</button>
             <button class="btn" title="功能暂未开放" @click="todoFeature">步态过滤</button>
           </div>
           <div v-if="reviewSummary" class="i2i-review-summary">
@@ -95,7 +90,7 @@
             <span>耗时 <b>{{ reviewSummary.elapsedSeconds }}</b> s</span>
             <span class="i2i-review-conclusion" :title="reviewSummary.conclusion">{{ reviewSummary.conclusion }}</span>
           </div>
-          <image-results v-if="searched" :items="paginatedResults" :show-score="true" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @open-result="openResultSearch"></image-results>
+          <image-results v-if="searched" :items="paginatedResults" :show-score="true" :selectable="true" :selected-indexes="selectedResultIndexes" :index-offset="(page - 1) * pageSize" :hide-jump="true" :hide-description="true" :show-actions="false" :emit-open="true" :media-switchable="true" :show-attributes="true" @toggle-selection="toggleReviewSelection" @open-result="openResultSearch"></image-results>
           <div v-if="searched" class="image-search-result-footer">
             <div class="exact-pagination">
               <span>显示 {{ pageStart }}-{{ pageEnd }} 共 {{ filteredResults.length }} 条</span>
@@ -253,6 +248,7 @@ function mapSimilarPerson(result: SimilarPersonResult, index: number) {
     age: result.age,
     accessory: result.accessory,
     topColor: result.top_color,
+    topType: result.top_type,
     action: result.action,
     // 其余人员属性字段（ES 文档可能返回）：供人员属性条件与结果二次筛选做前端过滤
     gender: result.gender,
@@ -279,14 +275,16 @@ export default defineComponent({
       end: "",
       place: "",
       similarity: 75,
+      // 默认不自动研判；勾选后搜索结果返回即异步发起二次研判
+      autoReview: false,
       // 搜索方法：小模型(reid) / 大模型(vlm)；最大返回条数默认 10
       searchMethod: "reid",
       topK: 10,
-      // 人员属性查询条件（对齐原型）：性别/年龄段/上衣颜色随检索请求走服务端筛选，
+      // 人员属性查询条件（对齐原型）：性别/年龄段/上衣类型随检索请求走服务端筛选，
       // 同时在前端再过滤一次兜底（旧版上游会忽略未知字段）；下衣颜色上游不支持，仅前端过滤
       gender: "全部性别",
       ageGroup: "全部年龄段",
-      topColor: "全部颜色",
+      topType: "全部类型",
       bottomColor: "全部颜色",
       // 结果二次筛选：输入中的条件（resultFilters）点「筛选」后才应用到 appliedResultFilters
       resultFilters: emptyResultFilters(),
@@ -312,11 +310,13 @@ export default defineComponent({
       cropTarget: null as any,
       cropTargetIndex: -1,
       // 二次研判：最近一次搜索的基准切片（image_url + bbox），
-      // 点「二次研判」把全部命中记录（最多 19 条）提交 searchPersonReview，结论回填到卡片角标与研判结论条
+      // 点「二次研判」把勾选的命中记录（1~19 条）提交 searchPersonReview，结论回填到卡片角标与研判结论条
       lastSearchImageUrl: "",
       lastSearchBbox: null as PersonSearchBboxPoint[] | null,
       reviewing: false,
-      reviewSummary: null as any
+      reviewSummary: null as any,
+      // 以 es_doc_id 记录勾选项，避免翻页或筛选后按数组下标错选其他结果
+      selectedReviewIds: [] as string[]
     };
   },
   computed: {
@@ -324,22 +324,35 @@ export default defineComponent({
       // 只展示真实接口结果；未检索或检索失败时不回退到内置 mock 图库
       return this.realResults;
     },
-    // 人员属性条件过滤（性别/年龄段/上衣颜色/下衣颜色）
+    // 人员属性条件过滤（性别/年龄段/上衣类型/下衣颜色）
     attributeFilteredResults(): any[] {
       let items = this.allResults;
       items = filterByField(items, "gender", this.gender);
       items = filterByAgeGroup(items, this.ageGroup);
-      items = filterByField(items, "topColor", this.topColor, true);
+      items = filterByField(items, "topType", this.topType);
       items = filterByField(items, "bottomColor", this.bottomColor, true);
       return items;
     },
-    // 叠加结果二次筛选（点「筛选」后生效的 appliedResultFilters）
+    // 叠加结果二次筛选（点「筛选」后生效的 appliedResultFilters）；
+    // 二次研判完成后（reviewSummary 非空）只保留 vlm_same_person === true 的结果，
+    // 重新搜索或重置时 reviewSummary 清空，过滤随之解除
     filteredResults(): any[] {
       let items = this.attributeFilteredResults;
       RESULT_FILTER_KEYS.forEach(key => {
         items = filterByField(items, key, this.appliedResultFilters[key]);
       });
+      if (this.reviewSummary) {
+        items = items.filter(item => item.reviewVerdictClass === "same");
+      }
       return items;
+    },
+    // ImageResults 按当前筛选结果的全局索引渲染勾选状态，选择本身仍以 esDocId 保存
+    selectedResultIndexes(): number[] {
+      const selected = new Set(this.selectedReviewIds);
+      return this.filteredResults.reduce((indexes: number[], item: any, index: number) => {
+        if (selected.has(item.esDocId)) indexes.push(index);
+        return indexes;
+      }, []);
     },
     maxScore(): number {
       if (!this.allResults.length) return 0;
@@ -424,6 +437,7 @@ export default defineComponent({
       this.page = 1;
       this.selectedFile = file;
       this.realResults = [];
+      this.selectedReviewIds = [];
       this.pollRunId += 1;
     },
     // 框选确认：按 action 分发——replaceUpload 裁剪替换参考图；searchCrop 结果图+裁剪框原地再搜
@@ -456,15 +470,6 @@ export default defineComponent({
         this.searchSimilar();
       }
     },
-    // 二次筛选 datalist 选项：从当前结果集按字段去重（多值属性拆分为单值）
-    filterOptions(field: ResultFilterKey): string[] {
-      const values = new Set<string>();
-      this.attributeFilteredResults.forEach(item => {
-        const text = attributeText(item[field]);
-        if (text) text.split("、").forEach(part => values.add(part));
-      });
-      return [...values];
-    },
     applyResultFilters() {
       this.appliedResultFilters = { ...this.resultFilters };
       this.page = 1;
@@ -475,18 +480,40 @@ export default defineComponent({
     todoFeature() {
       this.showToast("功能暂未开放，敬请期待");
     },
-    // 二次研判：全部命中记录（接口上限 19 条，超出取前 19）提交 searchPersonReview，结论回填卡片角标
-    async startReview() {
+    toggleReviewSelection(index: number) {
+      const esDocId = this.filteredResults[index]?.esDocId;
+      if (!esDocId) {
+        this.showToast("该结果缺少 es_doc_id，无法参与二次研判");
+        return;
+      }
+      if (this.selectedReviewIds.includes(esDocId)) {
+        this.selectedReviewIds = this.selectedReviewIds.filter(id => id !== esDocId);
+        return;
+      }
+      if (this.selectedReviewIds.length >= 19) {
+        this.showToast("一次最多勾选 19 条结果进行二次研判");
+        return;
+      }
+      this.selectedReviewIds = [...this.selectedReviewIds, esDocId];
+    },
+    // 手动研判只提交勾选项；自动研判提交当前结果（接口上限 19 条），结论回填卡片角标
+    async startReview(automatic = false) {
       if (this.reviewing) return;
       if (!this.searched || !this.allResults.length) {
         this.showToast("请先搜索并获得结果");
+        return;
+      }
+      if (!automatic && !this.selectedReviewIds.length) {
+        this.showToast("请先勾选需要二次研判的搜索结果");
         return;
       }
       if (!this.lastSearchImageUrl || !this.lastSearchBbox) {
         this.showToast("缺少本次搜索的基准切片，请重新搜索后再研判");
         return;
       }
-      const esIds = this.filteredResults.map(item => item.esDocId).filter((id): id is string => !!id).slice(0, 19);
+      const esIds = automatic
+        ? this.filteredResults.map(item => item.esDocId).filter((id): id is string => !!id).slice(0, 19)
+        : [...this.selectedReviewIds];
       if (!esIds.length) {
         this.showToast("当前结果缺少 es_doc_id，无法提交研判");
         return;
@@ -497,7 +524,8 @@ export default defineComponent({
         const submitResponse = await api.searchPersonReview({
           imageUrl: this.lastSearchImageUrl,
           bbox: this.lastSearchBbox,
-          esIds
+          esIds,
+          ...(automatic ? { review: true } : {})
         });
         if (runId !== this.pollRunId) return;
         const taskId = submitResponse.data?.data?.task_id ?? submitResponse.data?.task_id;
@@ -535,13 +563,14 @@ export default defineComponent({
             item.reviewVerdict = same === true ? "同一人" : same === false ? "不同人" : "未判定";
             item.reviewVerdictClass = same === true ? "same" : same === false ? "different" : "unknown";
           });
+          this.selectedReviewIds = [];
           this.reviewSummary = {
             conclusion: payload?.conclusion || "",
             sameCount: payload?.same_count ?? 0,
             differentCount: payload?.different_count ?? 0,
             elapsedSeconds: payload?.elapsed_seconds ?? 0
           };
-          this.showToast(`二次研判完成：同一人 ${this.reviewSummary.sameCount} 条，不同/不确定 ${this.reviewSummary.differentCount} 条`);
+          this.showToast(`二次研判完成：同一人 ${this.reviewSummary.sameCount} 条，不同/不确定 ${this.reviewSummary.differentCount} 条，已只显示同一人结果`);
           return;
         }
         if (taskStatus === "error") {
@@ -562,11 +591,12 @@ export default defineComponent({
       this.end = "";
       this.place = "";
       this.similarity = 75;
+      this.autoReview = false;
       this.searchMethod = "reid";
       this.topK = 10;
       this.gender = "全部性别";
       this.ageGroup = "全部年龄段";
-      this.topColor = "全部颜色";
+      this.topType = "全部类型";
       this.bottomColor = "全部颜色";
       this.resultFilters = emptyResultFilters();
       this.appliedResultFilters = emptyResultFilters();
@@ -576,6 +606,7 @@ export default defineComponent({
       this.reviewSummary = null;
       this.searched = false;
       this.realResults = [];
+      this.selectedReviewIds = [];
       this.page = 1;
       this.jumpPage = "";
       this.pollRunId += 1;
@@ -587,8 +618,11 @@ export default defineComponent({
         return;
       }
       if (this.searching) return;
+      const autoReview = this.autoReview;
       this.searched = true;
       this.page = 1;
+      this.selectedReviewIds = [];
+      this.reviewing = false;
       const startedAt = performance.now();
       this.lastThreshold = this.similarity;
       const runId = ++this.pollRunId;
@@ -625,7 +659,7 @@ export default defineComponent({
         this.lastSearchBbox = bbox;
         this.reviewSummary = null;
         // 3. Submit the search task for the selected/detected target.
-        //    性别/年龄段/上衣颜色走服务端属性筛选（上游 2026-10 新增 sex/age/top_color）；
+        //    性别/年龄段/上衣类型走服务端属性筛选（上游字段 sex/age/top_type）；
         //    下衣颜色上游不支持，仅在前端对结果过滤。
         const submitResponse = await api.searchPersonByBbox({
           imageUrl,
@@ -637,7 +671,7 @@ export default defineComponent({
           topK: Math.max(1, Math.floor(Number(this.topK)) || 10),
           sex: attributeParam(this.gender),
           age: attributeParam(this.ageGroup),
-          topColor: attributeParam(this.topColor)
+          topType: attributeParam(this.topType)
         });
         if (runId !== this.pollRunId) return;
         const taskId = submitResponse.data?.task_id ?? submitResponse.data?.data?.task_id;
@@ -645,10 +679,11 @@ export default defineComponent({
           throw new Error(submitResponse.data?.message || "搜索任务提交失败");
         }
         // 4. Poll until the task finishes.
-        await this.pollPersonSearchResult(taskId, runId);
+        await this.pollPersonSearchResult(taskId, runId, autoReview);
       } catch (error) {
         if (runId !== this.pollRunId) return;
         this.realResults = [];
+        this.selectedReviewIds = [];
         this.showToast(error instanceof Error ? error.message : "图搜人任务失败");
       } finally {
         if (runId === this.pollRunId) {
@@ -657,7 +692,7 @@ export default defineComponent({
         }
       }
     },
-    async pollPersonSearchResult(taskId: string, runId: number) {
+    async pollPersonSearchResult(taskId: string, runId: number, autoReview = false) {
       for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt += 1) {
         if (runId !== this.pollRunId) return;
         const response = await api.personSearchResult(taskId);
@@ -671,6 +706,10 @@ export default defineComponent({
           this.resultFilters = emptyResultFilters();
           this.appliedResultFilters = emptyResultFilters();
           this.showToast(payload?.message || `找到 ${similarPersons.length} 个相似人员`);
+          // 不 await：先结束搜索 loading 并展示结果，研判任务在后台独立提交和轮询
+          if (autoReview && this.realResults.length) {
+            void this.startReview(true);
+          }
           return;
         }
         if (taskStatus === "error") {

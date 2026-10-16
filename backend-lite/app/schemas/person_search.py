@@ -25,6 +25,7 @@ class PersonSearchByBboxRequest(BaseModel):
     sex: str | None = None
     age: str | None = None
     topColor: str | None = None
+    topType: str | None = None
 
 
 class PersonSearchReviewRequest(BaseModel):
@@ -33,6 +34,8 @@ class PersonSearchReviewRequest(BaseModel):
     imageUrl: str
     bbox: list[dict]
     esIds: list[str]
+    # 搜索完成后由页面自动发起时传 true；手动研判保持缺省，兼容原上游请求
+    review: bool = False
 
 
 class TextSearchQueryRequest(BaseModel):

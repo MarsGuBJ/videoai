@@ -97,13 +97,15 @@ def search_person_by_bbox_proxy(request: PersonSearchByBboxRequest) -> dict:
         payload["start_time"] = request.startTime
     if request.endTime:
         payload["end_time"] = request.endTime
-    # 服务端属性筛选（性别/年龄段/上衣颜色），上游字段为 sex/age/top_color
+    # 服务端属性筛选（性别/年龄段/上衣颜色/上衣类型），上游字段为 sex/age/top_color/top_type
     if request.sex:
         payload["sex"] = request.sex
     if request.age:
         payload["age"] = request.age
     if request.topColor:
         payload["top_color"] = request.topColor
+    if request.topType:
+        payload["top_type"] = request.topType
     return person_search_submit(payload)
 
 
@@ -122,14 +124,28 @@ def person_search_review_proxy(request: PersonSearchReviewRequest) -> dict:
         raise HTTPException(status_code=400, detail="esIds 不可重复")
     if not request.bbox:
         raise HTTPException(status_code=400, detail="bbox is required")
-    return person_api_post(
-        "/vlm-application/search/searchPersonReview",
-        {
-            "image_url": absolutize_image_url(required_text(request.imageUrl, "imageUrl")),
-            "bbox": request.bbox,
-            "es_ids": es_ids,
-        },
-    )
+    payload = {
+        "image_url": absolutize_image_url(required_text(request.imageUrl, "imageUrl")),
+        "bbox": request.bbox,
+        "es_ids": es_ids,
+    }
+    if request.review:
+        payload["review"] = True
+    try:
+        return person_api_post(
+            "/vlm-application/search/searchPersonReview",
+            payload,
+        )
+    except HTTPException as exc:
+        # 旧版上游镜像（无 searchPersonReview 路由，如 v3.20260915）的 Flask ErrorHandler
+        # 会把未注册路由包成 HTTP 500 {"code":"00001","message":"操作失败"}，
+        # 识别该特征转为可读提示，避免页面只弹「操作失败」无从排查
+        if exc.status_code == 500 and isinstance(exc.detail, dict) and exc.detail.get("code") == "00001":
+            raise HTTPException(
+                status_code=501,
+                detail="现场图搜图服务（vlm-application）版本过旧，不支持大模型二次研判，需升级上游镜像",
+            ) from exc
+        raise
 
 
 @router.get("/api/person-search/results/{task_id}")

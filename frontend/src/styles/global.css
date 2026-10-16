@@ -1912,6 +1912,12 @@
       cursor: pointer;
     }
 
+    /* 图搜图左上角用于结果勾选，图/视频切换按钮移至右上角 */
+    .image-search-page .result-media-switch {
+      right: 8px;
+      left: auto;
+    }
+
     .thumb-video {
       position: relative;
       background: #101828;
@@ -12978,4 +12984,522 @@
       color: #667085;
       font-size: 11px;
       line-height: 1.6;
+    }
+
+
+    /* ===== 文搜图页（TextImagePage，复刻原型 offline-package/index.html） ===== */
+
+    .text-image-filter-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .text-image-mode-field {
+      flex: 0 0 120px;
+    }
+
+    .text-image-similarity-field {
+      flex: 0 0 340px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .text-image-similarity-field .track-threshold-control {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .text-image-similarity-field .i2i-threshold-presets {
+      flex: 0 0 auto;
+    }
+
+    /* 相似度预设按钮：复用图搜图页 .i2i-threshold-presets 样式（原规则 scoped 在 .image-search-page） */
+    .text-image-page .i2i-threshold-presets {
+      display: flex;
+      gap: 8px;
+    }
+
+    .text-image-page .i2i-threshold-presets button {
+      flex: 1 1 0;
+      padding: 4px 0;
+      border: 1px solid #d0d5dd;
+      border-radius: 4px;
+      background: #fff;
+      color: #475467;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .text-image-page .i2i-threshold-presets button:hover {
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+
+    .text-image-page .i2i-threshold-presets button.active {
+      border-color: var(--blue);
+      background: #edf5ff;
+      color: var(--blue);
+    }
+
+    .text-image-area-field {
+      flex: 0 0 200px;
+    }
+
+    .text-image-range-field {
+      flex: 0 0 320px;
+    }
+
+    .text-image-query-input {
+      flex: 1 1 auto;
+    }
+
+    .text-image-page-indicator {
+      white-space: nowrap;
+    }
+
+    .text-image-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .text-image-results-col {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+    }
+
+    .text-image-insight {
+      display: grid;
+      gap: 14px;
+    }
+
+    .ti-insight-card {
+      padding: 14px;
+    }
+
+    .ti-insight-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .ti-insight-head h3 {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+      color: #111827;
+      font-size: 14px;
+    }
+
+    .ti-insight-bar {
+      width: 3px;
+      height: 14px;
+      border-radius: 2px;
+      background: var(--blue);
+    }
+
+    .ti-insight-head-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ti-llm-pill {
+      padding: 3px 10px;
+      border: 1px solid #cadcfc;
+      border-radius: 999px;
+      background: #f2f7ff;
+      color: var(--blue);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .ti-edit-btn {
+      padding: 2px 10px;
+      font-size: 12px;
+    }
+
+    .ti-attr-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .ti-attr-card {
+      display: grid;
+      gap: 4px;
+      padding: 8px 10px;
+      border: 1px solid #edf0f5;
+      border-radius: 6px;
+      background: #fbfcfe;
+    }
+
+    .ti-attr-card-wide {
+      grid-column: 1 / -1;
+    }
+
+    .ti-attr-card .ti-attr-label {
+      color: #98a2b3;
+      font-size: 11px;
+    }
+
+    .ti-attr-card strong {
+      color: #1d2939;
+      font-size: 12px;
+    }
+
+    .ti-attr-card .ti-attr-link {
+      color: var(--blue);
+    }
+
+    .ti-attr-card .ti-attr-warn {
+      color: #d92d20;
+    }
+
+    .ti-total-time {
+      color: #98a2b3;
+      font-size: 11px;
+    }
+
+    .ti-pipeline {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .ti-pipeline-step {
+      display: flex;
+      gap: 8px;
+    }
+
+    .ti-step-index {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border: 1px solid #7fb2f0;
+      border-radius: 50%;
+      color: var(--blue);
+      font-size: 11px;
+    }
+
+    .ti-step-body {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .ti-step-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .ti-step-row strong {
+      color: #1d2939;
+      font-size: 12px;
+    }
+
+    .ti-step-time {
+      color: #98a2b3;
+      font-size: 11px;
+    }
+
+    .ti-step-body p {
+      margin: 2px 0 0;
+      color: #667085;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .ti-step-metric {
+      color: #12b76a;
+    }
+
+    .ti-related-hint {
+      color: #98a2b3;
+      font-size: 11px;
+    }
+
+    .ti-related-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .ti-related-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid #edf0f5;
+      border-radius: 6px;
+      background: #fbfcfe;
+    }
+
+    .ti-related-icon {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: #edf5ff;
+      color: var(--blue);
+      font-size: 12px;
+    }
+
+    .ti-related-item > div {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .ti-related-item strong {
+      color: #1d2939;
+      font-size: 12px;
+    }
+
+    .ti-related-item p {
+      margin: 2px 0 0;
+      color: #98a2b3;
+      font-size: 11px;
+    }
+
+    .ti-related-btn {
+      flex: 0 0 auto;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--blue);
+      font-size: 12px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .ti-summary-text {
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border: 1px solid #e3eaff;
+      border-radius: 6px;
+      background: #f6f9ff;
+      color: #475467;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .ti-summary-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .ti-summary-actions .btn.primary {
+      flex: 1 1 auto;
+    }
+
+    .ti-history-active {
+      border-color: var(--blue);
+      background: #f2f7ff;
+      color: var(--blue);
+    }
+
+    .ti-hist-link {
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--blue);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .ti-hist-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .ti-hist-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .ti-hist-star {
+      flex: 0 0 auto;
+      color: #f79009;
+      font-size: 12px;
+    }
+
+    .ti-hist-text {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      color: #1d2939;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ti-hist-count {
+      flex: 0 0 auto;
+      padding: 1px 8px;
+      border: 1px solid #a6f4c5;
+      border-radius: 999px;
+      background: #ecfdf3;
+      color: #039855;
+      font-size: 11px;
+    }
+
+    .ti-hist-time {
+      flex: 0 0 auto;
+      color: #98a2b3;
+      font-size: 11px;
+    }
+
+    .ti-hot-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .ti-hot-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border: 1px solid #edf0f5;
+      border-radius: 999px;
+      background: #f8fafc;
+      color: #475467;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .ti-hot-tag-top {
+      border-color: #fedf89;
+      background: linear-gradient(135deg, #fffaeb, #ffe4d6);
+      color: #dc6803;
+      font-weight: 600;
+    }
+
+    .ti-hot-tag-count {
+      color: #98a2b3;
+      font-size: 11px;
+    }
+
+    .ti-hot-tag-top .ti-hot-tag-count {
+      color: #f79009;
+    }
+
+    .ti-hot-bars {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .ti-hot-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .ti-hot-bar-label {
+      flex: 0 0 72px;
+      color: #475467;
+      font-size: 12px;
+    }
+
+    .ti-hot-bar-track {
+      flex: 1 1 auto;
+      height: 8px;
+      border-radius: 999px;
+      background: #f2f4f7;
+    }
+
+    .ti-hot-bar-fill {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #2e90fa, #32d583);
+    }
+
+    .ti-hot-bar-count {
+      flex: 0 0 auto;
+      color: #667085;
+      font-size: 12px;
+    }
+
+    .ti-hist-new {
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--blue);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .text-image-candidate-tip {
+      margin: 10px 0 0;
+      color: #b54708;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 1040px) {
+      .text-image-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* 桌面端：文搜图页整页撑满视口，结果网格与右侧洞察栏各自内部滚动 */
+    @media (min-width: 1041px) {
+      .text-image-page {
+        display: flex;
+        height: calc(100vh - 83px);
+        min-height: 0;
+        flex-direction: column;
+      }
+
+      .text-image-page .text-image-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        align-items: stretch;
+      }
+
+      .text-image-page .text-image-results-col,
+      .text-image-page .text-image-insight {
+        min-height: 0;
+      }
+
+      .text-image-page .text-image-results-col .result-grid {
+        flex: 0 1 auto;
+        min-height: 0;
+        overflow: auto;
+        align-content: start;
+      }
+
+      .text-image-page .text-image-results-col .search-empty-state {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        align-content: start;
+      }
+
+      .text-image-page .text-image-insight {
+        max-height: 100%;
+        overflow: auto;
+        align-content: start;
+      }
     }

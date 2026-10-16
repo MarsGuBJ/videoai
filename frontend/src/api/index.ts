@@ -170,6 +170,7 @@ export type SimilarPersonResult = {
   age?: string;
   accessory?: string;
   top_color?: string | string[];
+  top_type?: string | string[];
   action?: string;
   // ES 文档可能携带的其余人员属性字段（图搜图页前端二次筛选用），缺失时前端自动容错
   gender?: string;
@@ -661,10 +662,11 @@ export const api = {
     endTime?: string;
     similarityThreshold: number;
     topK: number;
-    // 服务端属性筛选（上游 2026-10 新增）：性别/年龄段/上衣颜色，不传 = 不过滤
+    // 服务端属性筛选（上游 2026-10 新增）：性别/年龄段/上衣颜色/上衣类型，不传 = 不过滤
     sex?: string;
     age?: string;
     topColor?: string;
+    topType?: string;
   }) =>
     request<PersonSearchSubmitResponse>('/api/person-search/search-by-bbox', {
       method: 'POST',
@@ -673,8 +675,8 @@ export const api = {
   personSearchResult: (taskId: string) =>
     request<PersonSearchResultResponse>(`/api/person-search/results/${encodeURIComponent(taskId)}`),
   // 大模型二次研判（searchPersonReview）：基准切片 + 勾选的命中记录 es_doc_id（1~19 条），
-  // 异步任务，提交后复用 personSearchResult 轮询复核结论
-  searchPersonReview: (payload: { imageUrl: string; bbox: PersonSearchBboxPoint[]; esIds: string[] }) =>
+  // 异步任务，提交后复用 personSearchResult 轮询复核结论；自动研判时携带 review: true
+  searchPersonReview: (payload: { imageUrl: string; bbox: PersonSearchBboxPoint[]; esIds: string[]; review?: boolean }) =>
     request<PersonSearchSubmitResponse>('/api/person-search/review', {
       method: 'POST',
       body: JSON.stringify(payload),
